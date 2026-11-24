@@ -19,6 +19,11 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -39,20 +44,28 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.QrCode
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -78,6 +91,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import com.malekplay.core.ui.theme.MalekPlayColors
+import com.malekplay.core.ui.theme.contrastingOnColor
 import com.malekplay.network.UltraShareForegroundService
 import com.malekplay.network.UltraSharePeerDeliveryStore
 import com.malekplay.network.UltraShareQueueStore
@@ -128,15 +142,20 @@ fun UltraShareExperienceScreen(
         mutableStateOf(initialUris.distinct().filter { isUltraShareAllowedFile(context, it) })
     }
     var autoSentInitialUriKey by remember { mutableStateOf<String?>(null) }
+    var qrAutoSendArmed by remember { mutableStateOf(false) }
 
     fun handleQr(raw: String) {
         runCatching { UltraShareQrCode.parsePayload(raw) }
             .onSuccess { pairing ->
+                if (state.requestingConnection) {
+                    viewModel.cancelPendingPairingAttempt()
+                }
                 host = pairing.host
                 secret = pairing.pairingSecret
+                qrAutoSendArmed = selectedUris.isNotEmpty()
                 pendingQrPairing = pairing
                 page = UltraSharePage.SEND
-                Toast.makeText(context, "تمت قراءة الدعوة؛ جارٍ العثور على الجهاز والاتصال به تلقائياً.", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "تمت قراءة الدعوة؛ جارٍ الاقتران التلقائي الفوري...", Toast.LENGTH_SHORT).show()
             }
             .onFailure {
                 Toast.makeText(context, "رمز QR غير صالح أو لا يخص MalekPlayer.", Toast.LENGTH_LONG).show()
@@ -218,8 +237,12 @@ fun UltraShareExperienceScreen(
                         )
                     }
                 }.onSuccess { pairing ->
+                    if (state.requestingConnection) {
+                        viewModel.cancelPendingPairingAttempt()
+                    }
                     host = pairing.host
                     secret = pairing.pairingSecret
+                    qrAutoSendArmed = selectedUris.isNotEmpty()
                     pendingQrPairing = pairing
                     page = UltraSharePage.SEND
                 }.onFailure {
@@ -683,33 +706,112 @@ fun UltraShareExperienceScreen(
     }
     val hasConnectedPeer = state.activePeers.isNotEmpty() ||
         state.approvedSenderPeerHosts.isNotEmpty() || !state.approvedPeerHost.isNullOrBlank()
+    val colors = MaterialTheme.colorScheme
     fun sendSelectedUrisToRoom() {
         if (selectedUris.isEmpty()) return
         if (viewModel.sendBatchToApprovedPeers(selectedUris)) {
             selectedUris = emptyList()
+            qrAutoSendArmed = false
             onInitialUrisConsumed()
         }
     }
 
+    // Automatically send user-selected files as soon as QR pairing completes.
+    LaunchedEffect(
+        qrAutoSendArmed,
+        state.approvedSenderPeerHosts,
+        state.approvedPeerHost,
+        state.sending,
+        selectedUris
+    ) {
+        if (!qrAutoSendArmed || selectedUris.isEmpty() || state.sending) return@LaunchedEffect
+        val senderReady = state.approvedSenderPeerHosts.isNotEmpty() || !state.approvedPeerHost.isNullOrBlank()
+        if (!senderReady) return@LaunchedEffect
+        if (viewModel.sendBatchToApprovedPeers(selectedUris)) {
+            qrAutoSendArmed = false
+            selectedUris = emptyList()
+            onInitialUrisConsumed()
+            page = UltraSharePage.TRANSFERS
+            Toast.makeText(context, "تم الاقتران وبدأ إرسال الملفات مباشرة!", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val connectedDevicesCount = (state.activePeers.map { it.host } + state.approvedSenderPeerHosts).distinct().size
+    val nearbyDevicesCount = state.discoveredPeers.size + state.wifiDirectPeers.size +
+        state.bluetoothPeers.size + state.blePeers.size
+
     Column(
-        modifier = Modifier.fillMaxSize()
-            .background(Brush.verticalGradient(listOf(Color(0xFF171021), Color(0xFF100D18), Color(0xFF0D0D12))))
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        colors.primaryContainer.copy(alpha = 0.24f),
+                        colors.background,
+                        colors.surface
+                    )
+                )
+            )
             .padding(contentPadding)
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        if (selectedUris.isNotEmpty()) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF251535))
-            ) {
-                Column(Modifier.fillMaxWidth().padding(13.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // Quick navigation pills across all UltraShare pages
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            listOf(
+                UltraSharePage.HOME to "الرئيسية",
+                UltraSharePage.RECEIVE to "استقبال (QR)",
+                UltraSharePage.SEND to if (selectedUris.isNotEmpty()) "إرسال (${selectedUris.size})" else "إرسال",
+                UltraSharePage.TRANSFERS to if (connectedDevicesCount > 0) "غرفة النقل ($connectedDevicesCount)" else "غرفة النقل",
+                UltraSharePage.NEARBY to if (nearbyDevicesCount > 0) "القريبة ($nearbyDevicesCount)" else "القريبة",
+                UltraSharePage.HISTORY to "السجل"
+            ).forEach { (targetPage, label) ->
+                val isSelected = page == targetPage || (page == UltraSharePage.JOIN && targetPage == UltraSharePage.SEND)
+                val bg = if (isSelected) colors.primary else colors.surfaceContainerHigh.copy(alpha = 0.85f)
+                val fg = if (isSelected) contrastingOnColor(colors.primary) else colors.onSurfaceVariant
+                Surface(
+                    shape = CircleShape,
+                    color = bg,
+                    border = BorderStroke(1.dp, if (isSelected) colors.primary else colors.outlineVariant.copy(alpha = 0.5f)),
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .clickable {
+                            if (targetPage == UltraSharePage.RECEIVE && !state.receiving) {
+                                startReceivingGroup()
+                            }
+                            page = targetPage
+                        }
+                ) {
                     Text(
-                        if (hasConnectedPeer) "الغرفة جاهزة — ${selectedUris.size} ملفات بانتظار الإرسال"
-                        else "جاهز للإرسال فور الاقتران (${selectedUris.size} ملفات)",
-                        color = MalekPlayColors.TextPrimary,
+                        text = label,
+                        modifier = Modifier.padding(horizontal = 13.dp, vertical = 7.dp),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = fg,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                    )
+                }
+            }
+        }
+
+        if (selectedUris.isNotEmpty()) {
+            ElevatedCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, colors.primary.copy(alpha = 0.35f), RoundedCornerShape(18.dp)),
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.elevatedCardColors(containerColor = colors.primaryContainer.copy(alpha = 0.45f))
+            ) {
+                Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        if (hasConnectedPeer) "متصل وجاهز — ${selectedUris.size} ملف بانتظار الإرسال"
+                        else "تم تحديد ${selectedUris.size} ملف — امسح QR للإرسال التلقائي",
+                        color = colors.onSurface,
                         fontWeight = FontWeight.Bold
                     )
                     if (hasConnectedPeer) {
@@ -717,13 +819,26 @@ fun UltraShareExperienceScreen(
                             onClick = ::sendSelectedUrisToRoom,
                             enabled = !state.sending,
                             modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(14.dp),
                             colors = ultraShareButtonColors()
                         ) {
                             Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null)
-                            Text("إرسال المختار الآن", modifier = Modifier.padding(start = 8.dp), fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("إرسال المختار الآن", fontWeight = FontWeight.Bold)
                         }
                     } else {
-                        Text("أنشئ غرفة أو امسح رمز QR؛ ستبقى الملفات محددة هنا حتى يصبح الجهاز الآخر متصلاً.", color = MalekPlayColors.TextSecondary, style = MaterialTheme.typography.bodySmall)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                onClick = { scanQr() },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ultraShareButtonColors()
+                            ) {
+                                Icon(Icons.Filled.QrCodeScanner, contentDescription = null, modifier = Modifier.size(17.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("مسح QR وإرسال فوراً", fontWeight = FontWeight.Bold)
+                            }
+                        }
                     }
                 }
             }
@@ -731,118 +846,168 @@ fun UltraShareExperienceScreen(
         if (page == UltraSharePage.HOME) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "رجوع", tint = Color.White)
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "رجوع", tint = colors.onSurface)
                 }
-                Text(
-                    "المشاركة مع صديق",
-                    modifier = Modifier.weight(1f),
-                    color = Color.White,
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold
-                )
-                IconButton(onClick = { page = UltraSharePage.JOIN; scanQr() }) {
-                    Icon(Icons.Filled.QrCode, contentDescription = "مسح رمز QR", tint = Color(0xFF75E8F4))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "المشاركة الفورية",
+                        color = colors.onSurface,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                    Text(
+                        "اقتران مباشر بمسح QR وإرسال واستقبال بدون تعقيد",
+                        color = colors.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
+                FilledTonalButton(
+                    onClick = { page = UltraSharePage.JOIN; scanQr() },
+                    shape = CircleShape,
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Icon(Icons.Filled.QrCodeScanner, contentDescription = "مسح رمز QR", modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(5.dp))
+                    Text("مسح QR", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                 }
             }
-            Spacer(Modifier.height(14.dp))
+
+            // Primary circular actions: Create Room (QR) vs Join Room (Scan QR)
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(18.dp),
+                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalAlignment = Alignment.Top
             ) {
                 ZapyaPrimaryAction(
                     modifier = Modifier.weight(1f),
-                    title = "إنشاء غرفة",
-                    subtitle = "إرسال واستقبال • اعرض رمز QR",
-                    icon = { Icon(Icons.Filled.CheckCircle, null, tint = Color(0xFF75E8F4), modifier = Modifier.size(58.dp)) }
+                    title = "إنشاء غرفة (QR)",
+                    subtitle = "اعرض الرمز للاستقبال والإرسال الفوري",
+                    icon = { Icon(Icons.Filled.QrCode, null, tint = colors.primary, modifier = Modifier.size(54.dp)) }
                 ) {
                     startReceivingGroup()
                     page = UltraSharePage.RECEIVE
                 }
                 ZapyaPrimaryAction(
                     modifier = Modifier.weight(1f),
-                    title = "انضمام لغرفة",
-                    subtitle = "مسح QR والاتصال التلقائي",
-                    icon = { Icon(Icons.AutoMirrored.Filled.Send, null, tint = Color(0xFF75E8F4), modifier = Modifier.size(58.dp)) }
+                    title = "انضمام بمسح QR",
+                    subtitle = "امسح الرمز للاتصال والبدء مباشرة",
+                    icon = { Icon(Icons.Filled.QrCodeScanner, null, tint = colors.primary, modifier = Modifier.size(54.dp)) }
                 ) {
                     page = UltraSharePage.JOIN
                     scanQr()
                 }
             }
+
+            // Fast shortcuts row
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Text(
-                    if (state.scanning || state.wifiDirectScanning || state.bluetoothScanning || state.bleScanning)
-                        "جارٍ البحث عن الأصدقاء…" else "الأجهزة القريبة: ${state.discoveredPeers.size + state.wifiDirectPeers.size + state.bluetoothPeers.size + state.blePeers.size}",
-                    color = Color(0xFFB7C5E7),
-                    style = MaterialTheme.typography.labelMedium
-                )
+                FilledTonalButton(
+                    onClick = { page = UltraSharePage.SEND },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Icon(Icons.Filled.FolderOpen, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("اختيار ملفات", fontWeight = FontWeight.SemiBold)
+                }
+                OutlinedButton(
+                    onClick = { page = UltraSharePage.NEARBY; scanAllNearby() },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Icon(Icons.Filled.Wifi, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("الأجهزة ($nearbyDevicesCount)", fontWeight = FontWeight.SemiBold)
+                }
             }
-            Spacer(Modifier.height(10.dp))
-            androidx.compose.foundation.Canvas(
-                modifier = Modifier.fillMaxWidth().height(1.dp)
-            ) {
-                drawLine(
-                    color = Color(0xFF75E8F4).copy(alpha = 0.35f),
-                    start = androidx.compose.ui.geometry.Offset(0f, 0f),
-                    end = androidx.compose.ui.geometry.Offset(size.width, 0f),
-                    strokeWidth = 1.dp.toPx()
-                )
+
+            StatusPanel(
+                title = when {
+                    state.sending -> "جارٍ إرسال الملفات..."
+                    hasConnectedPeer -> "متصل وجاهز للإرسال والاستقبال"
+                    state.receiving -> "الغرفة مفتوحة — بانتظار المسح"
+                    state.scanning || state.wifiDirectScanning || state.bluetoothScanning || state.bleScanning -> "جارٍ البحث عن الأجهزة القريبة..."
+                    else -> "جاهز للمشاركة الفورية"
+                },
+                subtitle = "$connectedDevicesCount متصل • $nearbyDevicesCount جهاز قريب • ${selectedUris.size} ملف محدد",
+                active = state.sending || hasConnectedPeer || state.receiving
+            )
+
+            if (hasConnectedPeer || state.sending || state.receiveProgress != null) {
+                Button(
+                    onClick = { page = UltraSharePage.TRANSFERS },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ultraShareButtonColors()
+                ) {
+                    Icon(Icons.Filled.SwapHoriz, contentDescription = null, modifier = Modifier.size(19.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("فتح غرفة النقل المباشر", fontWeight = FontWeight.Bold)
+                }
             }
-            Card(
-                modifier = Modifier.fillMaxWidth(),
+
+            ElevatedCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, colors.outlineVariant.copy(alpha = 0.4f), RoundedCornerShape(18.dp)),
                 shape = RoundedCornerShape(18.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF21192D))
+                colors = CardDefaults.elevatedCardColors(containerColor = colors.surfaceContainer)
             ) {
                 Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = { advancedOptionsExpanded = !advancedOptionsExpanded }) {
-                        Text(if (advancedOptionsExpanded) "إخفاء الخيارات المتقدمة" else "الخيارات المتقدمة والاتصال اليدوي")
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable { advancedOptionsExpanded = !advancedOptionsExpanded }
+                            .padding(horizontal = 4.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "خيارات إضافية (مسح من صورة / اتصال يدوي / تشخيص)",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = colors.onSurface,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Icon(
+                            imageVector = if (advancedOptionsExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                            contentDescription = null,
+                            tint = colors.onSurfaceVariant
+                        )
                     }
                     if (advancedOptionsExpanded) {
-                        OutlinedButton(onClick = { page = UltraSharePage.NEARBY; scanAllNearby() }, modifier = Modifier.fillMaxWidth()) {
-                            Icon(Icons.Filled.Wifi, null)
-                            Text("الأجهزة القريبة", modifier = Modifier.padding(start = 8.dp))
+                        OutlinedButton(
+                            onClick = { qrImagePicker.launch(arrayOf("image/*")) },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Filled.QrCode, null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("مسح QR من صورة محفوظة")
                         }
-                        OutlinedButton(onClick = { qrImagePicker.launch(arrayOf("image/*")) }, modifier = Modifier.fillMaxWidth()) {
-                            Icon(Icons.Filled.QrCode, null)
-                            Text("مسح QR من صورة محفوظة", modifier = Modifier.padding(start = 8.dp))
+                        OutlinedButton(
+                            onClick = { page = UltraSharePage.HISTORY },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Filled.History, null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("سجل الإرسال والاستقبال")
                         }
                         OutlinedButton(
                             onClick = {
                                 diagnosticsExportLauncher.launch("MalekPlayer-UltraShare-Diagnostics.jsonl")
                             },
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp)
                         ) {
-                            Icon(Icons.Filled.Download, null)
-                            Text("تصدير سجل تشخيص الأخطاء", modifier = Modifier.padding(start = 8.dp))
-                        }
-                        OutlinedButton(onClick = { page = UltraSharePage.SEND }, modifier = Modifier.fillMaxWidth()) {
-                            Icon(Icons.AutoMirrored.Filled.Send, null)
-                            Text("الإدخال اليدوي / اختيار الملفات", modifier = Modifier.padding(start = 8.dp))
+                            Icon(Icons.Filled.Download, null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("تصدير سجل تشخيص الأخطاء")
                         }
                     }
-                }
-            }
-            StatusPanel(
-                title = when {
-                    state.sending -> "جارٍ إرسال الملفات"
-                    state.activePeers.isNotEmpty() || state.approvedSenderPeerHosts.isNotEmpty() -> "جهاز متصل وجاهز"
-                    state.scanning || state.wifiDirectScanning || state.bluetoothScanning || state.bleScanning -> "البحث عن الأجهزة القريبة"
-                    else -> "جاهز للمشاركة"
-                },
-                subtitle = "${(state.activePeers.map { it.host } + state.approvedSenderPeerHosts).distinct().size} متصل • ${state.discoveredPeers.size + state.wifiDirectPeers.size + state.bluetoothPeers.size + state.blePeers.size} جهاز قريب • ${selectedUris.size} ملف محدد",
-                active = state.sending || state.activePeers.isNotEmpty() || state.approvedSenderPeerHosts.isNotEmpty()
-            )
-            if (state.activePeers.isNotEmpty() || state.approvedSenderPeerHosts.isNotEmpty() ||
-                state.sending || state.receiveProgress != null
-            ) {
-                OutlinedButton(
-                    onClick = { page = UltraSharePage.TRANSFERS },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("فتح غرفة النقل — السرعة والتقدم والوقت المتبقي")
                 }
             }
             UltraShareHelpCard()
@@ -921,15 +1086,18 @@ fun UltraShareExperienceScreen(
                             }
                         },
                         onRequestConnection = { viewModel.requestConnection(host, secret) },
+                        onCancelPairing = { viewModel.cancelPendingPairingAttempt() },
                         onSendBatch = { targetHost ->
                             if (viewModel.sendBatch(selectedUris, targetHost)) {
                                 selectedUris = emptyList()
+                                qrAutoSendArmed = false
                                 onInitialUrisConsumed()
                             }
                         },
                         onSendToAllPeers = {
                             if (viewModel.sendBatchToApprovedPeers(selectedUris)) {
                                 selectedUris = emptyList()
+                                qrAutoSendArmed = false
                                 onInitialUrisConsumed()
                             }
                         },
@@ -964,35 +1132,54 @@ fun UltraShareExperienceScreen(
                     )
                 }
                 UltraSharePage.JOIN -> {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(22.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1B2940))
+                    val colors = MaterialTheme.colorScheme
+                    ElevatedCard(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(1.dp, colors.primary.copy(alpha = 0.25f), RoundedCornerShape(24.dp)),
+                        shape = RoundedCornerShape(24.dp),
+                        colors = CardDefaults.elevatedCardColors(containerColor = colors.surfaceContainerHigh)
                     ) {
                         Column(
-                            Modifier.fillMaxWidth().padding(18.dp),
+                            Modifier.fillMaxWidth().padding(20.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             Box(
-                                Modifier.size(92.dp).background(Color(0xFF263E5C), CircleShape),
+                                Modifier
+                                    .size(88.dp)
+                                    .background(colors.primaryContainer, CircleShape)
+                                    .border(1.5.dp, colors.primary.copy(alpha = 0.35f), CircleShape),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(Icons.Filled.QrCode, null, tint = Color(0xFF75E8F4), modifier = Modifier.size(48.dp))
+                                Icon(Icons.Filled.QrCodeScanner, null, tint = colors.primary, modifier = Modifier.size(44.dp))
                             }
-                            Text("انضم إلى مجموعة صديقك", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                             Text(
-                                "امسح رمز QR الظاهر على هاتف المضيف، أو ابحث عن الأجهزة القريبة. سيبدأ الاتصال تلقائياً بعد التحقق من رمز الاقتران، ويمكنك نقل الملفات مباشرة.",
-                                color = Color(0xFFB7C5E7),
+                                "انضمام فوري عبر QR",
+                                color = colors.onSurface,
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                            Text(
+                                "امسح رمز QR الظاهر على هاتف الاستقبال؛ يتم الاقتران وقبول الإرسال والاستقبال تلقائياً دون أي خطوات إضافية.",
+                                color = colors.onSurfaceVariant,
                                 style = MaterialTheme.typography.bodyMedium,
                                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
                             )
-                            Button(colors = ultraShareButtonColors(), onClick = ::scanQr, modifier = Modifier.fillMaxWidth()) {
-                                Icon(Icons.Filled.QrCode, null)
-                                Text("مسح رمز QR بالكاميرا", modifier = Modifier.padding(start = 8.dp))
+                            Button(
+                                colors = ultraShareButtonColors(),
+                                onClick = ::scanQr,
+                                modifier = Modifier.fillMaxWidth().height(50.dp),
+                                shape = RoundedCornerShape(14.dp)
+                            ) {
+                                Icon(Icons.Filled.QrCodeScanner, null)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("مسح رمز QR بالكاميرا", fontWeight = FontWeight.Bold)
                             }
-                            OutlinedButton(onClick = { qrImagePicker.launch(arrayOf("image/*")) },
-                                modifier = Modifier.fillMaxWidth()
+                            OutlinedButton(
+                                onClick = { qrImagePicker.launch(arrayOf("image/*")) },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(14.dp)
                             ) { Text("قراءة QR من صورة محفوظة") }
                             OutlinedButton(onClick = {
                                     scanAllNearby()
@@ -1463,13 +1650,14 @@ fun UltraShareExperienceScreen(
 
 @Composable
 private fun PageHeader(title: String, subtitle: String, onBack: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
     Row(verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = onBack) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "رجوع", tint = MalekPlayColors.TextPrimary)
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "رجوع", tint = colors.onSurface)
         }
         Column(Modifier.weight(1f)) {
-            Text(title, color = MalekPlayColors.TextPrimary, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
-            Text(subtitle, color = MalekPlayColors.TextSecondary, style = MaterialTheme.typography.bodySmall)
+            Text(title, color = colors.onSurface, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
+            Text(subtitle, color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
         }
     }
 }
@@ -1483,30 +1671,54 @@ private fun ZapyaPrimaryAction(
     icon: @Composable () -> Unit,
     onClick: () -> Unit
 ) {
+    val colors = MaterialTheme.colorScheme
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Card(
-            modifier = Modifier.size(148.dp),
+        ElevatedCard(
+            modifier = Modifier
+                .size(144.dp)
+                .border(1.5.dp, colors.primary.copy(alpha = 0.35f), CircleShape),
             onClick = onClick,
             shape = CircleShape,
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF251535))
+            colors = CardDefaults.elevatedCardColors(containerColor = colors.surfaceContainerHigh)
         ) {
             Box(
-                modifier = Modifier.fillMaxSize().padding(5.dp)
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(6.dp)
                     .background(
-                        Brush.radialGradient(listOf(Color(0xFF3A2054), Color(0xFF171021))),
+                        Brush.radialGradient(
+                            listOf(
+                                colors.primaryContainer.copy(alpha = 0.78f),
+                                colors.surfaceContainer
+                            )
+                        ),
                         CircleShape
                     ),
                 contentAlignment = Alignment.Center
             ) {
                 Box(
-                    modifier = Modifier.size(116.dp)
-                        .background(Color(0xFF2B1940), CircleShape),
+                    modifier = Modifier
+                        .size(106.dp)
+                        .background(colors.surfaceContainerLowest.copy(alpha = 0.85f), CircleShape)
+                        .border(1.dp, colors.primary.copy(alpha = 0.25f), CircleShape),
                     contentAlignment = Alignment.Center
                 ) { icon() }
             }
         }
-        Text(title, color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-        Text(subtitle, color = MalekPlayColors.TextSecondary, style = MaterialTheme.typography.labelSmall, textAlign = androidx.compose.ui.text.style.TextAlign.Center, minLines = 2)
+        Text(
+            title,
+            color = colors.primary,
+            fontWeight = FontWeight.ExtraBold,
+            style = MaterialTheme.typography.titleMedium,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+        )
+        Text(
+            subtitle,
+            color = colors.onSurfaceVariant,
+            style = MaterialTheme.typography.labelSmall,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            minLines = 2
+        )
     }
 }
 
@@ -1558,12 +1770,25 @@ private fun ActionTile(
 
 @Composable
 private fun StatusPanel(title: String, subtitle: String, active: Boolean) {
-    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF251535)), modifier = Modifier.fillMaxWidth()) {
+    val colors = MaterialTheme.colorScheme
+    ElevatedCard(
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = if (active) colors.primaryContainer.copy(alpha = 0.45f) else colors.surfaceContainer
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(
+                1.dp,
+                if (active) Color(0xFF22C55E).copy(alpha = 0.4f) else colors.outlineVariant.copy(alpha = 0.4f),
+                RoundedCornerShape(18.dp)
+            )
+    ) {
         Row(Modifier.fillMaxWidth().padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(10.dp).background(if (active) Color(0xFF65D6A2) else MalekPlayColors.PurpleBright, CircleShape))
+            Box(Modifier.size(10.dp).background(if (active) Color(0xFF22C55E) else colors.primary, CircleShape))
             Column(Modifier.weight(1f).padding(start = 10.dp)) {
-                Text(title, color = MalekPlayColors.TextPrimary, fontWeight = FontWeight.Bold)
-                Text(subtitle, color = MalekPlayColors.TextSecondary, style = MaterialTheme.typography.labelSmall)
+                Text(title, color = colors.onSurface, fontWeight = FontWeight.Bold)
+                Text(subtitle, color = colors.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
             }
         }
     }
@@ -1571,10 +1796,17 @@ private fun StatusPanel(title: String, subtitle: String, active: Boolean) {
 
 @Composable
 internal fun InfoPanel(title: String, body: String) {
-    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF21192D)), modifier = Modifier.fillMaxWidth()) {
+    val colors = MaterialTheme.colorScheme
+    ElevatedCard(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.elevatedCardColors(containerColor = colors.surfaceContainer),
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, colors.outlineVariant.copy(alpha = 0.35f), RoundedCornerShape(16.dp))
+    ) {
         Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(title, color = MalekPlayColors.TextPrimary, fontWeight = FontWeight.Bold)
-            Text(body, color = MalekPlayColors.TextSecondary, style = MaterialTheme.typography.bodySmall)
+            Text(title, color = colors.onSurface, fontWeight = FontWeight.Bold)
+            Text(body, color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
         }
     }
 }

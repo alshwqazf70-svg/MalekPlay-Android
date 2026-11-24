@@ -425,7 +425,7 @@ class UltraShareViewModel @Inject constructor(
             viewModelScope.launch {
                 try {
                     var lanHosts: List<String> = emptyList()
-                    repeat(20) {
+                    repeat(8) {
                         if (!_state.value.receiving) return@launch
                         UltraShareForegroundService.refreshLocalAddresses(context)
                         val serviceState = UltraShareForegroundService.state.value
@@ -438,7 +438,7 @@ class UltraShareViewModel @Inject constructor(
                                 localAddresses = lanHosts,
                                 lanFallbackReady = true,
                                 error = null,
-                                status = "الشبكة المحلية جاهزة؛ امسح رمز QR للاتصال عبر Wi-Fi الحالي."
+                                status = "الشبكة المحلية جاهزة؛ امسح رمز QR للاتصال الفوري."
                             )
                             UltraShareDiagnostics.event(
                                 "NETWORK_ROUTING", "LAN_RECEIVER_READY",
@@ -447,7 +447,7 @@ class UltraShareViewModel @Inject constructor(
                             publishUnifiedReceiverQrIfReady()
                             return@launch
                         }
-                        delay(200L)
+                        delay(150L)
                     }
 
                     if (!_state.value.receiving) return@launch
@@ -1313,38 +1313,55 @@ private fun forgetApprovedSenderTarget(host: String) {
      * If DNS-SD times out, use a verified LAN route or the exact QR network credentials.
      * Hotspot/LAN invitations retain their direct paths.
      */
-    fun joinUnifiedInvitation(pairing: com.malekplay.network.UltraShareQrCode.PairingDetails) {
-        if (controlPairingInProgress || pendingQrPairing != null) return
+    fun cancelPendingPairingAttempt() {
+        pendingQrPairing = null
+        qrP2pConnectStarted = false
+        val activeNetworkCallback = hotspotNetworkCallback ?: retainedHotspotNetworkCallback
+        if (activeNetworkCallback != null && !hotspotNetworkPaired) {
+            val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE)
+                as? android.net.ConnectivityManager
+            runCatching { connectivity?.unregisterNetworkCallback(activeNetworkCallback) }
+            if (retainedHotspotNetworkCallback === activeNetworkCallback) {
+                retainedHotspotNetworkCallback = null
+                retainedHotspotNetworkPaired = false
+            }
+            if (hotspotNetworkCallback === activeNetworkCallback) {
+                hotspotNetworkCallback = null
+                hotspotNetworkPaired = false
+            }
+        }
+        wifiDirectSession?.let { session ->
+            session.stopInvitationDiscovery()
+        }
+        _state.value = _state.value.copy(
+            requestingConnection = false,
+            error = null,
+            status = "أُلغيت محاولة الاقتران السابقة؛ جاهز لمسح رمز QR جديد."
+        )
+    }
 
-        // A P2P room must use the Wi-Fi Direct framework negotiation first.
-        // Do not treat the group's SSID/PSK as an ordinary hotspot and bypass the
-        // peer-discovery + connect sequence: this was the behavioral difference
-        // from the known-working main-branch QR invitation flow.
-        if (UltraSharePairingReadiness.shouldUseWifiDirectInvitation(
-                pairing.mode,
-                pairing.invitationId
-            )
-        ) {
-            UltraShareDiagnostics.event(
-                "PAIRING",
-                "QR_P2P_MAIN_FLOW_SELECTED",
-                mapOf("sdkInt" to Build.VERSION.SDK_INT)
-            )
-            // The readiness predicate guarantees a non-blank invitation ID;
-            // make that invariant explicit to Kotlin before entering the P2P flow.
-            joinWifiDirectInvitation(
-                requireNotNull(pairing.invitationId),
-                pairing.pairingSecret,
-                pairing.hosts,
-                pairing
-            )
+    fun joinUnifiedInvitation(pairing: com.malekplay.network.UltraShareQrCode.PairingDetails) {
+        if (controlPairingInProgress) return
+        if (pendingQrPairing != null && !qrP2pConnectStarted) {
+            cancelPendingPairingAttempt()
+        } else if (pendingQrPairing != null) {
             return
         }
 
         viewModelScope.launch {
-            val reachableHosts = withTimeoutOrNull(500L) {
-                UltraShareDiscovery.probeControlHostsFast(pairing.hosts, timeoutMs = 400)
-            }.orEmpty()
+            // Always try a sub-second direct LAN/SoftAP probe first when hosts are
+            // present (even on p2p rooms): if both devices already share Wi-Fi,
+            // pairing completes in <500ms without waiting on Android DNS-SD.
+            val nonLocalHosts = pairing.hosts.filterNot {
+                UltraShareNetworkRouting.isLocalAddress(context, it)
+            }
+            val reachableHosts = if (nonLocalHosts.isNotEmpty()) {
+                withTimeoutOrNull(500L) {
+                    UltraShareDiscovery.probeControlHostsFast(nonLocalHosts, timeoutMs = 400)
+                }.orEmpty()
+            } else {
+                emptyList()
+            }
             val directHost = reachableHosts.firstOrNull()
             if (directHost != null) {
                 UltraShareDiagnostics.event(
@@ -1354,8 +1371,29 @@ private fun forgetApprovedSenderTarget(host: String) {
                 requestConnection(
                     host = directHost,
                     secret = pairing.pairingSecret,
-                    alternateHosts = reachableHosts.drop(1) + pairing.hosts.filterNot { it in reachableHosts },
+                    alternateHosts = reachableHosts.drop(1) + nonLocalHosts.filterNot { it in reachableHosts },
                     port = pairing.port
+                )
+                return@launch
+            }
+
+            // A P2P room must use the Wi-Fi Direct framework negotiation when no
+            // direct host responded immediately.
+            if (UltraSharePairingReadiness.shouldUseWifiDirectInvitation(
+                    pairing.mode,
+                    pairing.invitationId
+                )
+            ) {
+                UltraShareDiagnostics.event(
+                    "PAIRING",
+                    "QR_P2P_MAIN_FLOW_SELECTED",
+                    mapOf("sdkInt" to Build.VERSION.SDK_INT)
+                )
+                joinWifiDirectInvitation(
+                    requireNotNull(pairing.invitationId),
+                    pairing.pairingSecret,
+                    pairing.hosts,
+                    pairing
                 )
                 return@launch
             }
