@@ -2,6 +2,7 @@ package com.malekplay.network
 
 import android.content.Context
 import android.net.Uri
+import android.provider.OpenableColumns
 import com.malekplay.translation.SrtSubtitleParser
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -217,7 +218,10 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         val subdlKey = runCatching { vault.load(SUBDL_KEY_SLOT)?.first }.getOrNull()
         val subdlEnabled = !subdlKey.isNullOrBlank()
         val subdlAttempt = if (subdlEnabled) runCatching {
-            SubtitleResultPolicy.withEpisodeFallback(
+            val exactFileResults = runCatching {
+                searchSubDlFilename(mediaUri, season, episode, requireNotNull(subdlKey))
+            }.getOrDefault(emptyList())
+            val titleResults = SubtitleResultPolicy.withEpisodeFallback(
                 season,
                 episode,
                 episodeSearch = {
@@ -230,10 +234,11 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                     )
                 },
                 shouldFallback = { results ->
-                        results.map { SubtitleQueryCleaner.normalizeLanguage(it.language) }
-                            .toSet().containsAll(setOf("ar", "en")).not()
-                    }
+                    results.map { SubtitleQueryCleaner.normalizeLanguage(it.language) }
+                        .toSet().containsAll(setOf("ar", "en")).not()
+                }
             )
+            exactFileResults + titleResults
         } else null
         val combined = (
             publicAttempt.getOrDefault(emptyList()) +
@@ -408,6 +413,66 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
             require(target.length() in 1..MAX_BYTES.toLong()) { "حجم ملف الترجمة غير صالح" }
             Uri.fromFile(target)
         }
+    }
+
+    /**
+     * Uses SubDL v2 filename matching only when the actual video filename itself
+     * contains the requested season/episode. The endpoint's exact scope is designed
+     * to return subtitles for that release, not a neighbouring episode.
+     */
+    private fun searchSubDlFilename(
+        mediaUri: Uri?,
+        season: Int?,
+        episode: Int?,
+        apiKey: String
+    ): List<OnlineSubtitle> {
+        if (mediaUri == null || season == null || episode == null) return emptyList()
+        val displayName = runCatching {
+            app.contentResolver.query(
+                mediaUri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    cursor.getString(cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME))
+                } else null
+            }
+        }.getOrNull().orEmpty().ifBlank { mediaUri.lastPathSegment.orEmpty() }
+        if (displayName.isBlank()) return emptyList()
+        val parsed = SubtitleQueryCleaner.clean(displayName)
+        if (parsed.season != season || parsed.episode != episode) return emptyList()
+
+        val url = Uri.parse(SUBDL_V2_FILES_API).buildUpon()
+            .appendQueryParameter("filename", displayName.take(240))
+            .appendQueryParameter("languages", "AR,EN")
+            .appendQueryParameter("type", "tv")
+            .appendQueryParameter("episode_scope", "exact")
+            .appendQueryParameter("subs_per_page", "30")
+            .build().toString()
+        val payload = execute(
+            Request.Builder().url(url)
+                .header("Authorization", "Bearer $apiKey")
+                .header("User-Agent", AGENT)
+                .header("Accept", "application/json")
+                .get().build()
+        )
+        if (payload.has("status") && !payload.optBoolean("status")) {
+            error(payload.optString("error").takeIf { it.isNotBlank() }
+                ?: "رفضت خدمة SubDL v2 طلب مطابقة اسم الملف")
+        }
+        val subtitles = payload.optJSONArray("subtitles") ?: return emptyList()
+        return buildList {
+            for (index in 0 until subtitles.length()) {
+                val item = subtitles.optJSONObject(index) ?: continue
+                val parsedSubtitle = SubtitleProviderResultParser.subDlSubtitle(
+                    url = item.optString("url"),
+                    releaseName = item.optString("release_name").ifBlank { item.optString("name") },
+                    languageCode = item.optString("lang").ifBlank { item.optString("language") },
+                    formatName = item.optString("format"),
+                    downloads = item.optInt("downloads"),
+                    fallbackTitle = displayName
+                ) ?: continue
+                add(parsedSubtitle)
+            }
+        }.distinctBy { it.sourceId }.take(40)
     }
 
     private fun searchSubDl(
@@ -865,6 +930,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         const val WEBSITE_KEY_SLOT = "subtitles_website_api_key"
         const val SUBDL_KEY_SLOT = "subdl_api_key"
         const val SUBDL_API = "https://api.subdl.com/api/v1/subtitles"
+        const val SUBDL_V2_FILES_API = "https://api.subdl.com/api/v2/files/search"
         const val SUBDL_PROVIDER = "subdl"
         const val AGENT = "MalekPlayer v2.0.0"
         const val KEY_SLOT = "opensubtitles_api_key"
