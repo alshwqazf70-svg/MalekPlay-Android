@@ -45,17 +45,8 @@ internal class Subf2mSubtitleProvider {
                 .appendQueryParameter("l", "")
                 .build().toString()
             val html = getText(searchUrl)
-            val resultBlock = SEARCH_RESULT.find(html)?.groupValues?.get(1) ?: continue
-            val recognizedHeading = RESULT_HEADING.containsMatchIn(resultBlock)
-            if (!recognizedHeading) continue
-            val resultList = RESULT_LIST.find(resultBlock)?.groupValues?.get(1) ?: continue
-            RESULT_ANCHOR.findAll(resultList).forEach { match ->
-                val rawPath = decodeHtml(match.groupValues[1])
-                if (!rawPath.startsWith("/subtitles/") || rawPath.contains("..")) return@forEach
-                val resultTitle = decodeHtml(stripTags(match.groupValues[2]))
-                if (matchesTitle(title, resultTitle, year, season)) {
-                    candidates.putIfAbsent(rawPath.trimEnd('/'), resultTitle)
-                }
+            parseSearchResultCandidates(html, title, year, season).forEach { (path, resultTitle) ->
+                candidates.putIfAbsent(path, resultTitle)
             }
             if (candidates.isNotEmpty()) break
         }
@@ -78,6 +69,35 @@ internal class Subf2mSubtitleProvider {
             if (languagesFound.containsAll(setOf("ar", "en"))) return results
         }
         return results
+    }
+
+    internal fun parseSearchResultCandidates(
+        html: String,
+        title: String,
+        year: Int?,
+        season: Int?
+    ): List<Pair<String, String>> {
+        val resultStart = SEARCH_RESULT_OPEN.find(html)?.range?.last ?: return emptyList()
+        val resultBlock = html.substring(resultStart + 1)
+        val heading = RESULT_HEADING.find(resultBlock) ?: return emptyList()
+        val listStart = RESULT_LIST_OPEN.find(resultBlock, heading.range.last + 1)
+            ?: return emptyList()
+        val listEnd = resultBlock.indexOf("</ul>", listStart.range.last + 1)
+            .takeIf { it >= 0 } ?: return emptyList()
+        val listHtml = resultBlock.substring(listStart.range.last + 1, listEnd)
+        return RESULT_ANCHOR.findAll(listHtml).mapNotNull { match ->
+            val rawPath = decodeHtml(match.groupValues[1])
+            if (!rawPath.startsWith("/subtitles/") || rawPath.contains("..")) return@mapNotNull null
+            val resultTitle = decodeHtml(stripTags(match.groupValues[2]))
+            if (matchesTitle(title, resultTitle, year, season)) {
+                rawPath.trimEnd('/') to resultTitle
+            } else null
+        }.distinctBy { it.first }.toList()
+    }
+
+    internal fun resolveDownloadPageLink(page: String, detailUrl: String): String? {
+        val raw = DOWNLOAD_BUTTON.find(page)?.groupValues?.get(1)?.let(::decodeHtml) ?: return null
+        return resolveSiteUrl(raw, detailUrl)
     }
 
     private fun seasonOrdinal(season: Int): String =
@@ -136,10 +156,8 @@ internal class Subf2mSubtitleProvider {
     fun download(detailUrl: String): ByteArray {
         val detail = resolveSiteUrl(detailUrl) ?: error("رابط صفحة الترجمة غير صالح")
         val page = getText(detail, BASE)
-        val rawDownload = DOWNLOAD_BUTTON.find(page)?.groupValues?.get(1)
-            ?.let(::decodeHtml) ?: error("لم يعثر SubF2M على رابط تنزيل")
-        val initial = resolveSiteUrl(rawDownload, detail)
-            ?: error("رابط تنزيل SubF2M غير آمن")
+        val initial = resolveDownloadPageLink(page, detail)
+            ?: error("لم يعثر SubF2M على رابط تنزيل آمن")
         return fetchDownload(initial, detail)
     }
 
