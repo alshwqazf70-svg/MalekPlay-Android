@@ -20,8 +20,11 @@ internal object PrivateVaultRecovery {
                     val id = file.name.removeSuffix(".delete")
                     if (validId.matches(id)) {
                         val target = File(directory, "$id.mkv")
-                        if (id in committedIds && !target.exists()) file.renameTo(target)
-                        else if (id !in committedIds) file.delete()
+                        if (id in committedIds) {
+                            if (!target.exists()) file.renameTo(target) else file.delete()
+                        } else {
+                            file.delete()
+                        }
                     }
                 }
             }
