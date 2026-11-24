@@ -192,11 +192,12 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
 
     private fun enumerate(treeUri: Uri): List<Node> {
         val result = mutableListOf<Node>()
+        val visitedDirectoryIds = mutableSetOf<String>()
         fun walk(parent: Uri, prefix: String, depth: Int) {
             require(depth <= MAX_DEPTH) { "بنية المجلد أعمق من الحد المسموح." }
-            val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
-                treeUri, DocumentsContract.getDocumentId(parent)
-            )
+            val parentId = DocumentsContract.getDocumentId(parent)
+            require(visitedDirectoryIds.add(parentId)) { "اكتُشفت حلقة غير صالحة في بنية المجلد." }
+            val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentId)
             val projection = arrayOf(
                 DocumentsContract.Document.COLUMN_DOCUMENT_ID,
                 DocumentsContract.Document.COLUMN_DISPLAY_NAME,
@@ -208,12 +209,15 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
                 val mimeCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE)
                 while (cursor.moveToNext()) {
                     require(result.size < MAX_NODES) { "المجلد يحتوي على عناصر أكثر من الحد المسموح." }
-                    val id = cursor.getString(idCol)
+                    val id = cursor.getString(idCol)?.takeIf { it.isNotBlank() } ?: continue
                     val name = safeSegment(cursor.getString(nameCol).orEmpty())
                     if (name.isBlank()) continue
                     val directory = cursor.getString(mimeCol) == DocumentsContract.Document.MIME_TYPE_DIR
                     val uri = DocumentsContract.buildDocumentUriUsingTree(treeUri, id)
                     val relative = if (prefix.isBlank()) name else "$prefix/$name"
+                    require(result.none { it.relativePath == relative }) {
+                        "يوجد اسمان متطابقان بعد معالجة أسماء الملفات داخل المجلد: $name"
+                    }
                     result += Node(uri, name, relative, directory)
                     if (directory) walk(uri, relative, depth + 1)
                 }
