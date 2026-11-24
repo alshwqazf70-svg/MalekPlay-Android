@@ -32,10 +32,10 @@ internal object SubtitleResultPolicy {
         val wanted = languageFilter.split(',').map(SubtitleQueryCleaner::normalizeLanguage)
             .filter { it == "ar" || it == "en" }.toSet().ifEmpty { setOf("ar", "en") }
         val episodePattern = if (season != null && episode != null) {
-            Regex("""(?i)(?:\\bS0?${season}E0?${episode}\\b|\\b${season}x0?${episode}\\b)""")
+            Regex("""(?i)(?:\bS0?${season}E0?${episode}\b|\b${season}x0?${episode}\b)""")
         } else null
         val explicitEpisodePattern = Regex(
-            """(?i)\\bS(\\d{1,2})[ ._-]*E(\\d{1,3})\\b|\\b(\\d{1,2})x(\\d{1,3})\\b"""
+            """(?i)\bS(\d{1,2})[ ._-]*E(\d{1,3})\b|\b(\d{1,2})x(\d{1,3})\b"""
         )
         return results.filter { result ->
             if (SubtitleQueryCleaner.normalizeLanguage(result.language) !in wanted) return@filter false
@@ -44,10 +44,13 @@ internal object SubtitleResultPolicy {
             val groups = explicit.groupValues
             val actualSeason = (groups[1].ifBlank { groups[3] }).toIntOrNull()
             val actualEpisode = (groups[2].ifBlank { groups[4] }).toIntOrNull()
-            // Never treat a clearly numbered neighbouring episode as a fallback.
+            // Keep unnumbered broad-search hits as fallbacks, but reject explicit neighbouring episodes.
             actualSeason == season && actualEpisode == episode
         }.sortedWith(compareBy<OnlineSubtitle>(
-                { if (episodePattern == null || episodePattern.containsMatchIn(it.release)) 0 else 1 },
+            { if (episodePattern == null || episodePattern.containsMatchIn(it.release)) 0 else 1 },
+            { if (SubtitleQueryCleaner.normalizeLanguage(it.language) == "ar") 0 else 1 },
+            { -it.downloads }
+        ))
     }
 }
 
