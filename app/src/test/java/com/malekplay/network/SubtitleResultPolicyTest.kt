@@ -256,6 +256,10 @@ class SubtitleResultPolicyTest {
             SubtitleResultPolicy.rankAndFilter(results, "ar", 1, 2).map { it.release }
         )
         assertEquals(listOf(2), SubtitleResultPolicy.availableEpisodes(results, 1))
+        assertEquals(
+            emptyList<String>(),
+            SubtitleResultPolicy.rankAndFilter(results, "ar", 1, 3).map { it.release }
+        )
     }
 
     @Test
@@ -264,6 +268,7 @@ class SubtitleResultPolicyTest {
             item("ar", "Show Season 2 Episode 3 Arabic"),
             item("ar", "Show Season 1 Episode 4 Arabic"),
             item("ar", "Show Season 1 Complete"),
+            item("ar", "Show.Season.1.Complete"),
             item("ar", "Show Season 1 Episode 3 Arabic")
         )
         assertEquals(
