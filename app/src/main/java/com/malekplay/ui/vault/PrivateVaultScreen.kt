@@ -237,7 +237,7 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
 
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            IconButton(onClick = { leaveVault() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "رجوع") }
+            IconButton(onClick = { if (browserOpen) backFromBrowser() else leaveVault() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "رجوع") }
             Text("الخزنة الخاصة", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
             Icon(Icons.Filled.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
         }
@@ -251,7 +251,7 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                     Text(browserPath.joinToString("  ›  ") { it.second }, style = MaterialTheme.typography.bodySmall,
                         maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Text("\${selectedUris.size} محدد", color = MaterialTheme.colorScheme.primary)
+                Text("${selectedUris.size} محدد", color = MaterialTheme.colorScheme.primary)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 TextButton(onClick = {
@@ -335,7 +335,7 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                             }
                             refresh()
                             message = if (failures.isEmpty()) "تم تشفير وإضافة $completed ملفاً إلى الخزنة." else
-                                "تم حفظ $completed ملفاً، وتعذر حفظ \${failures.size}. \${failures.first()}"
+                                "تم حفظ $completed ملفاً، وتعذر حفظ ${failures.size}. ${failures.first()}"
                             selectedUris.clear()
                         } finally { busy = false }
                     }
@@ -344,7 +344,7 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary,
                     contentColor = MaterialTheme.colorScheme.onPrimary)
-            ) { Text("إضافة الآن (\${selectedUris.size})") }
+            ) { Text("إضافة الآن (${selectedUris.size})") }
         } else if (!unlocked) {
             Text(if (configured) "أدخل كلمة المرور لفتح ملفاتك الخاصة." else "أنشئ كلمة مرور من 8 أحرف على الأقل. سيُشفّر محتوى الملفات وفهرسها داخل مساحة التطبيق.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             OutlinedTextField(password, { password = it }, modifier = Modifier.fillMaxWidth(), label = { Text("كلمة المرور") }, visualTransformation = PasswordVisualTransformation(), singleLine = true)
