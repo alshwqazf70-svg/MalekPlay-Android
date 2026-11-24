@@ -76,6 +76,8 @@ internal class Subf2mSubtitleProvider {
                     val release = extractRelease(block)
                     if (release.isBlank()) continue
                     if (season != null && episode != null && !isExactEpisode(release, season, episode)) continue
+                    val releaseInfo = listOf(release, extractComment(block))
+                        .filter(String::isNotBlank).joinToString(" · ").take(500)
                     val link = DOWNLOAD_LINK.find(block)?.groupValues?.get(1)
                         ?.let(::decodeHtml) ?: continue
                     val detailUrl = resolveSiteUrl(link) ?: continue
@@ -86,7 +88,7 @@ internal class Subf2mSubtitleProvider {
                     results += OnlineSubtitle(
                         fileId = 0L,
                         language = languageCode,
-                        release = release.ifBlank { resultTitle },
+                        release = releaseInfo.ifBlank { resultTitle },
                         downloads = 0,
                         format = "srt",
                         sourceId = identity,
@@ -210,10 +212,12 @@ internal class Subf2mSubtitleProvider {
         val release = SCROLL_LIST.findAll(block).flatMap { list ->
             INNER_LI.findAll(list.groupValues[1]).map { decodeHtml(stripTags(it.groupValues[1])) }
         }.filter(String::isNotBlank).toList()
-        val comment = COMMENT.find(block)?.groupValues?.get(1)
-            ?.let { decodeHtml(stripTags(it)) }.orEmpty()
-        return (release + listOf(comment)).filter(String::isNotBlank).joinToString(" · ").take(500)
+        return release.joinToString(" · ").take(500)
     }
+
+    private fun extractComment(block: String): String =
+        COMMENT.find(block)?.groupValues?.get(1)
+            ?.let { decodeHtml(stripTags(it)) }.orEmpty()
 
     private fun matchesTitle(wanted: String, candidate: String, year: Int?, season: Int?): Boolean {
         if (year != null) {
