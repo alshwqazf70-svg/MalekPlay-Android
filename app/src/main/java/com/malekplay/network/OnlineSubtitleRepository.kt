@@ -196,6 +196,13 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         // Fetch both supported languages once so language-filter changes stay local.
         val providerLanguages = "ar,en"
         val publicAttempt = runCatching { searchPublic(cleaned.title, cleaned.year, season, episode) }
+        val subdlKey = runCatching { vault.load(SUBDL_KEY_SLOT)?.first }.getOrNull()
+        val subdlEnabled = !subdlKey.isNullOrBlank()
+        val openSubtitlesParentImdbId = if (subdlEnabled && (season != null || episode != null)) {
+            runCatching {
+                searchSubDlTvIdentity(cleaned.title, cleaned.year, requireNotNull(subdlKey))
+            }.getOrNull()
+        } else null
         val accountEnabled = hasCredentials()
         val accountAttempt = if (accountEnabled) {
             runCatching {
@@ -203,7 +210,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                     season,
                     episode,
                     episodeSearch = {
-                        search(providerTitle, providerLanguages, season, episode, mediaUri)
+                        search(providerTitle, providerLanguages, season, episode, mediaUri, openSubtitlesParentImdbId)
                     },
                     titleSearch = {
                         search(providerTitle, providerLanguages, null, null, mediaUri)
@@ -215,8 +222,6 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                 )
             }
         } else null
-        val subdlKey = runCatching { vault.load(SUBDL_KEY_SLOT)?.first }.getOrNull()
-        val subdlEnabled = !subdlKey.isNullOrBlank()
         val subdlAttempt = if (subdlEnabled) runCatching {
             val exactFileResults = runCatching {
                 searchSubDlFilename(mediaUri, season, episode, requireNotNull(subdlKey))
@@ -420,6 +425,31 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
      * contains the requested season/episode. The endpoint's exact scope is designed
      * to return subtitles for that release, not a neighbouring episode.
      */
+    /**
+     * Resolves the parent TV show's IMDb id through SubDL's documented v2 title search.
+     * OpenSubtitles recommends parent_imdb_id together with season and episode.
+     */
+    private fun searchSubDlTvIdentity(title: String, year: Int?, apiKey: String): String? {
+        val url = Uri.parse(SUBDL_V2_MOVIES_API).buildUpon()
+            .appendQueryParameter("q", (title + (year?.let { " $it" } ?: "")).take(180))
+            .appendQueryParameter("type", "tv")
+            .build().toString()
+        val payload = execute(
+            Request.Builder().url(url)
+                .header("Authorization", "Bearer $apiKey")
+                .header("User-Agent", AGENT)
+                .header("Accept", "application/json")
+                .get().build()
+        )
+        val results = payload.optJSONArray("results") ?: return null
+        for (index in 0 until results.length()) {
+            val item = results.optJSONObject(index) ?: continue
+            val id = item.optString("imdb_id").takeIf { it.matches(Regex("tt\\d{5,12}")) }
+            if (id != null) return id
+        }
+        return null
+    }
+
     private fun searchSubDlFilename(
         mediaUri: Uri?,
         season: Int?,
@@ -577,7 +607,10 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         }
     }
 
-    fun search(title: String, language: String, season: Int?, episode: Int?, mediaUri: Uri? = null): List<OnlineSubtitle> {
+    fun search(
+        title: String, language: String, season: Int?, episode: Int?,
+        mediaUri: Uri? = null, parentImdbId: String? = null
+    ): List<OnlineSubtitle> {
         val key = credentials().first
         require(title.isNotBlank()) { "أدخل اسم الفيلم أو المسلسل" }
         val url = Uri.parse("$BASE/subtitles").buildUpon()
@@ -599,6 +632,9 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                     appendQueryParameter("type", "episode")
                     appendQueryParameter("season_number", season.toString())
                     appendQueryParameter("episode_number", episode.toString())
+                    parentImdbId?.removePrefix("tt")?.toLongOrNull()?.let {
+                        appendQueryParameter("parent_imdb_id", it.toString())
+                    }
                 }
             }.build().toString()
         val req = Request.Builder().url(url).header("Api-Key", key).header("User-Agent", AGENT)
@@ -931,6 +967,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         const val SUBDL_KEY_SLOT = "subdl_api_key"
         const val SUBDL_API = "https://api.subdl.com/api/v1/subtitles"
         const val SUBDL_V2_FILES_API = "https://api.subdl.com/api/v2/files/search"
+        const val SUBDL_V2_MOVIES_API = "https://api.subdl.com/api/v2/movies/search"
         const val SUBDL_PROVIDER = "subdl"
         const val AGENT = "MalekPlayer v2.0.0"
         const val KEY_SLOT = "opensubtitles_api_key"
