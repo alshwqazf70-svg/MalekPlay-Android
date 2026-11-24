@@ -17,7 +17,8 @@ class PrivateVaultRepository(context: Context) {
     private val indexFile = File(directory, "vault.index.enc")
     private val backupIndex = File(directory, "vault.index.bak")
     init { if (!indexFile.exists() && backupIndex.exists()) backupIndex.renameTo(indexFile) }
-    private val indexMagic = 0x4D4B5649
+    private val legacyIndexMagic = 0x4D4B5649
+    private val indexMagic = 0x4D4B564A
     private val maxEntries = 20_000
 
     @Synchronized fun isConfigured() = indexFile.isFile && indexFile.length() > 0L
@@ -53,12 +54,15 @@ class PrivateVaultRepository(context: Context) {
         val temp = File(directory, "$id.tmp")
         val pending = File(directory, "$id.pending")
         var committed = false
+        var originalSize = 0L
         try {
-            input.use { source ->
+            input.use { rawSource ->
+                val source = CountingInputStream(rawSource)
                 FileOutputStream(temp).use { sink ->
                     PrivateVaultCrypto.encrypt(source, sink, password)
                     sink.fd.sync()
                 }
+                originalSize = source.bytesRead
             }
             // Authenticate the completed ciphertext before it can enter the index
             // or before a caller is allowed to delete the original source.
@@ -72,7 +76,7 @@ class PrivateVaultRepository(context: Context) {
             check(current.size < maxEntries) { "Vault item limit reached." }
             FileOutputStream(pending).use { it.fd.sync() }
             check(temp.renameTo(target)) { "Could not finalize encrypted file." }
-            val entry = PrivateVaultEntry(id, name, mime, target.length())
+            val entry = PrivateVaultEntry(id, name, mime, originalSize)
             persistIndex(current + entry, password)
             committed = true
             pending.delete()
@@ -172,8 +176,9 @@ class PrivateVaultRepository(context: Context) {
             FileInputStream(indexFile).use { input ->
                 FileOutputStream(plain).use { output -> PrivateVaultCrypto.decrypt(input, output, password); output.fd.sync() }
             }
-            DataInputStream(FileInputStream(plain)).use { input ->
-                check(input.readInt() == indexMagic) { "Invalid vault index." }
+            val (entries, needsSizeMigration) = DataInputStream(FileInputStream(plain)).use { input ->
+                val magic = input.readInt()
+                check(magic == indexMagic || magic == legacyIndexMagic) { "Invalid vault index." }
                 val count = input.readInt()
                 require(count in 0..maxEntries) { "Invalid vault index size." }
                 val entries = List(count) {
@@ -189,10 +194,43 @@ class PrivateVaultRepository(context: Context) {
                 }
                 require(entries.map { it.id }.toSet().size == entries.size) { "Duplicate vault item identifier." }
                 check(input.read() == -1) { "Unexpected vault index data." }
-                PrivateVaultRecovery.recover(directory, entries.mapTo(mutableSetOf()) { it.id })
-                return entries
+                entries to (magic == legacyIndexMagic)
             }
+            PrivateVaultRecovery.recover(directory, entries.mapTo(mutableSetOf()) { it.id })
+            if (!needsSizeMigration) return entries
+
+            // Older builds stored ciphertext length in sizeBytes. Recalculate the
+            // original plaintext length once, then commit the corrected metadata.
+            val migrated = entries.map { entry ->
+                val encrypted = payload(entry.id)
+                if (!encrypted.isFile) entry else entry.copy(
+                    sizeBytes = FileInputStream(encrypted).use { source ->
+                        val counter = CountingOutputStream()
+                        PrivateVaultCrypto.decrypt(source, counter, password)
+                        counter.bytesWritten
+                    }
+                )
+            }
+            persistIndex(migrated, password)
+            return migrated
         } finally { plain.delete() }
+    }
+
+    private class CountingInputStream(input: InputStream) : FilterInputStream(input) {
+        var bytesRead: Long = 0
+            private set
+        override fun read(): Int = super.read().also { if (it >= 0) bytesRead = Math.addExact(bytesRead, 1L) }
+        override fun read(buffer: ByteArray, offset: Int, length: Int): Int =
+            super.read(buffer, offset, length).also { if (it > 0) bytesRead = Math.addExact(bytesRead, it.toLong()) }
+    }
+
+    private class CountingOutputStream : OutputStream() {
+        var bytesWritten: Long = 0
+            private set
+        override fun write(value: Int) { bytesWritten = Math.addExact(bytesWritten, 1L) }
+        override fun write(buffer: ByteArray, offset: Int, length: Int) {
+            bytesWritten = Math.addExact(bytesWritten, length.toLong())
+        }
     }
 
     private fun persistIndex(entries: List<PrivateVaultEntry>, password: CharArray) {
