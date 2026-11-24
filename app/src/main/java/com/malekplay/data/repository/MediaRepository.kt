@@ -57,6 +57,13 @@ class MediaRepository @Inject constructor(
         }.flowOn(Dispatchers.Default)
 
     fun observeAll(): Flow<List<LibraryItem>> = mediaDao.observeAll().asLibraryItems()
+
+    /** Removes successfully moved source URIs from every derived library view immediately. */
+    suspend fun removeMediaUris(uris: Collection<String>) = withContext(Dispatchers.IO) {
+        uris.asSequence().filter { it.isNotBlank() }.distinct().toList().chunked(900).forEach { page ->
+            if (page.isNotEmpty()) mediaDao.deleteMediaByIds(page)
+        }
+    }
     fun observeVideos(): Flow<List<LibraryItem>> = mediaDao.observeVideos().asLibraryItems()
     fun observeAudio(): Flow<List<LibraryItem>> = mediaDao.observeAudio().asLibraryItems()
     fun observeFolder(path: String): Flow<List<LibraryItem>> =
