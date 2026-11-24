@@ -144,8 +144,10 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
         }
     }
 
-    BackHandler(enabled = !busy) {
-        if (browserOpen) backFromBrowser() else leaveVault()
+    BackHandler(enabled = true) {
+        if (!busy) {
+            if (browserOpen) backFromBrowser() else leaveVault()
+        }
     }
 
     val moveFilesPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris: List<Uri> ->
@@ -170,6 +172,8 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                     if (deleted) deletedUris += PrivateVaultTreeSupport.libraryMediaId(uri)
                 }
                 message = "شُفّر $encryptedCount ملفاً؛ حُذفت أصول ${deletedUris.size} ملفاً بعد التحقق، وبقيت أصول الملفات التي رفض مزود التخزين حذفها."
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
             } catch (failure: Exception) {
                 message = failure.localizedMessage ?: "توقفت عملية النقل؛ النسخ التي شُفرت تبقى محفوظة بالخزنة."
             } finally {
@@ -200,6 +204,8 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                 libraryViewModel.reconcileMovedMediaUris(result.deletedSourceUris)
                 refresh()
                 message = if (result.sourceFullyMoved && result.fileCount > 0) "تم تشفير المجلد ونقل ${result.deletedSourceFiles} ملفاً مع إزالة عناصر المصدر التابعة." else if (result.deletedSourceFiles > 0) "شُفّر المجلد؛ نُقلت ${result.deletedSourceFiles} من ${result.fileCount} ملفات، وبقيت بعض عناصر المصدر." else "تم تشفير المجلد مع ${result.fileCount} ملفاً؛ بقيت الأصول الأصلية أو تعذر حذفها."
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
             } catch (failure: Exception) { message = failure.localizedMessage ?: "تعذر استيراد المجلد" }
             finally { busy = false }
         }
@@ -212,6 +218,8 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                 runCatching { context.contentResolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION) }
                 withContext(Dispatchers.IO) { treeSupport.restoreFolder(entry, uri, password.toCharArray()) }
                 message = "تمت استعادة المجلد وبنيته الداخلية. النسخة المشفرة ما زالت محفوظة بالخزنة."
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
             } catch (failure: Exception) { message = failure.localizedMessage ?: "تعذرت استعادة المجلد" }
             finally { busy = false }
         }
@@ -223,6 +231,8 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
             try {
                 withContext(Dispatchers.IO) { repository.exportTo(entry.id, uri, password.toCharArray()) }
                 message = "تمت استعادة نسخة من الملف. النسخة المشفرة ما زالت محفوظة بالخزنة."
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
             } catch (failure: Exception) { message = failure.localizedMessage ?: "تعذرت الاستعادة" }
             finally { busy = false }
         }
