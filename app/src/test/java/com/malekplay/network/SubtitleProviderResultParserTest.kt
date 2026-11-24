@@ -42,6 +42,24 @@ class SubtitleProviderResultParserTest {
         ))
     }
 
+    @Test fun preservesProviderEpisodeMetadataForExactEpisodeFiltering() {
+        val subtitle = SubtitleProviderResultParser.subDlSubtitle(
+            url = "/subtitle/episode-file",
+            releaseName = "Series Arabic",
+            languageCode = "AR",
+            formatName = "srt",
+            downloads = 4,
+            fallbackTitle = "Series",
+            providerSeason = 2,
+            providerEpisode = 5,
+            providerEpisodeEnd = 5
+        )
+        assertEquals(2, subtitle?.providerSeasonNumber)
+        assertEquals(5, subtitle?.providerEpisodeNumber)
+        assertEquals(5, subtitle?.providerEpisodeEnd)
+        assertEquals(false, subtitle?.fullSeasonPack)
+    }
+
     @Test fun usesSafeReleaseFallbackAndNonNegativeDownloadCounts() {
         assertEquals("WEB-DL release", SubtitleProviderResultParser.release("", "WEB-DL release"))
         assertEquals("Subtitle", SubtitleProviderResultParser.release(" ", ""))
