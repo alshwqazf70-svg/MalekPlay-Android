@@ -1578,7 +1578,7 @@ class PlayerViewModel @Inject constructor(
         _onlineSubtitleGuideError.value = null
     }
 
-    fun loadOnlineSubtitleEpisodeGuide(title: String) {
+    fun loadOnlineSubtitleEpisodeGuide(title: String, forceRefresh: Boolean = false) {
         if (_onlineSubtitleGuideLoading.value) return
         val requestId = ++onlineSubtitleGuideRequestId
         val targetMediaId = currentMediaId
@@ -1588,7 +1588,7 @@ class PlayerViewModel @Inject constructor(
             _onlineSubtitleEpisodeGuide.value = null
             try {
                 val guide = withContext(Dispatchers.IO) {
-                    onlineSubtitleRepository.searchTvEpisodeGuide(title)
+                    onlineSubtitleRepository.searchTvEpisodeGuide(title, forceRefresh)
                 }
                 if (requestId != onlineSubtitleGuideRequestId || currentMediaId != targetMediaId) return@launch
                 _onlineSubtitleEpisodeGuide.value = guide
