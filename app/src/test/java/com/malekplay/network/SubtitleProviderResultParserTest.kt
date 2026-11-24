@@ -20,6 +20,16 @@ class SubtitleProviderResultParserTest {
         assertNull(SubtitleProviderResultParser.format("zip"))
     }
 
+    @Test fun validatesSubDlSubtitleParentIdentityBeforeUsingItsSubtitleArray() {
+        val results = JSONArray(
+            "[{\"name\":\"Dune: Part Two\",\"original_name\":\"Dune Part Two\",\"year\":2024,\"type\":\"movie\"}," +
+            "{\"name\":\"Dune\",\"year\":2021,\"type\":\"movie\"}]"
+        )
+        assertEquals(true, SubtitleProviderResultParser.subDlHasExactTitleMatch(results, "Dune Part Two", 2024, "movie"))
+        assertEquals(false, SubtitleProviderResultParser.subDlHasExactTitleMatch(results, "Dune", 2024, "movie"))
+        assertEquals(false, SubtitleProviderResultParser.subDlHasExactTitleMatch(results, "Dune Part Two", 2024, "tv"))
+    }
+
     @Test fun selectsOnlyExactSubDlTitleYearAndMediaTypeForImdbIdentity() {
         val results = JSONArray(
             "[{\"name\":\"The Office\",\"original_name\":\"The Office\",\"year\":2005,\"type\":\"tv\",\"imdb_id\":\"tt0386676\"}," +
