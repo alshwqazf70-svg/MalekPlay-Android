@@ -177,6 +177,40 @@ class PrivateVaultRepositoryTest {
     }
 
     @Test
+    fun damagedLegacyPayloadDoesNotBlockOpeningOtherVaultEntries() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val vaultDirectory = File(context.filesDir, "private_vault")
+        vaultDirectory.deleteRecursively()
+        val password = "damaged-legacy-password".toCharArray()
+        val id = UUID.randomUUID().toString()
+
+        try {
+            val repository = PrivateVaultRepository(context)
+            repository.create(password)
+            File(vaultDirectory, "$id.mkv").writeBytes(byteArrayOf(9, 8, 7, 6))
+            val legacyIndex = ByteArrayOutputStream()
+            DataOutputStream(legacyIndex).use { output ->
+                output.writeInt(0x4D4B5649)
+                output.writeInt(1)
+                output.writeUTF(id)
+                output.writeUTF("damaged.bin")
+                output.writeUTF("application/octet-stream")
+                output.writeLong(4L)
+            }
+            FileOutputStream(File(vaultDirectory, "vault.index.enc")).use { output ->
+                PrivateVaultCrypto.encrypt(ByteArrayInputStream(legacyIndex.toByteArray()), output, password)
+            }
+
+            val entries = PrivateVaultRepository(context).list(password)
+            assertEquals(1, entries.size)
+            assertEquals(-1L, entries.single().sizeBytes)
+        } finally {
+            password.fill('\u0000')
+            vaultDirectory.deleteRecursively()
+        }
+    }
+
+    @Test
     fun migratesLegacyCiphertextSizeToOriginalPlaintextSize() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val vaultDirectory = File(context.filesDir, "private_vault")

@@ -399,8 +399,14 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                 items(entries, key = { it.id }) { entry ->
                     var previewFile by remember(entry.id) { mutableStateOf<File?>(null) }
                     LaunchedEffect(entry.id, unlocked) {
-                        previewFile = withContext(Dispatchers.IO) {
-                            repository.createImagePreviewFile(entry.id, password.toCharArray())
+                        if (!unlocked) {
+                            previewFile = null
+                        } else {
+                            previewFile = runCatching {
+                                withContext(Dispatchers.IO) {
+                                    repository.createImagePreviewFile(entry, password.toCharArray())
+                                }
+                            }.getOrNull()
                         }
                     }
                     DisposableEffect(previewFile) {

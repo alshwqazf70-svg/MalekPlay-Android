@@ -35,13 +35,12 @@ class PrivateVaultRepository(context: Context) {
      * Only small image entries are eligible; callers must delete the returned file
      * when the row leaves composition or the vault is locked.
      */
-    @Synchronized fun createImagePreviewFile(id: String, password: CharArray): File? {
-        requireValidId(id)
-        val entry = readIndex(password).firstOrNull { it.id == id } ?: return null
+    @Synchronized fun createImagePreviewFile(entry: PrivateVaultEntry, password: CharArray): File? {
+        requireValidId(entry.id)
         if (!entry.mimeType.startsWith("image/") || entry.sizeBytes !in 1L..(24L * 1024L * 1024L)) return null
-        val encrypted = payload(id)
+        val encrypted = payload(entry.id)
         if (!encrypted.isFile) return null
-        val preview = File(cacheDirectory, ".malek-vault-preview-$id-${UUID.randomUUID()}.img")
+        val preview = File(cacheDirectory, ".malek-vault-preview-${entry.id}-${UUID.randomUUID()}.img")
         try {
             FileInputStream(encrypted).use { source ->
                 FileOutputStream(preview).use { sink ->
