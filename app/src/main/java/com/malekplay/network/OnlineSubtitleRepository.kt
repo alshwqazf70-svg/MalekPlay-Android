@@ -206,6 +206,10 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                     },
                     titleSearch = {
                         search(providerTitle, providerLanguages, null, null, mediaUri)
+                    },
+                    shouldFallback = { results ->
+                        results.map { SubtitleQueryCleaner.normalizeLanguage(it.language) }
+                            .toSet().containsAll(setOf("ar", "en")).not()
                     }
                 )
             }
@@ -224,7 +228,11 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                         cleaned.title, providerLanguages, null, null, cleaned.year,
                         requireNotNull(subdlKey), tvSearch = season != null || episode != null
                     )
-                }
+                },
+                shouldFallback = { results ->
+                        results.map { SubtitleQueryCleaner.normalizeLanguage(it.language) }
+                            .toSet().containsAll(setOf("ar", "en")).not()
+                    }
             )
         } else null
         val combined = (
