@@ -568,7 +568,7 @@ class PlaybackService : MediaSessionService() {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             performanceQualityCap = null
             lastObservedVideoTrackSignature = null
-            VideoEnhancementMetrics.reset()
+            VideoEnhancementMetrics.resetPlaybackSession()
             lastRendererFrameCount = 0L
             lastAverageProcessingOffsetUs = 0L
             droppedVideoFramesTotal = 0L
@@ -640,7 +640,7 @@ class PlaybackService : MediaSessionService() {
     private fun setVideoUpscaling(enabled: Boolean): Boolean {
         if (enabled && !isLocalClearVideoSession()) return false
         val previous = videoUpscalingEnabled
-        if (enabled && !hasAnyVideoEnhancementEnabled()) VideoEnhancementMetrics.reset()
+        if (enabled && !hasAnyVideoEnhancementEnabled()) VideoEnhancementMetrics.resetPlaybackSession()
         videoUpscalingEnabled = enabled
         if (applyVideoEnhancements()) return true
         videoUpscalingEnabled = previous
@@ -651,7 +651,7 @@ class PlaybackService : MediaSessionService() {
     private fun setVideoNoiseReduction(enabled: Boolean): Boolean {
         if (enabled && !isLocalClearVideoSession()) return false
         val previous = videoNoiseReductionEnabled
-        if (enabled && !hasAnyVideoEnhancementEnabled()) VideoEnhancementMetrics.reset()
+        if (enabled && !hasAnyVideoEnhancementEnabled()) VideoEnhancementMetrics.resetPlaybackSession()
         videoNoiseReductionEnabled = enabled
         if (applyVideoEnhancements()) return true
         videoNoiseReductionEnabled = previous
@@ -679,7 +679,7 @@ class PlaybackService : MediaSessionService() {
         if (enabled && !isLocalClearVideoSession()) return false
         val previousUpscaling = videoUpscalingEnabled
         val previousDenoise = videoNoiseReductionEnabled
-        if (enabled && !hasAnyVideoEnhancementEnabled()) VideoEnhancementMetrics.reset()
+        if (enabled && !hasAnyVideoEnhancementEnabled()) VideoEnhancementMetrics.resetPlaybackSession()
         videoUpscalingEnabled = enabled
         videoNoiseReductionEnabled = enabled
         if (applyVideoEnhancements()) return true
