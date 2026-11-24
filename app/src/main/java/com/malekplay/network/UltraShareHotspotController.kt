@@ -38,7 +38,7 @@ internal class UltraShareHotspotController(
             return
         }
         if (reservation != null || isStarting) return
-        val wifiManager = appContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+        val wifiManager = appContext.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
         if (wifiManager == null) {
             onFailure("خدمة Wi-Fi غير متاحة على هذا الجهاز.")
             return
