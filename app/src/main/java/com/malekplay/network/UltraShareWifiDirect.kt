@@ -1113,15 +1113,16 @@ object UltraShareWifiDirect {
                 manager.requestGroupInfo(channel) { existingGroup ->
                     if (!isCurrentWifiDirectGroupAttempt(closed, groupAttemptToken, token)) return@requestGroupInfo
                     if (existingGroup?.isGroupOwner == true) {
-                        finishGroupAttempt(token)
+                        // GroupInfo may outlive the P2P connection that created it.
+                        // It is not proof that Android currently has a formed group:
+                        // stale owner records were previously enough to publish QR
+                        // before the ConnectionInfo callback reported groupFormed.
                         UltraShareDiagnostics.event(
                             "WIFI_DIRECT",
-                            "OWNER_GROUP_READY_WAITING_FOR_PEER",
+                            "EXISTING_OWNER_GROUP_REQUIRES_CONNECTION_CONFIRMATION",
                             mapOf("clientCount" to existingGroup.clientList.size)
                         )
-                        publishGroupCredentials(existingGroup, null)
-                        onCreated()
-                        requestConnectionInfo()
+                        awaitReceiverGroup(onCreated, 0, token)
                         return@requestGroupInfo
                     }
                     if (existingGroup != null) {
