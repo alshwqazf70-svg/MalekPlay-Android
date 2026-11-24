@@ -7,7 +7,9 @@ internal object SubtitleResultPolicy {
 
     /**
      * A provider's episode filters can be overly strict or incomplete. Retry with
-     * the title alone only when an episode-scoped search returned no candidates.
+     * the title when scoped candidates are incomplete (for example, one requested
+     * language is missing), preserving scoped hits and later rejecting explicit
+     * neighbouring episodes while retaining unnumbered language fallbacks.
      */
     fun <T> withEpisodeFallback(
         season: Int?,
