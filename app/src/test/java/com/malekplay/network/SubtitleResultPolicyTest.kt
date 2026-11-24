@@ -242,4 +242,36 @@ class SubtitleResultPolicyTest {
         assertEquals(emptyList<Int>(), SubtitleResultPolicy.availableEpisodes(listOf(item), 4))
     }
 
+    @Test
+    fun rejectsMultiEpisodeRangesFromEpisodeResultsAndPicker() {
+        val results = listOf(
+            item("ar", "Show S01E02-E03 Arabic"),
+            item("ar", "Show S01E02-03 Arabic"),
+            item("ar", "Show 1x02-03 Arabic"),
+            item("ar", "Show Season 1 Episodes 2-3 Arabic"),
+            item("ar", "Show S01E02 Arabic")
+        )
+        assertEquals(
+            listOf("Show S01E02 Arabic"),
+            SubtitleResultPolicy.rankAndFilter(results, "ar", 1, 2).map { it.release }
+        )
+        assertEquals(listOf(2), SubtitleResultPolicy.availableEpisodes(results, 1))
+    }
+
+    @Test
+    fun rejectsSeasonPackNamesEvenWhenProviderOmitsPackMetadata() {
+        val packs = listOf(
+            item("ar", "Show Full Season"),
+            item("ar", "Show Season 1 Complete"),
+            item("ar", "Show Complete Season 1"),
+            item("ar", "Show S01 Pack"),
+            item("ar", "Show All Episodes")
+        )
+        assertEquals(
+            emptyList<String>(),
+            SubtitleResultPolicy.rankAndFilter(packs, "ar", 1, 2).map { it.release }
+        )
+        assertEquals(emptyList<Int>(), SubtitleResultPolicy.availableEpisodes(packs, 1))
+    }
+
 }
