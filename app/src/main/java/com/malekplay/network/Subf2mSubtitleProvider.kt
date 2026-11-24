@@ -78,15 +78,9 @@ internal class Subf2mSubtitleProvider {
         year: Int?,
         season: Int?
     ): List<Pair<String, String>> {
-        val resultStart = SEARCH_RESULT_OPEN.find(html)?.range?.last ?: return emptyList()
-        val resultBlock = html.substring(resultStart + 1)
-        val heading = RESULT_HEADING.find(resultBlock) ?: return emptyList()
-        val listStart = RESULT_LIST_OPEN.find(resultBlock, heading.range.last + 1)
-            ?: return emptyList()
-        val listEnd = resultBlock.indexOf("</ul>", listStart.range.last + 1)
-            .takeIf { it >= 0 } ?: return emptyList()
-        val listHtml = resultBlock.substring(listStart.range.last + 1, listEnd)
-        return RESULT_ANCHOR.findAll(listHtml).mapNotNull { match ->
+        // The live SubF2M search page renders each hit as:
+        // li > div.title > a[href="/subtitles/..."].
+        return TITLE_ANCHOR.findAll(html).mapNotNull { match ->
             val rawPath = decodeHtml(match.groupValues[1])
             if (!rawPath.startsWith("/subtitles/") || rawPath.contains("..")) return@mapNotNull null
             val resultTitle = decodeHtml(stripTags(match.groupValues[2]))
@@ -99,9 +93,8 @@ internal class Subf2mSubtitleProvider {
     internal fun resolveDownloadPageLink(page: String, detailUrl: String): String? {
         // SubF2M's current download action is an anchor with a download class;
         // older layouts may wrap it in a download div or use a /download href.
-        val raw = DOWNLOAD_ANCHOR.find(page)?.groupValues?.get(1)?.let(::decodeHtml)
+        val raw = DOWNLOAD_BUTTON.find(page)?.groupValues?.get(1)?.let(::decodeHtml)
             ?: DOWNLOAD_HREF.find(page)?.groupValues?.get(1)?.let(::decodeHtml)
-            ?: DOWNLOAD_BUTTON.find(page)?.groupValues?.get(1)?.let(::decodeHtml)
             ?: return null
         return resolveSiteUrl(raw, detailUrl)
     }
@@ -223,7 +216,9 @@ internal class Subf2mSubtitleProvider {
         }
         val request = Request.Builder().url(url)
             .header("User-Agent", USER_AGENT)
-            .header("Accept", "text/html,application/xhtml+xml")
+            .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+            .header("Accept-Language", "en-US,en;q=0.9")
+            .header("Upgrade-Insecure-Requests", "1")
             .apply { referer?.let { header("Referer", it) } }
             .get().build()
         client.newCall(request).execute().use { response ->
