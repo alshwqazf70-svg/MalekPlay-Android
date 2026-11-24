@@ -27,7 +27,7 @@ internal object SubtitleProviderResultParser {
         val candidateType = item.optString("type").trim().lowercase(Locale.ROOT)
         val candidateYear = item.optInt("year").takeIf { it > 0 }
         val names = listOf(item.optString("name"), item.optString("original_name"))
-        (candidateType.isBlank() || mediaType.equals("any", true) || candidateType == mediaType.lowercase(Locale.ROOT)) &&
+        return (candidateType.isBlank() || mediaType.equals("any", true) || candidateType == mediaType.lowercase(Locale.ROOT)) &&
             (year == null || candidateYear == null || candidateYear == year) &&
             names.any { normalizeIdentityTitle(it) == wanted }
     }
