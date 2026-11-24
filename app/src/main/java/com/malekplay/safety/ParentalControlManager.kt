@@ -36,16 +36,11 @@ class ParentalControlManager(context: Context) {
 
     fun setSessionLimitMinutes(minutes: Int) = synchronized(PIN_LOCK) {
         val clean = minutes.coerceIn(0, 240)
-        check(
-            prefs.edit()
-                .putInt(KEY_SESSION_LIMIT_MIN, clean)
-                .apply {
-                    if (isEnabled && clean > 0) {
-                        putLong(KEY_SESSION_STARTED_AT_MS, System.currentTimeMillis())
-                    }
-                }
-                .commit()
-        ) { "تعذر حفظ مؤقت وضع الأطفال" }
+        val editor = prefs.edit().putInt(KEY_SESSION_LIMIT_MIN, clean)
+        if (isEnabled && clean > 0) {
+            editor.putLong(KEY_SESSION_STARTED_AT_MS, System.currentTimeMillis())
+        }
+        check(editor.commit()) { "تعذر حفظ مؤقت وضع الأطفال" }
     }
 
     fun extendSessionAfterPin(pin: String, extraMinutes: Int = 15): Boolean = synchronized(PIN_LOCK) {

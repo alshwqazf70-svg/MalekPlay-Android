@@ -483,7 +483,7 @@ fun KidsModeScreen(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text(stringResource(R.string.lib_search)) },
+                    placeholder = { Text(stringResource(R.string.lib_search_hint)) },
                     leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
                     trailingIcon = {
                         if (searchQuery.isNotEmpty()) {
@@ -506,7 +506,7 @@ fun KidsModeScreen(
                     FilterChip(
                         selected = mediaFilter == "all",
                         onClick = { mediaFilter = "all" },
-                        label = { Text(stringResource(R.string.lib_all)) }
+                        label = { Text(stringResource(R.string.settings_section_all)) }
                     )
                     FilterChip(
                         selected = mediaFilter == "video",
@@ -548,7 +548,7 @@ fun KidsModeScreen(
                             selected = selectedFolder == null,
                             onClick = { selectedFolder = null },
                             leadingIcon = { Icon(Icons.Filled.Folder, contentDescription = null, modifier = Modifier.size(15.dp)) },
-                            label = { Text(stringResource(R.string.lib_folders)) }
+                            label = { Text(stringResource(R.string.lib_title_folders)) }
                         )
                         folders.forEach { folder ->
                             FilterChip(
