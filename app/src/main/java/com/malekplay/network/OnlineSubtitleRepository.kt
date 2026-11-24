@@ -165,7 +165,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         // Share one network fan-out for simultaneous identical searches.
         // Each caller applies its own language filter to the combined results.
         val candidate = FutureTask {
-            searchAutomaticUncached(queryKey, cleaned, providerTitle, resolvedSeason, resolvedEpisode, mediaUri)
+            searchAutomaticUncached(queryKey, cleaned, resolvedSeason, resolvedEpisode, mediaUri)
         }
         // putIfAbsent is available on the minimum supported Android API (23), unlike
         // ConcurrentHashMap.computeIfAbsent, which was added to Android in API 24.
@@ -190,7 +190,6 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
     private fun searchAutomaticUncached(
         queryKey: String,
         cleaned: CleanSubtitleQuery,
-        providerTitle: String,
         season: Int?,
         episode: Int?,
         mediaUri: Uri?
@@ -231,7 +230,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         }.toSet()
         val needsBackup = primaryResults.isEmpty() ||
             !primaryLanguages.containsAll(setOf("ar", "en"))
-        val imdbId = if (subdlKey != null) runCatching {
+        val imdbId = if (needsBackup && subdlKey != null) runCatching {
             searchSubDlTvIdentity(
                 cleaned.title, cleaned.year, subdlKey,
                 if (season != null || episode != null) "tv" else "movie"
