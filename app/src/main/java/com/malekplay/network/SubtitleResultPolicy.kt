@@ -48,9 +48,9 @@ internal object SubtitleResultPolicy {
 
     private fun parseReleaseEpisode(release: String): Pair<Int, Int?>? {
         val patterns = listOf(
-            Regex("(?i)\\\\bS0*(\\\\d{1,2})[ ._-]*E0*(\\\\d{1,3})\\\\b"),
-            Regex("(?i)\\\\b(\\\\d{1,2})x0*(\\\\d{1,3})\\\\b"),
-            Regex("(?i)\\\\bSeason\\\\s*0*(\\\\d{1,2})\\\\s*(?:Episode|Ep)\\\\s*0*(\\\\d{1,3})\\\\b")
+            Regex("(?i)\\bS0*(\\d{1,2})[ ._-]*E0*(\\d{1,3})\\b"),
+            Regex("(?i)\\b(\\d{1,2})x0*(\\d{1,3})\\b"),
+            Regex("(?i)\\bSeason\\s*0*(\\d{1,2})\\s*(?:Episode|Ep)\\s*0*(\\d{1,3})\\b")
         )
         patterns.forEach { pattern ->
             val match = pattern.find(release) ?: return@forEach
@@ -58,7 +58,7 @@ internal object SubtitleResultPolicy {
             val episode = match.groupValues[2].toIntOrNull() ?: return@forEach
             if (season > 0 && episode > 0) return season to episode
         }
-        val seasonOnly = Regex("(?i)\\\\b(?:Season|S)\\\\s*0*(\\\\d{1,2})\\\\b").find(release)
+        val seasonOnly = Regex("(?i)\\b(?:Season|S)\\s*0*(\\d{1,2})\\b").find(release)
             ?.groupValues?.get(1)?.toIntOrNull()?.takeIf { it > 0 }
         return seasonOnly?.let { it to null }
     }
