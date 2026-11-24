@@ -64,7 +64,7 @@ internal class Subf2mSubtitleProvider {
                 val pageTitle = PAGE_TITLE.find(page)?.groupValues?.get(1)
                     ?.let { decodeHtml(stripTags(it)).removePrefix("Subtitles for ").trim() }
                 if (!pageTitle.isNullOrBlank() &&
-                    !similarTitle(title, pageTitle, year, season) &&
+                    !similarTitle(title, pageTitle) &&
                     pageImdb != imdbId
                 ) continue
 
@@ -98,6 +98,8 @@ internal class Subf2mSubtitleProvider {
                     if (results.size >= MAX_RESULTS) return results
                 }
             }
+            val languagesFound = results.map { it.language }.toSet()
+            if (languagesFound.containsAll(setOf("ar", "en"))) return results
         }
         return results
     }
@@ -207,10 +209,10 @@ internal class Subf2mSubtitleProvider {
             val parsed = seasonNumber(candidate)
             if (parsed != null && parsed != season) return false
         }
-        return similarTitle(wanted, candidate, year, season)
+        return similarTitle(wanted, candidate)
     }
 
-    private fun similarTitle(wanted: String, candidate: String, year: Int?, season: Int?): Boolean {
+    private fun similarTitle(wanted: String, candidate: String): Boolean {
         val a = normalizeTitle(wanted)
         val b = normalizeTitle(candidate)
         val tokens = a.split(' ').filter { it.length > 1 && it.toIntOrNull() == null }
