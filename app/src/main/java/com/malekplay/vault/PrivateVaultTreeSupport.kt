@@ -40,7 +40,6 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
     fun importFolder(treeUri: Uri, password: CharArray, moveSource: Boolean): VaultFolderResult {
         val nodes = enumerate(treeUri)
         val files = nodes.filterNot { it.directory }
-        require(files.isNotEmpty()) { "المجلد المحدد لا يحتوي على ملفات." }
         val rootName = queryDisplayName(rootDocumentUri(treeUri)).ifBlank { "مجلد خاص" }
         val tempArchive = File(appContext.cacheDir, ".malek-vault-${UUID.randomUUID()}.zip")
         val stored = try {
@@ -75,12 +74,14 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
     fun restoreFolder(entry: PrivateVaultEntry, destinationTree: Uri, password: CharArray) {
         require(entry.mimeType == FOLDER_ARCHIVE_MIME) { "هذا العنصر ليس مجلداً." }
         val tempArchive = File(appContext.cacheDir, ".malek-restore-${UUID.randomUUID()}.zip")
+        val createdDocuments = mutableListOf<Uri>()
         try {
             vault.exportToFile(entry.id, tempArchive, password)
             val rootFolder = DocumentsContract.createDocument(
                 resolver, rootDocumentUri(destinationTree), DocumentsContract.Document.MIME_TYPE_DIR,
                 safeSegment(entry.displayName).ifBlank { "Restored folder" }
             ) ?: error("تعذر إنشاء مجلد الاستعادة.")
+            createdDocuments += rootFolder
             FileInputStream(tempArchive).use { raw ->
                 ZipInputStream(raw).use { zip ->
                     while (true) {
@@ -96,11 +97,13 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
                                     check(isDirectory) { "يوجد ملف بالاسم نفسه في مجلد الاستعادة: $part" }
                                     existing
                                 } else {
-                                    DocumentsContract.createDocument(
+                                    val created = DocumentsContract.createDocument(
                                         resolver, parent,
                                         if (isDirectory) DocumentsContract.Document.MIME_TYPE_DIR else item.comment ?: "application/octet-stream",
                                         part
                                     ) ?: error("تعذر إنشاء $part")
+                                    createdDocuments += created
+                                    created
                                 }
                                 if (!isDirectory && index == parts.lastIndex) {
                                     resolver.openOutputStream(parent, "wt")?.use { zip.copyTo(it) }
@@ -112,6 +115,12 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
                     }
                 }
             }
+        } catch (failure: Throwable) {
+            // Roll back only documents created by this restore attempt, deepest first.
+            createdDocuments.asReversed().forEach { uri ->
+                runCatching { DocumentsContract.deleteDocument(resolver, uri) }
+            }
+            throw failure
         } finally {
             tempArchive.delete()
         }
