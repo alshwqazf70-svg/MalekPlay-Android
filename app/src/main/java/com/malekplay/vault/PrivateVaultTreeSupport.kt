@@ -57,6 +57,20 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
     private data class Node(val uri: Uri, val name: String, val relativePath: String, val directory: Boolean)
 
     fun importFolder(treeUri: Uri, password: CharArray, moveSource: Boolean): VaultFolderResult {
+        val session = vault.openSession(password)
+        return try {
+            importFolder(treeUri, session, moveSource)
+        } finally {
+            session.close()
+        }
+    }
+
+    fun importFolder(
+        treeUri: Uri,
+        session: PrivateVaultSession,
+        moveSource: Boolean,
+        onProgress: ((current: Int, total: Int, label: String) -> Unit)? = null
+    ): VaultFolderResult {
         val nodes = enumerate(treeUri)
         val files = nodes.filterNot { it.directory }
         val rootName = queryDisplayName(rootDocumentUri(treeUri)).ifBlank { "مجلد خاص" }
@@ -71,7 +85,8 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
                             zip.closeEntry()
                         }
                     }
-                    files.forEach { node ->
+                    files.forEachIndexed { idx, node ->
+                        onProgress?.invoke(idx + 1, files.size.coerceAtLeast(1), node.name)
                         val path = safeArchivePath(node.relativePath)
                         require(path.isNotEmpty()) { "مسار ملف غير صالح." }
                         val zipEntry = ZipEntry(path).apply { comment = resolver.getType(node.uri) ?: "application/octet-stream" }
@@ -82,7 +97,9 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
                     }
                 }
             }
-            FileInputStream(tempArchive).use { vault.importStream(rootName, FOLDER_ARCHIVE_MIME, it, password) }
+            FileInputStream(tempArchive).use {
+                vault.importStream(rootName, FOLDER_ARCHIVE_MIME, it, session)
+            }
         } finally {
             tempArchive.delete()
         }
@@ -94,11 +111,20 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
     }
 
     fun restoreFolder(entry: PrivateVaultEntry, destinationTree: Uri, password: CharArray) {
+        val session = vault.openSession(password)
+        try {
+            restoreFolder(entry, destinationTree, session)
+        } finally {
+            session.close()
+        }
+    }
+
+    fun restoreFolder(entry: PrivateVaultEntry, destinationTree: Uri, session: PrivateVaultSession) {
         require(entry.mimeType == FOLDER_ARCHIVE_MIME) { "هذا العنصر ليس مجلداً." }
         val tempArchive = File(appContext.cacheDir, ".malek-restore-${UUID.randomUUID()}.zip")
         val createdDocuments = mutableListOf<Uri>()
         try {
-            vault.exportToFile(entry.id, tempArchive, password)
+            vault.exportToFile(entry.id, tempArchive, session)
             val rootFolder = DocumentsContract.createDocument(
                 resolver, rootDocumentUri(destinationTree), DocumentsContract.Document.MIME_TYPE_DIR,
                 safeSegment(entry.displayName).ifBlank { "Restored folder" }

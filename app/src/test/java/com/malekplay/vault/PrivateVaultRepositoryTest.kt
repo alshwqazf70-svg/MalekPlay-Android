@@ -251,4 +251,76 @@ class PrivateVaultRepositoryTest {
         }
     }
 
+    @Test
+    fun changePasswordRewrapsMasterKeyWithoutCorruptingEntriesAndOldPasswordFails() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val vaultDirectory = File(context.filesDir, "private_vault")
+        vaultDirectory.deleteRecursively()
+        val oldPassword = "old-vault-password".toCharArray()
+        val newPassword = "new-vault-password-2026".toCharArray()
+        val payload = ByteArray(140_000) { ((it * 7) xor 0x3C).toByte() }
+
+        try {
+            val repository = PrivateVaultRepository(context)
+            val session = repository.create(oldPassword)
+            val entry = repository.importStream(
+                "clip.mp4",
+                "video/mp4",
+                ByteArrayInputStream(payload),
+                session
+            )
+            val updatedSession = repository.changePassword(session, oldPassword, newPassword)
+            assertTrue(session.isClosed)
+
+            assertThrows(Exception::class.java) { repository.openSession(oldPassword) }
+
+            val reopenedSession = repository.openSession(newPassword)
+            try {
+                assertEquals(entry.id, repository.list(reopenedSession).single().id)
+                val inMemory = repository.readEntryBytes(entry, reopenedSession)
+                assertArrayEquals(payload, inMemory)
+            } finally {
+                reopenedSession.close()
+                updatedSession.close()
+            }
+        } finally {
+            oldPassword.fill('\u0000')
+            newPassword.fill('\u0000')
+            vaultDirectory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun openSeekableReaderStreamsV2EntryInMemoryWithoutTempFiles() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val vaultDirectory = File(context.filesDir, "private_vault")
+        vaultDirectory.deleteRecursively()
+        val password = "seek-reader-password".toCharArray()
+        val payload = ByteArray(100_000) { (it * 19).toByte() }
+
+        try {
+            val repository = PrivateVaultRepository(context)
+            val session = repository.create(password)
+            val entry = repository.importStream(
+                "stream.mkv",
+                "video/x-matroska",
+                ByteArrayInputStream(payload),
+                session
+            )
+            val reader = repository.openSeekableReader(entry.id, session)!!
+            try {
+                val slice = ByteArray(1024)
+                val read = reader.readAt(70_000L, slice, 0, slice.size)
+                assertEquals(1024, read)
+                assertArrayEquals(payload.copyOfRange(70_000, 71_024), slice)
+            } finally {
+                reader.close()
+                session.close()
+            }
+        } finally {
+            password.fill('\u0000')
+            vaultDirectory.deleteRecursively()
+        }
+    }
+
 }

@@ -30,6 +30,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.AspectRatio
+import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.ChevronLeft
@@ -184,6 +185,8 @@ fun PlayerControlRail(
     expanded: Boolean,
     onExpandToggle: () -> Unit,
     modifier: Modifier = Modifier,
+    onVideoEnhancement: () -> Unit = {},
+    enhancementActive: Boolean = false,
     onEqualizer: () -> Unit,
     onSpeed: () -> Unit,
     onScreenshot: () -> Unit,
@@ -202,6 +205,12 @@ fun PlayerControlRail(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            PlayerRoundButton(
+                icon = Icons.Filled.AutoFixHigh,
+                contentDescription = stringResource(R.string.menu_video_enhancement),
+                onClick = onVideoEnhancement,
+                active = enhancementActive
+            )
             PlayerRoundButton(Icons.Filled.GraphicEq, stringResource(R.string.player_equalizer), onEqualizer)
             PlayerRoundButton(
                 Icons.Filled.PlayArrow, stringResource(R.string.player_speed), onSpeed, label = speedLabel

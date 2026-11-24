@@ -1,12 +1,51 @@
 package com.malekplay.vault
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.os.Build
 import android.provider.OpenableColumns
 import java.io.*
 import java.util.UUID
 
-data class PrivateVaultEntry(val id: String, val displayName: String, val mimeType: String, val sizeBytes: Long)
+data class PrivateVaultEntry(
+    val id: String,
+    val displayName: String,
+    val mimeType: String,
+    val sizeBytes: Long,
+    val addedAtMs: Long = 0L
+)
+
+/**
+ * Unlocked in-memory session holding the unwrapped 256-bit Master Key (DEK).
+ * Call [close] when locking the vault or leaving the screen to zero out key material.
+ */
+class PrivateVaultSession internal constructor(
+    internal val masterKey: ByteArray,
+    private val legacyPassword: CharArray? = null
+) : Closeable {
+    @Volatile
+    var isClosed: Boolean = false
+        private set
+
+    internal fun requireMasterKey(): ByteArray {
+        check(!isClosed) { "Vault session is locked." }
+        return masterKey
+    }
+
+    internal fun legacyPasswordCopy(): CharArray? =
+        if (isClosed) null else legacyPassword?.copyOf()
+
+    override fun close() {
+        if (!isClosed) {
+            isClosed = true
+            masterKey.fill(0)
+            legacyPassword?.fill('\u0000')
+        }
+    }
+}
 
 /** Encrypted app-private vault. Import copies; it never deletes a source implicitly. */
 class PrivateVaultRepository(context: Context) {
@@ -16,24 +55,156 @@ class PrivateVaultRepository(context: Context) {
     private val directory = File(appContext.filesDir, "private_vault").apply {
         check(isDirectory || mkdirs()) { "تعذر إنشاء مساحة الخزنة الخاصة." }
     }
+    private val thumbsDirectory = File(directory, "thumbs").apply {
+        check(isDirectory || mkdirs()) { "تعذر إنشاء مجلد المصغرات." }
+    }
     private val indexFile = File(directory, "vault.index.enc")
     private val backupIndex = File(directory, "vault.index.bak")
-    init { if (!indexFile.exists() && backupIndex.exists()) backupIndex.renameTo(indexFile) }
+    private val keyFile = File(directory, "vault.key.enc")
+    private val backupKeyFile = File(directory, "vault.key.bak")
+
+    init {
+        if (!indexFile.exists() && backupIndex.exists()) backupIndex.renameTo(indexFile)
+        if (!keyFile.exists() && backupKeyFile.exists()) backupKeyFile.renameTo(keyFile)
+    }
+
     private val legacyIndexMagic = 0x4D4B5649
-    private val indexMagic = 0x4D4B564A
+    private val indexMagicV1 = 0x4D4B564A
+    private val indexMagicV2 = 0x4D4B564B
     private val maxEntries = 20_000
 
     @Synchronized fun isConfigured() = indexFile.isFile && indexFile.length() > 0L
-    @Synchronized fun create(password: CharArray) {
+
+    @Synchronized fun create(password: CharArray): PrivateVaultSession {
         check(!isConfigured()) { "Vault is already configured." }
-        persistIndex(emptyList(), password)
+        val masterKey = PrivateVaultCrypto.generateMasterKey()
+        return try {
+            persistMasterKey(masterKey, password)
+            persistIndexWithKey(emptyList(), masterKey)
+            PrivateVaultSession(masterKey.copyOf(), password.copyOf())
+        } finally {
+            masterKey.fill(0)
+        }
     }
-    @Synchronized fun list(password: CharArray): List<PrivateVaultEntry> = readIndex(password)
 
     /**
-     * Creates a short-lived plaintext image preview in the app cache.
-     * Only small image entries are eligible; callers must delete the returned file
-     * when the row leaves composition or the vault is locked.
+     * Authenticates [password] once (single PBKDF2 derivation) and returns a fast
+     * [PrivateVaultSession] holding the 256-bit Master Key for subsequent operations.
+     */
+    @Synchronized fun openSession(password: CharArray): PrivateVaultSession {
+        check(isConfigured()) { "Vault has not been created." }
+        val masterKey = unwrapOrMigrateMasterKey(password)
+        return try {
+            readIndexInternal(masterKey, password)
+            PrivateVaultSession(masterKey.copyOf(), password.copyOf())
+        } finally {
+            masterKey.fill(0)
+        }
+    }
+
+    @Synchronized fun changePassword(
+        session: PrivateVaultSession,
+        currentPassword: CharArray,
+        newPassword: CharArray
+    ): PrivateVaultSession {
+        require(newPassword.size >= 8) { "Vault password must contain at least 8 characters." }
+        val verifiedKey = unwrapOrMigrateMasterKey(currentPassword)
+        try {
+            check(verifiedKey.contentEquals(session.requireMasterKey())) {
+                "Current vault key mismatch."
+            }
+            persistMasterKey(verifiedKey, newPassword)
+            session.close()
+            return PrivateVaultSession(verifiedKey.copyOf(), newPassword.copyOf())
+        } finally {
+            verifiedKey.fill(0)
+        }
+    }
+
+    @Synchronized fun list(password: CharArray): List<PrivateVaultEntry> {
+        check(isConfigured()) { "Vault has not been created." }
+        val masterKey = unwrapOrMigrateMasterKey(password)
+        return try {
+            readIndexInternal(masterKey, password)
+        } finally {
+            masterKey.fill(0)
+        }
+    }
+
+    @Synchronized fun list(session: PrivateVaultSession): List<PrivateVaultEntry> {
+        check(isConfigured()) { "Vault has not been created." }
+        val legacyPwd = session.legacyPasswordCopy()
+        return try {
+            readIndexInternal(session.requireMasterKey(), legacyPwd)
+        } finally {
+            legacyPwd?.fill('\u0000')
+        }
+    }
+
+    /**
+     * Loads and decrypts an entry's thumbnail strictly in memory (returns null if none).
+     */
+    fun loadThumbnailBytes(entryId: String, session: PrivateVaultSession): ByteArray? {
+        requireValidId(entryId)
+        val file = thumbFile(entryId)
+        if (!file.isFile) return null
+        return runCatching {
+            PrivateVaultCrypto.decryptWithKey(file.readBytes(), session.requireMasterKey())
+        }.getOrNull()
+    }
+
+    /**
+     * Reads an entry's plaintext bytes strictly in memory (for image/text viewing)
+     * without ever writing decrypted data to app cache or external storage.
+     */
+    fun readEntryBytes(
+        entry: PrivateVaultEntry,
+        session: PrivateVaultSession,
+        maxBytes: Int = 32 * 1024 * 1024
+    ): ByteArray {
+        requireValidId(entry.id)
+        if (entry.sizeBytes > maxBytes) {
+            error("الملف كبير جداً للعرض المباشر في الذاكرة (${entry.sizeBytes} bytes).")
+        }
+        val encrypted = payload(entry.id)
+        check(encrypted.isFile) { "Encrypted file is missing." }
+        val key = session.requireMasterKey()
+        val legacyPwd = session.legacyPasswordCopy()
+        return try {
+            val out = object : ByteArrayOutputStream(entry.sizeBytes.coerceIn(0L, maxBytes.toLong()).toInt()) {
+                override fun write(b: Int) {
+                    check(count + 1 <= maxBytes) { "Entry exceeds in-memory preview limit." }
+                    super.write(b)
+                }
+
+                override fun write(b: ByteArray, off: Int, len: Int) {
+                    check(count + len <= maxBytes) { "Entry exceeds in-memory preview limit." }
+                    super.write(b, off, len)
+                }
+            }
+            PrivateVaultCrypto.decryptStreamAuto(encrypted, out, key, legacyPwd)
+            out.toByteArray()
+        } finally {
+            legacyPwd?.fill('\u0000')
+        }
+    }
+
+    /**
+     * Opens a random-access seekable decrypting reader for isolated in-vault ExoPlayer playback.
+     * Supports v2 chunked entries with O(1) seek and zero plaintext cache files.
+     */
+    internal fun openSeekableReader(
+        entryId: String,
+        session: PrivateVaultSession
+    ): PrivateVaultCrypto.VaultSeekableReader? {
+        requireValidId(entryId)
+        val encrypted = payload(entryId)
+        if (!encrypted.isFile || !PrivateVaultCrypto.isChunkedV2File(encrypted)) return null
+        return PrivateVaultCrypto.VaultSeekableReader(encrypted, session.requireMasterKey())
+    }
+
+    /**
+     * Legacy compatibility helper; prefers in-memory [readEntryBytes] in new UI code.
      */
     @Synchronized fun createImagePreviewFile(entry: PrivateVaultEntry, password: CharArray): File? {
         requireValidId(entry.id)
@@ -41,17 +212,18 @@ class PrivateVaultRepository(context: Context) {
         val encrypted = payload(entry.id)
         if (!encrypted.isFile) return null
         val preview = File(cacheDirectory, ".malek-vault-preview-${entry.id}-${UUID.randomUUID()}.img")
-        try {
-            FileInputStream(encrypted).use { source ->
-                FileOutputStream(preview).use { sink ->
-                    PrivateVaultCrypto.decrypt(source, sink, password)
-                    sink.fd.sync()
-                }
+        val masterKey = unwrapOrMigrateMasterKey(password)
+        return try {
+            FileOutputStream(preview).use { sink ->
+                PrivateVaultCrypto.decryptStreamAuto(encrypted, sink, masterKey, password)
+                sink.fd.sync()
             }
-            return preview
+            preview
         } catch (failure: Throwable) {
             preview.delete()
             throw failure
+        } finally {
+            masterKey.fill(0)
         }
     }
 
@@ -61,10 +233,26 @@ class PrivateVaultRepository(context: Context) {
         displayNameOverride: String? = null,
         mimeTypeOverride: String? = null
     ): PrivateVaultEntry {
+        val session = openSession(password)
+        return try {
+            importUri(uri, session, displayNameOverride, mimeTypeOverride)
+        } finally {
+            session.close()
+        }
+    }
+
+    @Synchronized fun importUri(
+        uri: Uri,
+        session: PrivateVaultSession,
+        displayNameOverride: String? = null,
+        mimeTypeOverride: String? = null,
+        onProgress: ((Long) -> Unit)? = null
+    ): PrivateVaultEntry {
         val name = displayNameOverride?.takeIf { it.isNotBlank() } ?: queryName(uri)
         val mime = mimeTypeOverride?.takeIf { it.isNotBlank() } ?: resolver.getType(uri) ?: "application/octet-stream"
+        val thumbnailBytes = runCatching { generateThumbnailJpeg(uri, mime) }.getOrNull()
         val input = resolver.openInputStream(uri) ?: error("Cannot read selected file.")
-        return importStream(name, mime, input, password)
+        return importStream(name, mime, input, session, thumbnailBytes, onProgress)
     }
 
     /** Imports a private temporary stream without exposing it through a public document provider. */
@@ -74,8 +262,25 @@ class PrivateVaultRepository(context: Context) {
         input: InputStream,
         password: CharArray
     ): PrivateVaultEntry {
+        val session = openSession(password)
+        return try {
+            importStream(displayName, mimeType, input, session)
+        } finally {
+            session.close()
+        }
+    }
+
+    @Synchronized fun importStream(
+        displayName: String,
+        mimeType: String,
+        input: InputStream,
+        session: PrivateVaultSession,
+        thumbnailBytes: ByteArray? = null,
+        onProgress: ((Long) -> Unit)? = null
+    ): PrivateVaultEntry {
         val name = displayName.takeIf { it.isNotBlank() } ?: "Private file"
         val mime = mimeType.takeIf { it.isNotBlank() } ?: "application/octet-stream"
+        val key = session.requireMasterKey()
         val id = UUID.randomUUID().toString()
         val target = payload(id)
         val temp = File(directory, "$id.tmp")
@@ -84,27 +289,39 @@ class PrivateVaultRepository(context: Context) {
         var originalSize = 0L
         try {
             input.use { rawSource ->
-                val source = CountingInputStream(rawSource)
-                FileOutputStream(temp).use { sink ->
-                    PrivateVaultCrypto.encrypt(source, sink, password)
-                    sink.fd.sync()
+                originalSize = PrivateVaultCrypto.encryptFileChunked(
+                    input = rawSource,
+                    destinationFile = temp,
+                    key = key,
+                    onBytesProcessed = onProgress
+                )
+            }
+            // Verify the chunked header, exact layout size, and final chunk tag.
+            PrivateVaultCrypto.VaultSeekableReader(temp, key).use { reader ->
+                if (reader.plaintextSize == 0L) {
+                    reader.verifyEmpty()
+                } else {
+                    val lastPos = (reader.plaintextSize - 1L).coerceAtLeast(0L)
+                    val probe = ByteArray(1)
+                    check(reader.readAt(lastPos, probe, 0, 1) == 1) {
+                        "Final chunk verification failed."
+                    }
                 }
-                originalSize = source.bytesRead
             }
-            // Authenticate the completed ciphertext before it can enter the index
-            // or before a caller is allowed to delete the original source.
-            FileInputStream(temp).use { encrypted ->
-                PrivateVaultCrypto.decrypt(encrypted, object : OutputStream() {
-                    override fun write(value: Int) = Unit
-                    override fun write(buffer: ByteArray, offset: Int, length: Int) = Unit
-                }, password)
+            val legacyPwd = session.legacyPasswordCopy()
+            val current = try {
+                readIndexInternal(key, legacyPwd)
+            } finally {
+                legacyPwd?.fill('\u0000')
             }
-            val current = readIndex(password)
             check(current.size < maxEntries) { "Vault item limit reached." }
             FileOutputStream(pending).use { it.fd.sync() }
             check(temp.renameTo(target)) { "Could not finalize encrypted file." }
-            val entry = PrivateVaultEntry(id, name, mime, originalSize)
-            persistIndex(current + entry, password)
+            if (thumbnailBytes != null && thumbnailBytes.isNotEmpty()) {
+                runCatching { saveEncryptedThumbnail(id, thumbnailBytes, key) }
+            }
+            val entry = PrivateVaultEntry(id, name, mime, originalSize, System.currentTimeMillis())
+            persistIndexWithKey(current + entry, key)
             committed = true
             pending.delete()
             return entry
@@ -113,77 +330,222 @@ class PrivateVaultRepository(context: Context) {
             if (!committed) {
                 target.delete()
                 pending.delete()
+                thumbFile(id).delete()
             }
             throw failure
         }
     }
 
     @Synchronized fun exportTo(id: String, destination: Uri, password: CharArray) {
-        requireValidId(id)
-        check(readIndex(password).any { it.id == id }) { "Vault item not found." }
-        val file = payload(id)
-        check(file.isFile) { "Encrypted file is missing." }
-        // Verify the entire GCM tag into private temporary storage before exposing plaintext.
-        val verified = File(directory, "restore-${UUID.randomUUID()}.tmp")
+        val session = openSession(password)
         try {
-            FileInputStream(file).use { source ->
-                FileOutputStream(verified).use { sink ->
-                    PrivateVaultCrypto.decrypt(source, sink, password)
-                    sink.fd.sync()
-                }
-            }
-            val output = resolver.openOutputStream(destination, "wt") ?: error("Cannot write destination.")
-            output.use { sink -> FileInputStream(verified).use { source -> source.copyTo(sink) } }
-        } finally { verified.delete() }
+            exportTo(id, destination, session)
+        } finally {
+            session.close()
+        }
     }
 
-    /** Decrypts and authenticates a folder archive into app-private storage only. */
-    @Synchronized fun exportToFile(id: String, destination: File, password: CharArray) {
+    @Synchronized fun exportTo(
+        id: String,
+        destination: Uri,
+        session: PrivateVaultSession,
+        onProgress: ((Long) -> Unit)? = null
+    ) {
         requireValidId(id)
-        check(readIndex(password).any { it.id == id }) { "Vault item not found." }
-        val encrypted = payload(id)
-        check(encrypted.isFile) { "Encrypted file is missing." }
-        val verified = File(directory, "restore-${UUID.randomUUID()}.tmp")
+        val key = session.requireMasterKey()
+        val legacyPwd = session.legacyPasswordCopy()
         try {
-            FileInputStream(encrypted).use { source ->
+            check(readIndexInternal(key, legacyPwd).any { it.id == id }) { "Vault item not found." }
+            val file = payload(id)
+            check(file.isFile) { "Encrypted file is missing." }
+            if (PrivateVaultCrypto.isChunkedV2File(file)) {
+                // Chunked v2 files authenticate each 64 KB chunk via AEAD directly into the destination stream
+                // without duplicating gigabytes of plaintext in temporary storage.
+                val output = resolver.openOutputStream(destination, "wt") ?: error("Cannot write destination.")
+                output.use { sink ->
+                    PrivateVaultCrypto.decryptStreamAuto(file, sink, key, legacyPwd, onProgress)
+                }
+            } else {
+                val verified = File(directory, "restore-${UUID.randomUUID()}.tmp")
+                try {
+                    FileOutputStream(verified).use { sink ->
+                        PrivateVaultCrypto.decryptStreamAuto(file, sink, key, legacyPwd, onProgress)
+                        sink.fd.sync()
+                    }
+                    val output = resolver.openOutputStream(destination, "wt") ?: error("Cannot write destination.")
+                    output.use { sink -> FileInputStream(verified).use { source -> source.copyTo(sink) } }
+                } finally { verified.delete() }
+            }
+        } finally {
+            legacyPwd?.fill('\u0000')
+        }
+    }
+
+    /** Decrypts and authenticates an entry into app-private storage (used for ZIP folder restore). */
+    @Synchronized fun exportToFile(id: String, destination: File, password: CharArray) {
+        val session = openSession(password)
+        try {
+            exportToFile(id, destination, session)
+        } finally {
+            session.close()
+        }
+    }
+
+    @Synchronized fun exportToFile(
+        id: String,
+        destination: File,
+        session: PrivateVaultSession,
+        onProgress: ((Long) -> Unit)? = null
+    ) {
+        requireValidId(id)
+        val key = session.requireMasterKey()
+        val legacyPwd = session.legacyPasswordCopy()
+        try {
+            check(readIndexInternal(key, legacyPwd).any { it.id == id }) { "Vault item not found." }
+            val encrypted = payload(id)
+            check(encrypted.isFile) { "Encrypted file is missing." }
+            val verified = File(directory, "restore-${UUID.randomUUID()}.tmp")
+            try {
                 FileOutputStream(verified).use { sink ->
-                    PrivateVaultCrypto.decrypt(source, sink, password)
+                    PrivateVaultCrypto.decryptStreamAuto(encrypted, sink, key, legacyPwd, onProgress)
                     sink.fd.sync()
                 }
-            }
-            FileInputStream(verified).use { source ->
-                FileOutputStream(destination).use { sink ->
-                    source.copyTo(sink)
-                    sink.fd.sync()
+                FileInputStream(verified).use { source ->
+                    FileOutputStream(destination).use { sink ->
+                        source.copyTo(sink)
+                        sink.fd.sync()
+                    }
                 }
-            }
-        } finally { verified.delete() }
+            } finally { verified.delete() }
+        } finally {
+            legacyPwd?.fill('\u0000')
+        }
     }
 
     @Synchronized fun delete(id: String, password: CharArray) {
-        requireValidId(id)
-        val current = readIndex(password)
-        check(current.any { it.id == id }) { "Vault item not found." }
-        val source = payload(id)
-        val staged = File(directory, "$id.delete")
-        check(source.renameTo(staged)) { "Could not stage encrypted item deletion." }
-        var indexCommitted = false
+        val session = openSession(password)
         try {
-            persistIndex(current.filterNot { it.id == id }, password)
-            indexCommitted = true
-            // The index is authoritative now. If physical cleanup fails, leave the
-            // staged payload for PrivateVaultRecovery instead of resurrecting it.
-            staged.delete()
-        } catch (failure: Throwable) {
-            if (!indexCommitted && staged.exists()) staged.renameTo(source)
-            throw failure
+            delete(id, session)
+        } finally {
+            session.close()
+        }
+    }
+
+    @Synchronized fun delete(id: String, session: PrivateVaultSession) {
+        requireValidId(id)
+        val key = session.requireMasterKey()
+        val legacyPwd = session.legacyPasswordCopy()
+        try {
+            val current = readIndexInternal(key, legacyPwd)
+            check(current.any { it.id == id }) { "Vault item not found." }
+            val source = payload(id)
+            val staged = File(directory, "$id.delete")
+            check(source.renameTo(staged)) { "Could not stage encrypted item deletion." }
+            var indexCommitted = false
+            try {
+                persistIndexWithKey(current.filterNot { it.id == id }, key)
+                indexCommitted = true
+                staged.delete()
+                thumbFile(id).delete()
+            } catch (failure: Throwable) {
+                if (!indexCommitted && staged.exists()) staged.renameTo(source)
+                throw failure
+            }
+        } finally {
+            legacyPwd?.fill('\u0000')
         }
     }
 
     private fun requireValidId(id: String) = require(
         id.matches(Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"))
     ) { "Invalid vault item." }
+
     private fun payload(id: String) = File(directory, "$id.mkv")
+    private fun thumbFile(id: String) = File(thumbsDirectory, "$id.thumb.enc")
+
+    private fun saveEncryptedThumbnail(id: String, jpegBytes: ByteArray, key: ByteArray) {
+        val temp = File(thumbsDirectory, "$id.tmp")
+        val target = thumbFile(id)
+        try {
+            val encrypted = PrivateVaultCrypto.encryptWithKey(jpegBytes, key)
+            FileOutputStream(temp).use { out ->
+                out.write(encrypted)
+                out.fd.sync()
+            }
+            if (!temp.renameTo(target)) {
+                temp.delete()
+            }
+        } finally {
+            temp.delete()
+        }
+    }
+
+    private fun generateThumbnailJpeg(uri: Uri, mimeType: String): ByteArray? {
+        val maxDim = 320
+        val bitmap: Bitmap? = when {
+            mimeType.startsWith("image/") -> {
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+                if (bounds.outWidth <= 0 || bounds.outHeight <= 0) null else {
+                    var sample = 1
+                    while (bounds.outWidth / sample > maxDim * 2 || bounds.outHeight / sample > maxDim * 2) {
+                        sample *= 2
+                    }
+                    val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+                    resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, opts) }
+                }
+            }
+            mimeType.startsWith("video/") -> {
+                val retriever = MediaMetadataRetriever()
+                try {
+                    retriever.setDataSource(appContext, uri)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                        retriever.getScaledFrameAtTime(
+                            1_000_000L,
+                            MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                            maxDim,
+                            maxDim
+                        ) ?: retriever.getScaledFrameAtTime(
+                            0L,
+                            MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                            maxDim,
+                            maxDim
+                        )
+                    } else {
+                        retriever.getFrameAtTime(1_000_000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                            ?: retriever.getFrameAtTime(0L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                    }
+                } finally {
+                    runCatching { retriever.release() }
+                }
+            }
+            else -> null
+        }
+        if (bitmap == null) return null
+        return try {
+            val scaled = scaleDownBitmap(bitmap, maxDim)
+            try {
+                ByteArrayOutputStream().use { out ->
+                    scaled.compress(Bitmap.CompressFormat.JPEG, 78, out)
+                    out.toByteArray()
+                }
+            } finally {
+                if (scaled !== bitmap) scaled.recycle()
+            }
+        } finally {
+            bitmap.recycle()
+        }
+    }
+
+    private fun scaleDownBitmap(source: Bitmap, maxDim: Int): Bitmap {
+        val w = source.width
+        val h = source.height
+        if (w <= maxDim && h <= maxDim) return source
+        val scale = minOf(maxDim.toFloat() / w, maxDim.toFloat() / h)
+        val targetW = (w * scale).toInt().coerceAtLeast(1)
+        val targetH = (h * scale).toInt().coerceAtLeast(1)
+        return Bitmap.createScaledBitmap(source, targetW, targetH, true)
+    }
 
     private fun queryName(uri: Uri): String {
         var name: String? = null
@@ -196,34 +558,90 @@ class PrivateVaultRepository(context: Context) {
         return name?.takeIf { it.isNotBlank() } ?: uri.lastPathSegment?.substringAfterLast('/') ?: "Private file"
     }
 
-    private fun readIndex(password: CharArray): List<PrivateVaultEntry> {
-        check(indexFile.isFile) { "Vault has not been created." }
+    private fun unwrapOrMigrateMasterKey(password: CharArray): ByteArray {
+        if (keyFile.isFile && keyFile.length() > 0L) {
+            val out = ByteArrayOutputStream(32)
+            FileInputStream(keyFile).buffered().use { input ->
+                PrivateVaultCrypto.decrypt(input, out, password)
+            }
+            val key = out.toByteArray()
+            require(key.size == 32) { "Corrupted vault master key." }
+            return key
+        }
+        // Legacy v1 vault without vault.key.enc: authenticate password via vault.index.enc first,
+        // then create vault.key.enc wrapping a new Master Key.
         val plain = File(directory, "index-${UUID.randomUUID()}.tmp")
         try {
             FileInputStream(indexFile).use { input ->
-                FileOutputStream(plain).use { output -> PrivateVaultCrypto.decrypt(input, output, password); output.fd.sync() }
+                FileOutputStream(plain).use { output ->
+                    PrivateVaultCrypto.decrypt(input, output, password)
+                    output.fd.sync()
+                }
+            }
+        } finally {
+            plain.delete()
+        }
+        val newKey = PrivateVaultCrypto.generateMasterKey()
+        persistMasterKey(newKey, password)
+        return newKey
+    }
+
+    private fun persistMasterKey(masterKey: ByteArray, password: CharArray) {
+        val newKeyFile = File(directory, "vault.key.new")
+        try {
+            FileOutputStream(newKeyFile).use { output ->
+                PrivateVaultCrypto.encrypt(ByteArrayInputStream(masterKey), output, password)
+                output.fd.sync()
+            }
+            backupKeyFile.delete()
+            if (keyFile.exists()) check(keyFile.renameTo(backupKeyFile)) { "Could not stage previous vault key." }
+            if (!newKeyFile.renameTo(keyFile)) {
+                if (backupKeyFile.exists()) backupKeyFile.renameTo(keyFile)
+                error("Could not save vault key.")
+            }
+            backupKeyFile.delete()
+        } finally {
+            newKeyFile.delete()
+        }
+    }
+
+    private fun readIndexInternal(masterKey: ByteArray, password: CharArray?): List<PrivateVaultEntry> {
+        check(indexFile.isFile) { "Vault has not been created." }
+        val plain = File(directory, "index-${UUID.randomUUID()}.tmp")
+        try {
+            FileOutputStream(plain).use { output ->
+                PrivateVaultCrypto.decryptStreamAuto(indexFile, output, masterKey, password)
+                output.fd.sync()
             }
             val (entries, needsSizeMigration) = DataInputStream(FileInputStream(plain)).use { input ->
                 val magic = input.readInt()
-                check(magic == indexMagic || magic == legacyIndexMagic) { "Invalid vault index." }
+                check(
+                    magic == indexMagicV2 || magic == indexMagicV1 || magic == legacyIndexMagic
+                ) { "Invalid vault index." }
                 val count = input.readInt()
                 require(count in 0..maxEntries) { "Invalid vault index size." }
+                val hasTimestamp = magic == indexMagicV2
                 val entries = List(count) {
                     val id = input.readUTF()
                     requireValidId(id)
                     val displayName = input.readUTF()
                     val mimeType = input.readUTF()
                     val sizeBytes = input.readLong()
+                    val addedAtMs = if (hasTimestamp) input.readLong() else 0L
                     require(displayName.isNotBlank() && mimeType.isNotBlank() && sizeBytes >= -1L) {
                         "Invalid vault item metadata."
                     }
-                    PrivateVaultEntry(id, displayName, mimeType, sizeBytes)
+                    PrivateVaultEntry(id, displayName, mimeType, sizeBytes, addedAtMs)
                 }
                 require(entries.map { it.id }.toSet().size == entries.size) { "Duplicate vault item identifier." }
                 check(input.read() == -1) { "Unexpected vault index data." }
                 entries to (magic == legacyIndexMagic)
             }
-            PrivateVaultRecovery.recover(directory, entries.mapTo(mutableSetOf()) { it.id })
+            PrivateVaultRecovery.recover(
+                directory,
+                entries.mapTo(mutableSetOf()) { it.id },
+                pruneOrphanThumbs = true
+            )
             if (!needsSizeMigration) return entries
 
             // Older builds stored ciphertext length in sizeBytes. Recalculate the
@@ -232,29 +650,17 @@ class PrivateVaultRepository(context: Context) {
                 val encrypted = payload(entry.id)
                 if (!encrypted.isFile) entry.copy(sizeBytes = -1L) else entry.copy(
                     sizeBytes = try {
-                        FileInputStream(encrypted).use { source ->
-                            val counter = CountingOutputStream()
-                            PrivateVaultCrypto.decrypt(source, counter, password)
-                            counter.bytesWritten
-                        }
+                        val counter = CountingOutputStream()
+                        PrivateVaultCrypto.decryptStreamAuto(encrypted, counter, masterKey, password)
+                        counter.bytesWritten
                     } catch (_: Exception) {
-                        // A damaged or missing old payload must not make every
-                        // other healthy vault entry inaccessible during migration.
                         -1L
                     }
                 )
             }
-            persistIndex(migrated, password)
+            persistIndexWithKey(migrated, masterKey)
             return migrated
         } finally { plain.delete() }
-    }
-
-    private class CountingInputStream(input: InputStream) : FilterInputStream(input) {
-        var bytesRead: Long = 0
-            private set
-        override fun read(): Int = super.read().also { if (it >= 0) bytesRead = Math.addExact(bytesRead, 1L) }
-        override fun read(buffer: ByteArray, offset: Int, length: Int): Int =
-            super.read(buffer, offset, length).also { if (it > 0) bytesRead = Math.addExact(bytesRead, it.toLong()) }
     }
 
     private class CountingOutputStream : OutputStream() {
@@ -266,17 +672,26 @@ class PrivateVaultRepository(context: Context) {
         }
     }
 
-    private fun persistIndex(entries: List<PrivateVaultEntry>, password: CharArray) {
-        val plain = File(directory, "index-${UUID.randomUUID()}.tmp")
+    private fun persistIndexWithKey(entries: List<PrivateVaultEntry>, key: ByteArray) {
+        val plain = ByteArrayOutputStream()
+        DataOutputStream(plain).use { out ->
+            out.writeInt(indexMagicV2)
+            out.writeInt(entries.size)
+            entries.forEach {
+                out.writeUTF(it.id)
+                out.writeUTF(it.displayName.take(4096))
+                out.writeUTF(it.mimeType.take(512))
+                out.writeLong(it.sizeBytes)
+                out.writeLong(it.addedAtMs)
+            }
+            out.flush()
+        }
         val encrypted = File(directory, "vault.index.new")
         try {
-            DataOutputStream(FileOutputStream(plain)).use { out ->
-                out.writeInt(indexMagic); out.writeInt(entries.size)
-                entries.forEach { out.writeUTF(it.id); out.writeUTF(it.displayName.take(4096)); out.writeUTF(it.mimeType.take(512)); out.writeLong(it.sizeBytes) }
-                out.flush()
-            }
-            FileInputStream(plain).use { input ->
-                FileOutputStream(encrypted).use { output -> PrivateVaultCrypto.encrypt(input, output, password); output.fd.sync() }
+            val payload = PrivateVaultCrypto.encryptWithKey(plain.toByteArray(), key)
+            FileOutputStream(encrypted).use { output ->
+                output.write(payload)
+                output.fd.sync()
             }
             backupIndex.delete()
             if (indexFile.exists()) check(indexFile.renameTo(backupIndex)) { "Could not stage previous vault index." }
@@ -285,6 +700,8 @@ class PrivateVaultRepository(context: Context) {
                 error("Could not save vault index.")
             }
             backupIndex.delete()
-        } finally { plain.delete(); encrypted.delete() }
+        } finally {
+            encrypted.delete()
+        }
     }
 }

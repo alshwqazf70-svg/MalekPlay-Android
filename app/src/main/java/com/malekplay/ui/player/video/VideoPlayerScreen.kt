@@ -204,7 +204,12 @@ fun VideoPlayerScreen(
     val isBuffering by viewModel.isBuffering.collectAsStateWithLifecycle()
     val videoUpscalingEnabled by viewModel.videoUpscalingEnabled.collectAsStateWithLifecycle()
     val videoNoiseReductionEnabled by viewModel.videoNoiseReductionEnabled.collectAsStateWithLifecycle()
+    val videoVibranceEnabled by viewModel.videoVibranceEnabled.collectAsStateWithLifecycle()
+    val videoEnhancementBypassed by viewModel.videoEnhancementBypassed.collectAsStateWithLifecycle()
+    val videoEnhancementCustomMode by viewModel.videoEnhancementCustomMode.collectAsStateWithLifecycle()
     val videoEnhancementProfile by viewModel.videoEnhancementProfile.collectAsStateWithLifecycle()
+    val videoEffectiveProfile by viewModel.videoEffectiveProfile.collectAsStateWithLifecycle()
+    val videoDowngradeReason by viewModel.videoDowngradeReason.collectAsStateWithLifecycle()
     val videoUpscalingError by viewModel.videoUpscalingError.collectAsStateWithLifecycle()
     val videoEnhancementDiagnostics by viewModel.videoEnhancementDiagnostics.collectAsStateWithLifecycle()
     val latestVideoUpscalingEnabled by rememberUpdatedState(videoUpscalingEnabled)
@@ -367,8 +372,7 @@ fun VideoPlayerScreen(
     // playback continues in the background.
     DisposableEffect(viewModel) {
         onDispose {
-            viewModel.setVideoUpscalingEnabled(false)
-            viewModel.setVideoNoiseReductionEnabled(false)
+            viewModel.setInternalGpuEnhancementEnabled(false)
         }
     }
 
@@ -401,6 +405,7 @@ fun VideoPlayerScreen(
     var showBookmarks by remember { mutableStateOf(false) }
     var showQueue by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
+    var showVideoEnhancementSheet by remember { mutableStateOf(false) }
     var showVideoDiagnostics by remember { mutableStateOf(false) }
     var showTranslationLanguages by remember { mutableStateOf(false) }
     var showOnlineSubtitles by remember { mutableStateOf(false) }
@@ -409,7 +414,8 @@ fun VideoPlayerScreen(
     var chromeInteractionVersion by remember { mutableIntStateOf(0) }
     val hasOpenPlayerOverlay = showSpeed || showSleep || showAudioTracks || showTextTracks ||
         showStats || showSubtitleStyle || showEqualizer || showBookmarks || showQueue ||
-        showMenu || showTranslationLanguages || showOnlineSubtitles || showDlnaPicker ||
+        showMenu || showVideoEnhancementSheet || showVideoDiagnostics ||
+        showTranslationLanguages || showOnlineSubtitles || showDlnaPicker ||
         showRemoteOutputDialog
     val activeDlnaDevice = dlnaPlayback.activeDevice
     val remoteDlnaPlaying = dlnaPlayback.isPlaying
@@ -610,6 +616,7 @@ fun VideoPlayerScreen(
     // The internal GPU fallback is service-managed and does not self-restart on transitions.
     var googleAiMediaId by remember { mutableStateOf(currentVideoId) }
     var internalAiFallback by remember { mutableStateOf(false) }
+    var showInternalAiBanner by remember { mutableStateOf(false) }
     var internalAiFallbackPending by remember { mutableStateOf(false) }
     var googleAiRequestVersion by remember { mutableIntStateOf(0) }
     var googleAiState by remember {
@@ -620,6 +627,27 @@ fun VideoPlayerScreen(
     var showGoogleAiInstallDialog by remember { mutableStateOf(false) }
     var googleAiBridge by remember {
         mutableStateOf<GoogleMediaEnhancementPlayerBridge?>(null)
+    }
+
+    LaunchedEffect(internalAiFallback) {
+        if (internalAiFallback) {
+            showInternalAiBanner = true
+            delay(3_500L)
+            showInternalAiBanner = false
+        } else {
+            showInternalAiBanner = false
+        }
+    }
+
+    LaunchedEffect(currentVideoId, controller, settings.rememberVideoEnhancement) {
+        if (controller != null && settings.rememberVideoEnhancement) {
+            if (settings.videoEnhancementSmartAi) {
+                googleAiRequestVersion++
+                googleAiEnabled = true
+            } else if (settings.videoEnhancementEnabled) {
+                viewModel.applySavedVideoEnhancement(settings)
+            }
+        }
     }
     fun takeScreenshot() {
         val view = playerView ?: return
@@ -851,13 +879,13 @@ fun VideoPlayerScreen(
                 }
             }
         }
-        if (internalAiFallback) {
+        if (showInternalAiBanner) {
             Text(
                 text = "يعمل محرك الذكاء البصري الداخلي عبر GPU (الوضع الذكي)",
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .padding(top = 72.dp)
-                    .background(Color(0xCC211638))
+                    .background(Color(0xCC211638), MaterialTheme.shapes.small)
                     .padding(horizontal = 12.dp, vertical = 8.dp),
                 color = Color.White,
                 fontSize = 12.sp,
@@ -1001,6 +1029,8 @@ fun VideoPlayerScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 12.dp, vertical = 6.dp),
+                        onVideoEnhancement = { showVideoEnhancementSheet = true },
+                        enhancementActive = videoUpscalingEnabled || videoNoiseReductionEnabled || videoVibranceEnabled || googleAiEnabled,
                         onEqualizer = { showEqualizer = true },
                         onSpeed = { showSpeed = true },
                         onScreenshot = ::takeScreenshot,
@@ -1142,83 +1172,15 @@ fun VideoPlayerScreen(
                 DropdownMenuItem(
                     text = {
                         Text(
-                            "تحسين جودة الفيديو: " +
-                                if (videoUpscalingEnabled || videoNoiseReductionEnabled) "مفعّل" else "متوقف"
+                            stringResource(R.string.menu_video_enhancement) +
+                                if (videoUpscalingEnabled || videoNoiseReductionEnabled || videoVibranceEnabled || googleAiEnabled) {
+                                    " ✓"
+                                } else ""
                         )
                     },
-                    enabled = !googleAiEnabled,
                     onClick = {
                         showMenu = false
-                        viewModel.setInternalGpuEnhancementEnabled(
-                            !(videoUpscalingEnabled || videoNoiseReductionEnabled)
-                        )
-                    }
-                )
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            (if (videoEnhancementProfile == VideoEnhancementProfile.ECONOMY) "✓ " else "") +
-                                stringResource(R.string.player_video_quality_economy)
-                        )
-                    },
-                    enabled = !googleAiEnabled,
-                    onClick = {
-                        showMenu = false
-                        viewModel.setVideoEnhancementProfile(VideoEnhancementProfile.ECONOMY)
-                    }
-                )
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            (if (videoEnhancementProfile == VideoEnhancementProfile.BALANCED) "✓ " else "") +
-                                stringResource(R.string.player_video_quality_balanced)
-                        )
-                    },
-                    enabled = !googleAiEnabled,
-                    onClick = {
-                        showMenu = false
-                        viewModel.setVideoEnhancementProfile(VideoEnhancementProfile.BALANCED)
-                    }
-                )
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            (if (videoEnhancementProfile == VideoEnhancementProfile.ULTRA) "✓ " else "") +
-                                stringResource(R.string.player_video_quality_ultra)
-                        )
-                    },
-                    enabled = !googleAiEnabled,
-                    onClick = {
-                        showMenu = false
-                        viewModel.setVideoEnhancementProfile(VideoEnhancementProfile.ULTRA)
-                    }
-                )
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            stringResource(
-                                if (videoUpscalingEnabled) R.string.player_gpu_upscaling_on
-                                else R.string.player_gpu_upscaling_off
-                            )
-                        )
-                    },
-                    enabled = !googleAiEnabled,
-                    onClick = {
-                        showMenu = false
-                        viewModel.setVideoUpscalingEnabled(!videoUpscalingEnabled)
-                    }
-                )
-                DropdownMenuItem(
-                    text = {
-                        Text(stringResource(
-                            if (videoNoiseReductionEnabled) R.string.player_noise_reduction_on
-                            else R.string.player_noise_reduction_off
-                        ))
-                    },
-                    enabled = !googleAiEnabled,
-                    onClick = {
-                        showMenu = false
-                        viewModel.setVideoNoiseReductionEnabled(!videoNoiseReductionEnabled)
+                        showVideoEnhancementSheet = true
                     }
                 )
                 DropdownMenuItem(
@@ -1226,23 +1188,176 @@ fun VideoPlayerScreen(
                     onClick = { showMenu = false; showVideoDiagnostics = true }
                 )
                 DropdownMenuItem(
-                    text = {
-                        Text(stringResource(
-                            if (googleAiEnabled) R.string.player_google_ai_on
-                            else R.string.player_google_ai_off
-                        ))
-                    },
-                    onClick = {
-                        showMenu = false
-                        googleAiRequestVersion++
-                        googleAiEnabled = !googleAiEnabled
-                    }
-                )
-                DropdownMenuItem(
                     text = { Text(stringResource(R.string.player_bookmarks)) },
                     onClick = { showMenu = false; showBookmarks = true }
                 )
             }
+        }
+
+        if (showVideoEnhancementSheet) {
+            val smartAiModeLabel = when (googleAiState) {
+                GoogleMediaEnhancementState.ACTIVE -> stringResource(R.string.player_google_ai_active)
+                GoogleMediaEnhancementState.INTERNAL_GPU_ACTIVE,
+                GoogleMediaEnhancementState.INTERNAL_GPU_WAITING_FOR_FIRST_FRAME ->
+                    stringResource(R.string.player_internal_gpu_active)
+                GoogleMediaEnhancementState.INSTALLING -> stringResource(R.string.player_google_ai_installing)
+                GoogleMediaEnhancementState.CHECKING_DEVICE -> stringResource(R.string.player_google_ai_checking)
+                else -> if (videoUpscalingEnabled || videoNoiseReductionEnabled || videoVibranceEnabled) {
+                    stringResource(R.string.player_internal_gpu_active)
+                } else {
+                    stringResource(R.string.player_google_ai_disabled)
+                }
+            }
+            fun syncSavedEnhancement(
+                enabled: Boolean = videoUpscalingEnabled || videoNoiseReductionEnabled || videoVibranceEnabled || googleAiEnabled,
+                profile: VideoEnhancementProfile = videoEnhancementProfile,
+                custom: Boolean = videoEnhancementCustomMode,
+                upscaling: Boolean = videoUpscalingEnabled,
+                denoise: Boolean = videoNoiseReductionEnabled,
+                vibrance: Boolean = videoVibranceEnabled,
+                smartAi: Boolean = googleAiEnabled,
+                detailStrength: Float = videoEnhancementDiagnostics.detailStrength,
+                denoiseStrength: Float = videoEnhancementDiagnostics.denoiseStrength,
+                contrastBoost: Float = videoEnhancementDiagnostics.contrastBoost,
+                vibranceStrength: Float = videoEnhancementDiagnostics.vibranceStrength
+            ) {
+                if (!settings.rememberVideoEnhancement) return
+                settingsViewModel.update { current ->
+                    current.copy(
+                        videoEnhancementEnabled = enabled,
+                        videoEnhancementProfile = profile.wireValue,
+                        videoEnhancementCustom = custom,
+                        videoEnhancementUpscaling = upscaling,
+                        videoEnhancementDenoise = denoise,
+                        videoEnhancementVibrance = vibrance,
+                        videoEnhancementSmartAi = smartAi,
+                        videoEnhancementDetailStrength = detailStrength,
+                        videoEnhancementDenoiseStrength = denoiseStrength,
+                        videoEnhancementContrastBoost = contrastBoost,
+                        videoEnhancementVibranceStrength = vibranceStrength
+                    )
+                }
+            }
+            VideoEnhancementSheet(
+                upscalingEnabled = videoUpscalingEnabled,
+                noiseReductionEnabled = videoNoiseReductionEnabled,
+                vibranceEnabled = videoVibranceEnabled,
+                smartAiEnabled = googleAiEnabled,
+                smartAiModeLabel = smartAiModeLabel,
+                smartAiFallbackReason = if (internalAiFallback) googleAiMessage else null,
+                requestedProfile = videoEnhancementProfile,
+                effectiveProfile = videoEffectiveProfile,
+                downgradeReason = videoDowngradeReason,
+                customMode = videoEnhancementCustomMode,
+                bypassed = videoEnhancementBypassed,
+                diagnostics = videoEnhancementDiagnostics,
+                rememberForNextVideos = settings.rememberVideoEnhancement,
+                onDismiss = {
+                    viewModel.setVideoEnhancementBypassed(false)
+                    showVideoEnhancementSheet = false
+                },
+                onToggleMasterEnhancement = { enable ->
+                    if (!enable) {
+                        googleAiRequestVersion++
+                        googleAiEnabled = false
+                        viewModel.setInternalGpuEnhancementEnabled(false)
+                        syncSavedEnhancement(enabled = false, upscaling = false, denoise = false, vibrance = false, smartAi = false)
+                    } else {
+                        viewModel.setInternalGpuEnhancementEnabled(true)
+                        syncSavedEnhancement(enabled = true, upscaling = true, denoise = true, vibrance = true, smartAi = false)
+                    }
+                },
+                onToggleSmartAi = { enable ->
+                    googleAiRequestVersion++
+                    googleAiEnabled = enable
+                    syncSavedEnhancement(enabled = enable, smartAi = enable)
+                },
+                onToggleUpscaling = { enable ->
+                    if (googleAiEnabled) {
+                        googleAiRequestVersion++
+                        googleAiEnabled = false
+                    }
+                    viewModel.setVideoUpscalingEnabled(enable)
+                    syncSavedEnhancement(
+                        enabled = enable || videoNoiseReductionEnabled || videoVibranceEnabled,
+                        upscaling = enable,
+                        smartAi = false
+                    )
+                },
+                onToggleNoiseReduction = { enable ->
+                    if (googleAiEnabled) {
+                        googleAiRequestVersion++
+                        googleAiEnabled = false
+                    }
+                    viewModel.setVideoNoiseReductionEnabled(enable)
+                    syncSavedEnhancement(
+                        enabled = videoUpscalingEnabled || enable || videoVibranceEnabled,
+                        denoise = enable,
+                        smartAi = false
+                    )
+                },
+                onToggleVibrance = { enable ->
+                    viewModel.setVideoVibranceEnabled(enable)
+                    syncSavedEnhancement(
+                        enabled = videoUpscalingEnabled || videoNoiseReductionEnabled || enable,
+                        vibrance = enable
+                    )
+                },
+                onSelectProfile = { profile ->
+                    viewModel.setVideoEnhancementProfile(profile)
+                    syncSavedEnhancement(
+                        enabled = true,
+                        profile = profile,
+                        custom = false,
+                        detailStrength = profile.detailStrength,
+                        denoiseStrength = profile.denoiseStrength,
+                        contrastBoost = profile.contrastBoost,
+                        vibranceStrength = profile.vibranceStrength
+                    )
+                },
+                onApplyCustomTuning = { denoise, detail, contrast, vibrance ->
+                    viewModel.setCustomVideoEnhancement(
+                        customMode = true,
+                        denoiseStrength = denoise,
+                        detailStrength = detail,
+                        contrastBoost = contrast,
+                        vibranceStrength = vibrance
+                    )
+                    syncSavedEnhancement(
+                        enabled = true,
+                        custom = true,
+                        denoiseStrength = denoise,
+                        detailStrength = detail,
+                        contrastBoost = contrast,
+                        vibranceStrength = vibrance
+                    )
+                },
+                onComparisonBypassChange = { bypassed ->
+                    viewModel.setVideoEnhancementBypassed(bypassed)
+                },
+                onRememberChange = { remember ->
+                    settingsViewModel.update { current ->
+                        current.copy(
+                            rememberVideoEnhancement = remember,
+                            videoEnhancementEnabled = videoUpscalingEnabled || videoNoiseReductionEnabled || videoVibranceEnabled || googleAiEnabled,
+                            videoEnhancementProfile = videoEnhancementProfile.wireValue,
+                            videoEnhancementCustom = videoEnhancementCustomMode,
+                            videoEnhancementUpscaling = videoUpscalingEnabled,
+                            videoEnhancementDenoise = videoNoiseReductionEnabled,
+                            videoEnhancementVibrance = videoVibranceEnabled,
+                            videoEnhancementSmartAi = googleAiEnabled,
+                            videoEnhancementDetailStrength = videoEnhancementDiagnostics.detailStrength,
+                            videoEnhancementDenoiseStrength = videoEnhancementDiagnostics.denoiseStrength,
+                            videoEnhancementContrastBoost = videoEnhancementDiagnostics.contrastBoost,
+                            videoEnhancementVibranceStrength = videoEnhancementDiagnostics.vibranceStrength
+                        )
+                    }
+                },
+                onOpenDiagnostics = {
+                    showVideoEnhancementSheet = false
+                    showVideoDiagnostics = true
+                }
+            )
         }
 
         if (showGoogleAiInstallDialog) {

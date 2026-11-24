@@ -28,6 +28,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -121,7 +122,8 @@ class BackupViewModel @Inject constructor(
 fun SettingsScreen(
     onBack: () -> Unit,
     onOpenKidsContent: () -> Unit = {},
-    onKidsModeEnabled: () -> Unit = {}
+    onKidsModeEnabled: () -> Unit = {},
+    onOpenVault: () -> Unit = {}
 ) {
     val viewModel: SettingsViewModel = hiltViewModel()
     val backupViewModel: BackupViewModel = hiltViewModel()
@@ -505,6 +507,24 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+            }
+
+            // -------------------------------------------------------- private vault
+            SettingsSection(title = stringResource(R.string.vault_title)) {
+                Text(
+                    text = stringResource(R.string.vault_settings_summary),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = onOpenVault,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Filled.Lock, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(text = stringResource(R.string.vault_open_from_settings))
                 }
             }
 

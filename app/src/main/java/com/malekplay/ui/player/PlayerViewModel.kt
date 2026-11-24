@@ -27,6 +27,7 @@ import com.malekplay.data.repository.MediaRepository
 import com.malekplay.data.repository.UserDataRepository
 import com.malekplay.domain.model.LibraryItem
 import com.malekplay.domain.model.MediaItem as DomainMedia
+import com.malekplay.domain.model.PlayerSettings
 import com.malekplay.network.DiscoveredNetworkDevice
 import com.malekplay.network.OnlineSubtitle
 import com.malekplay.network.OnlineSubtitleRepository
@@ -117,6 +118,16 @@ data class VideoEnhancementDiagnostics(
     val droppedFrames: Long = 0L,
     val upscalingEnabled: Boolean = false,
     val noiseReductionEnabled: Boolean = false,
+    val vibranceEnabled: Boolean = false,
+    val aiBoostEnabled: Boolean = false,
+    val bypassed: Boolean = false,
+    val customMode: Boolean = false,
+    val effectiveProfile: VideoEnhancementProfile = VideoEnhancementProfile.BALANCED,
+    val downgradeReason: String? = null,
+    val detailStrength: Float = 0.90f,
+    val denoiseStrength: Float = 0.34f,
+    val contrastBoost: Float = 0.14f,
+    val vibranceStrength: Float = 0.08f,
     val programCreations: Long = 0L,
     val configureCalls: Long = 0L,
     val drawFrameCalls: Long = 0L,
@@ -197,8 +208,18 @@ class PlayerViewModel @Inject constructor(
     val videoUpscalingEnabled: StateFlow<Boolean> = _videoUpscalingEnabled.asStateFlow()
     private val _videoNoiseReductionEnabled = MutableStateFlow(false)
     val videoNoiseReductionEnabled: StateFlow<Boolean> = _videoNoiseReductionEnabled.asStateFlow()
+    private val _videoVibranceEnabled = MutableStateFlow(false)
+    val videoVibranceEnabled: StateFlow<Boolean> = _videoVibranceEnabled.asStateFlow()
+    private val _videoEnhancementBypassed = MutableStateFlow(false)
+    val videoEnhancementBypassed: StateFlow<Boolean> = _videoEnhancementBypassed.asStateFlow()
+    private val _videoEnhancementCustomMode = MutableStateFlow(false)
+    val videoEnhancementCustomMode: StateFlow<Boolean> = _videoEnhancementCustomMode.asStateFlow()
     private val _videoEnhancementProfile = MutableStateFlow(VideoEnhancementProfile.BALANCED)
     val videoEnhancementProfile: StateFlow<VideoEnhancementProfile> = _videoEnhancementProfile.asStateFlow()
+    private val _videoEffectiveProfile = MutableStateFlow(VideoEnhancementProfile.BALANCED)
+    val videoEffectiveProfile: StateFlow<VideoEnhancementProfile> = _videoEffectiveProfile.asStateFlow()
+    private val _videoDowngradeReason = MutableStateFlow<String?>(null)
+    val videoDowngradeReason: StateFlow<String?> = _videoDowngradeReason.asStateFlow()
     private val _videoUpscalingError = MutableStateFlow<String?>(null)
     private val _videoEnhancementDiagnostics = MutableStateFlow(VideoEnhancementDiagnostics())
     val videoEnhancementDiagnostics: StateFlow<VideoEnhancementDiagnostics> = _videoEnhancementDiagnostics.asStateFlow()
@@ -486,13 +507,27 @@ class PlayerViewModel @Inject constructor(
                 val result = runCatching { future.get() }.getOrNull() ?: return@addListener
                 if (result.resultCode != SessionResult.RESULT_SUCCESS) return@addListener
                 val state = result.extras
-                _videoUpscalingEnabled.value =
-                    state.getBoolean(PlaybackVideoEffects.KEY_STATE_UPSCALING, false)
-                _videoNoiseReductionEnabled.value =
-                    state.getBoolean(PlaybackVideoEffects.KEY_STATE_NOISE_REDUCTION, false)
-                _videoEnhancementProfile.value = VideoEnhancementProfile.fromWireValue(
+                val upscaling = state.getBoolean(PlaybackVideoEffects.KEY_STATE_UPSCALING, false)
+                val denoise = state.getBoolean(PlaybackVideoEffects.KEY_STATE_NOISE_REDUCTION, false)
+                val vibrance = state.getBoolean(PlaybackVideoEffects.KEY_STATE_VIBRANCE, false)
+                val aiBoost = state.getBoolean(PlaybackVideoEffects.KEY_STATE_AI_BOOST, false)
+                val bypassed = state.getBoolean(PlaybackVideoEffects.KEY_STATE_BYPASSED, false)
+                val customMode = state.getBoolean(PlaybackVideoEffects.KEY_STATE_CUSTOM_MODE, false)
+                val profile = VideoEnhancementProfile.fromWireValue(
                     state.getString(PlaybackVideoEffects.KEY_STATE_PROFILE)
                 )
+                val effectiveProfile = VideoEnhancementProfile.fromWireValue(
+                    state.getString(PlaybackVideoEffects.KEY_STATE_EFFECTIVE_PROFILE)
+                )
+                val downgradeReason = state.getString(PlaybackVideoEffects.KEY_STATE_DOWNGRADE_REASON)
+                _videoUpscalingEnabled.value = upscaling
+                _videoNoiseReductionEnabled.value = denoise
+                _videoVibranceEnabled.value = vibrance
+                _videoEnhancementBypassed.value = bypassed
+                _videoEnhancementCustomMode.value = customMode
+                _videoEnhancementProfile.value = profile
+                _videoEffectiveProfile.value = effectiveProfile
+                _videoDowngradeReason.value = downgradeReason
                 _videoEnhancementDiagnostics.value = VideoEnhancementDiagnostics(
                     bridgeAttached = state.getBoolean(PlaybackVideoEffects.KEY_DIAG_BRIDGE_ATTACHED, false),
                     upscalingSubmitted = state.getBoolean(PlaybackVideoEffects.KEY_DIAG_UPSCALE_SUBMITTED, false),
@@ -505,8 +540,18 @@ class PlayerViewModel @Inject constructor(
                     rendererFrames = state.getLong(PlaybackVideoEffects.KEY_DIAG_RENDERER_FRAMES, 0L),
                     averageProcessingOffsetUs = state.getLong(PlaybackVideoEffects.KEY_DIAG_AVG_OFFSET_US, 0L),
                     droppedFrames = state.getLong(PlaybackVideoEffects.KEY_DIAG_DROPPED_FRAMES, 0L),
-                    upscalingEnabled = state.getBoolean(PlaybackVideoEffects.KEY_STATE_UPSCALING, false),
-                    noiseReductionEnabled = state.getBoolean(PlaybackVideoEffects.KEY_STATE_NOISE_REDUCTION, false),
+                    upscalingEnabled = upscaling,
+                    noiseReductionEnabled = denoise,
+                    vibranceEnabled = vibrance,
+                    aiBoostEnabled = aiBoost,
+                    bypassed = bypassed,
+                    customMode = customMode,
+                    effectiveProfile = effectiveProfile,
+                    downgradeReason = downgradeReason,
+                    detailStrength = state.getFloat(PlaybackVideoEffects.KEY_STATE_DETAIL_STRENGTH, effectiveProfile.detailStrength),
+                    denoiseStrength = state.getFloat(PlaybackVideoEffects.KEY_STATE_DENOISE_STRENGTH, effectiveProfile.denoiseStrength),
+                    contrastBoost = state.getFloat(PlaybackVideoEffects.KEY_STATE_CONTRAST_BOOST, effectiveProfile.contrastBoost),
+                    vibranceStrength = state.getFloat(PlaybackVideoEffects.KEY_STATE_VIBRANCE_STRENGTH, effectiveProfile.vibranceStrength),
                     programCreations = state.getLong(PlaybackVideoEffects.KEY_DIAG_PROGRAM_CREATIONS, 0L),
                     configureCalls = state.getLong(PlaybackVideoEffects.KEY_DIAG_CONFIGURE_CALLS, 0L),
                     drawFrameCalls = state.getLong(PlaybackVideoEffects.KEY_DIAG_DRAW_FRAME_CALLS, 0L),
@@ -529,6 +574,67 @@ class PlayerViewModel @Inject constructor(
 
     fun setVideoNoiseReductionEnabled(enabled: Boolean) =
         setVideoEffectEnabled(PlaybackVideoEffects.ACTION_NOISE_REDUCTION, enabled) { _videoNoiseReductionEnabled.value = it }
+
+    fun setVideoVibranceEnabled(enabled: Boolean) =
+        setVideoEffectEnabled(PlaybackVideoEffects.ACTION_VIBRANCE, enabled) { _videoVibranceEnabled.value = it }
+
+    fun setVideoEnhancementBypassed(bypassed: Boolean) =
+        setVideoEffectEnabled(PlaybackVideoEffects.ACTION_COMPARISON_BYPASS, bypassed) { _videoEnhancementBypassed.value = it }
+
+    fun setCustomVideoEnhancement(
+        customMode: Boolean,
+        denoiseStrength: Float,
+        detailStrength: Float,
+        contrastBoost: Float,
+        vibranceStrength: Float
+    ) {
+        val player = _controller.value ?: return
+        _videoUpscalingError.value = null
+        val command = androidx.media3.session.SessionCommand(
+            PlaybackVideoEffects.ACTION_CUSTOM_TUNING,
+            Bundle.EMPTY
+        )
+        val args = Bundle().apply {
+            putBoolean(PlaybackVideoEffects.KEY_CUSTOM_MODE, customMode)
+            putFloat(PlaybackVideoEffects.KEY_DENOISE_STRENGTH, denoiseStrength)
+            putFloat(PlaybackVideoEffects.KEY_DETAIL_STRENGTH, detailStrength)
+            putFloat(PlaybackVideoEffects.KEY_CONTRAST_BOOST, contrastBoost)
+            putFloat(PlaybackVideoEffects.KEY_VIBRANCE_STRENGTH, vibranceStrength)
+        }
+        val future = runCatching { player.sendCustomCommand(command, args) }.getOrNull() ?: return
+        future.addListener(
+            {
+                val result = runCatching { future.get() }.getOrNull()
+                if (result?.resultCode == SessionResult.RESULT_SUCCESS) {
+                    _videoEnhancementCustomMode.value = customMode
+                }
+                refreshVideoEffectState()
+            },
+            ContextCompat.getMainExecutor(app)
+        )
+    }
+
+    fun applySavedVideoEnhancement(settings: PlayerSettings) {
+        if (!settings.rememberVideoEnhancement) return
+        if (!settings.videoEnhancementEnabled) {
+            setInternalGpuEnhancementEnabled(false)
+            return
+        }
+        val profile = VideoEnhancementProfile.fromWireValue(settings.videoEnhancementProfile)
+        setVideoEnhancementProfile(profile)
+        setVideoUpscalingEnabled(settings.videoEnhancementUpscaling)
+        setVideoNoiseReductionEnabled(settings.videoEnhancementDenoise)
+        setVideoVibranceEnabled(settings.videoEnhancementVibrance)
+        if (settings.videoEnhancementCustom) {
+            setCustomVideoEnhancement(
+                customMode = true,
+                denoiseStrength = settings.videoEnhancementDenoiseStrength,
+                detailStrength = settings.videoEnhancementDetailStrength,
+                contrastBoost = settings.videoEnhancementContrastBoost,
+                vibranceStrength = settings.videoEnhancementVibranceStrength
+            )
+        }
+    }
 
     /**
      * Atomically switch the internal GPU detail and denoise stages. This avoids

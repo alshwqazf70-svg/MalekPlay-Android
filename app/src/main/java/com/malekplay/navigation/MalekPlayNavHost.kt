@@ -408,7 +408,8 @@ fun MalekPlayNavHost(
                             popUpTo(Screen.Home.route) { inclusive = true }
                             launchSingleTop = true
                         }
-                    }
+                    },
+                    onOpenVault = { navController.navigate(Screen.PrivateVault.route) }
                 )
             }
         }

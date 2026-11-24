@@ -6,14 +6,23 @@ import java.io.File
 internal object PrivateVaultRecovery {
     private val validId = Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 
-    fun recover(directory: File, committedIds: Set<String>) {
+    fun recover(directory: File, committedIds: Set<String>, pruneOrphanThumbs: Boolean = false) {
         directory.listFiles()?.forEach { file ->
             when {
                 file.name == "vault.index.new" -> file.delete()
+                file.name == "vault.key.new" || file.name == "vault.key.tmp" -> file.delete()
                 // These files contain decrypted index metadata or restored plaintext.
                 // A process kill bypasses finally blocks, so remove them on next unlock.
                 file.name.startsWith("index-") && file.name.endsWith(".tmp") -> file.delete()
                 file.name.startsWith("restore-") && file.name.endsWith(".tmp") -> file.delete()
+                file.isDirectory && file.name == "thumbs" -> {
+                    file.listFiles()?.forEach { thumb ->
+                        val id = thumb.name.removeSuffix(".thumb.enc").removeSuffix(".tmp")
+                        if (thumb.name.endsWith(".tmp") || (pruneOrphanThumbs && validId.matches(id) && id !in committedIds)) {
+                            thumb.delete()
+                        }
+                    }
+                }
                 file.name.endsWith(".pending") -> {
                     val id = file.name.removeSuffix(".pending")
                     if (validId.matches(id)) {

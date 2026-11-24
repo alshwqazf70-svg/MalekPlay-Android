@@ -24,12 +24,14 @@ data class VideoEnhancementPipelineConfig(
     val denoiseStrength: Float = 0f,
     val detailStrength: Float = 0f,
     val contrastBoost: Float = 0f,
-    val clarityStrength: Float = 0f
+    val clarityStrength: Float = 0f,
+    val vibranceStrength: Float = 0f,
+    val bypassed: Boolean = false
 ) {
     // Toggle flags are authoritative: stale preset strengths must never keep
     // enhancement work running after every stage has been switched off.
     val hasActiveStage: Boolean
-        get() = denoiseEnabled || detailEnabled || aiBoostEnabled
+        get() = !bypassed && (denoiseEnabled || detailEnabled || aiBoostEnabled || vibranceStrength > 0f)
 }
 
 @UnstableApi
@@ -43,7 +45,8 @@ class VideoEnhancementPipelineEffect(
             denoiseStrength = next.denoiseStrength.coerceIn(0f, 0.60f),
             detailStrength = next.detailStrength.coerceIn(0f, 1.20f),
             contrastBoost = next.contrastBoost.coerceIn(0f, 0.22f),
-            clarityStrength = next.clarityStrength.coerceIn(0f, 0.30f)
+            clarityStrength = next.clarityStrength.coerceIn(0f, 0.30f),
+            vibranceStrength = next.vibranceStrength.coerceIn(0f, 0.35f)
         ))
     }
 
@@ -94,6 +97,14 @@ private class VideoEnhancementPipelineProgram(
     override fun drawFrame(inputTexId: Int, presentationTimeUs: Long) {
         VideoEnhancementMetrics.recordDrawFrameEntered()
         val settings = config.get()
+        // When both denoise and detail flags are false and only aiBoostEnabled is set
+        // (standalone single-pass config), run both stages with AI boost.
+        // When a specific stage flag is set (two-pass pipeline: denoise -> Lanczos -> detail),
+        // strictly isolate each pass so detail never runs pre-upscale or denoise post-upscale.
+        val standaloneAiOnly = settings.aiBoostEnabled && !settings.denoiseEnabled && !settings.detailEnabled
+        val runDenoise = !settings.bypassed && (settings.denoiseEnabled || standaloneAiOnly)
+        val runDetail = !settings.bypassed && (settings.detailEnabled || standaloneAiOnly || settings.vibranceStrength > 0f)
+        val vibrance = if (settings.bypassed) 0f else settings.vibranceStrength
         try {
             program.use()
             program.setSamplerTexIdUniform("uTexSampler", inputTexId, 0)
@@ -101,21 +112,22 @@ private class VideoEnhancementPipelineProgram(
                 "uTexelSize",
                 floatArrayOf(1f / inputWidth, 1f / inputHeight)
             )
-            program.setFloatUniform("uDenoiseEnabled", if (settings.denoiseEnabled || settings.aiBoostEnabled) 1f else 0f)
-            program.setFloatUniform("uDetailEnabled", if (settings.detailEnabled || settings.aiBoostEnabled) 1f else 0f)
-            program.setFloatUniform("uDenoiseStrength", settings.denoiseStrength)
-            program.setFloatUniform("uDetailStrength", settings.detailStrength)
-            program.setFloatUniform("uContrastBoost", settings.contrastBoost)
-            program.setFloatUniform("uClarityStrength", settings.clarityStrength)
-            program.setFloatUniform("uAiBoost", if (settings.aiBoostEnabled) 1f else 0f)
+            program.setFloatUniform("uDenoiseEnabled", if (runDenoise) 1f else 0f)
+            program.setFloatUniform("uDetailEnabled", if (runDetail) 1f else 0f)
+            program.setFloatUniform("uDenoiseStrength", if (settings.bypassed) 0f else settings.denoiseStrength)
+            program.setFloatUniform("uDetailStrength", if (settings.bypassed) 0f else settings.detailStrength)
+            program.setFloatUniform("uContrastBoost", if (settings.bypassed) 0f else settings.contrastBoost)
+            program.setFloatUniform("uClarityStrength", if (settings.bypassed) 0f else settings.clarityStrength)
+            program.setFloatUniform("uVibranceStrength", vibrance)
+            program.setFloatUniform("uAiBoost", if (!settings.bypassed && settings.aiBoostEnabled) 1f else 0f)
             program.bindAttributesAndUniforms()
             GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
             GlUtil.checkGlError()
             VideoEnhancementMetrics.recordDrawFrameSucceeded()
-            if (settings.hasActiveStage) {
+            if (runDenoise || runDetail) {
                 VideoEnhancementMetrics.recordPipelineProcessed(
-                    denoise = settings.denoiseEnabled || settings.aiBoostEnabled,
-                    detail = settings.detailEnabled || settings.aiBoostEnabled,
+                    denoise = runDenoise,
+                    detail = runDetail,
                     presentationTimeUs = presentationTimeUs
                 )
             }
@@ -162,6 +174,7 @@ private class VideoEnhancementPipelineProgram(
             uniform float uDetailStrength;
             uniform float uContrastBoost;
             uniform float uClarityStrength;
+            uniform float uVibranceStrength;
             uniform float uAiBoost;
             varying vec2 vTexSamplingCoord;
 
@@ -189,27 +202,26 @@ private class VideoEnhancementPipelineProgram(
                 vec4 center = texture2D(uTexSampler, vTexSamplingCoord);
 
                 // One texture fetch only while all user-controlled stages are off.
-                if (uDenoiseEnabled < 0.5 && uDetailEnabled < 0.5) {
+                if (uDenoiseEnabled < 0.5 && uDetailEnabled < 0.5 && uVibranceStrength <= 0.001) {
                     gl_FragColor = center;
                     return;
                 }
 
                 vec2 d = uTexelSize;
                 vec3 source = center.rgb;
-                // Four axial samples serve both the bilateral filter and the
-                // local-contrast/sharpening stage; diagonals are fetched only for denoise.
-                vec3 n = texture2D(uTexSampler, vTexSamplingCoord + vec2(0.0, d.y)).rgb;
-                vec3 s = texture2D(uTexSampler, vTexSamplingCoord - vec2(0.0, d.y)).rgb;
-                vec3 e = texture2D(uTexSampler, vTexSamplingCoord + vec2(d.x, 0.0)).rgb;
-                vec3 w = texture2D(uTexSampler, vTexSamplingCoord - vec2(d.x, 0.0)).rgb;
+                // 8-neighbor samples serve both isotropic bilateral denoise and
+                // isotropic detail/anti-ringing without directional aliasing.
+                vec3 n  = texture2D(uTexSampler, vTexSamplingCoord + vec2(0.0, d.y)).rgb;
+                vec3 s  = texture2D(uTexSampler, vTexSamplingCoord - vec2(0.0, d.y)).rgb;
+                vec3 e  = texture2D(uTexSampler, vTexSamplingCoord + vec2(d.x, 0.0)).rgb;
+                vec3 w  = texture2D(uTexSampler, vTexSamplingCoord - vec2(d.x, 0.0)).rgb;
+                vec3 ne = texture2D(uTexSampler, vTexSamplingCoord + d).rgb;
+                vec3 nw = texture2D(uTexSampler, vTexSamplingCoord + vec2(-d.x, d.y)).rgb;
+                vec3 se = texture2D(uTexSampler, vTexSamplingCoord + vec2(d.x, -d.y)).rgb;
+                vec3 sw = texture2D(uTexSampler, vTexSamplingCoord - d).rgb;
                 vec3 base = source;
 
                 if (uDenoiseEnabled > 0.5) {
-                    vec3 ne = texture2D(uTexSampler, vTexSamplingCoord + d).rgb;
-                    vec3 nw = texture2D(uTexSampler, vTexSamplingCoord + vec2(-d.x, d.y)).rgb;
-                    vec3 se = texture2D(uTexSampler, vTexSamplingCoord + vec2(d.x, -d.y)).rgb;
-                    vec3 sw = texture2D(uTexSampler, vTexSamplingCoord - d).rgb;
-
                     float rangeScale = mix(12.0, 26.0,
                         clamp(uDenoiseStrength + uAiBoost * 0.12, 0.0, 1.0));
                     float wn = bilateralWeight(n, source, rangeScale);
@@ -227,8 +239,8 @@ private class VideoEnhancementPipelineProgram(
                     vec3 bilateral = sum / max(totalWeight, 0.0001);
 
                     // Detect low-frequency block boundaries in otherwise flat regions.
-                    // This lightly de-blocks 8x8/16x16 compression structure without
-                    // averaging across real edges or erasing fine image texture.
+                    // This lightly de-blocks 8x8/16x16 compression structure and 4:2:0
+                    // chroma blotches without averaging across real edges.
                     float gx = abs(perceptualLuma(luma(e)) - perceptualLuma(luma(w)));
                     float gy = abs(perceptualLuma(luma(n)) - perceptualLuma(luma(s)));
                     float flatArea = 1.0 - smoothstep(0.012, 0.085, max(gx, gy));
@@ -236,6 +248,14 @@ private class VideoEnhancementPipelineProgram(
                     vec3 crossAverage = (n + s + e + w) * 0.25;
                     bilateral = mix(bilateral, (bilateral + crossAverage) * 0.5,
                         directionalBlock * clamp(uDenoiseStrength * 0.22, 0.0, 0.12));
+
+                    // Chroma-only flat-region smoothing to clean 4:2:0 color noise
+                    // while preserving full luma sharpness.
+                    float bilY = luma(bilateral);
+                    float avgY = luma(crossAverage);
+                    vec3 chromaSmooth = crossAverage + vec3(bilY - avgY);
+                    bilateral = mix(bilateral, chromaSmooth,
+                        flatArea * clamp(uDenoiseStrength * 0.28, 0.0, 0.15));
 
                     float relativeDenoiseDelta = length(source - bilateral) /
                         (1.0 + max(luma(source), 0.0));
@@ -245,7 +265,7 @@ private class VideoEnhancementPipelineProgram(
                 }
 
                 if (uDetailEnabled > 0.5) {
-                    vec3 localAverage = (n + s + e + w) * 0.25;
+                    vec3 localAverage = (n + s + e + w) * 0.18 + (ne + nw + se + sw) * 0.07;
                     float y = max(luma(base), 0.0);
                     float localY = max(luma(localAverage), 0.0);
                     float perceptualY = perceptualLuma(y);
@@ -256,6 +276,8 @@ private class VideoEnhancementPipelineProgram(
                     float midtoneMask = smoothstep(0.018, 0.24, perceptualY) *
                         (1.0 - smoothstep(0.70, 0.94, perceptualY));
                     float shadowMask = 1.0 - smoothstep(0.025, 0.31, perceptualY);
+                    // Preserve pure OLED blacks (0,0,0) while lifting shadowed detail.
+                    float deepBlackGuard = smoothstep(0.004, 0.045, perceptualY);
                     float localContrast = clamp(
                         (y - localY) / max(y + localY, 0.06),
                         -0.55,
@@ -290,16 +312,19 @@ private class VideoEnhancementPipelineProgram(
                         adaptiveGain * edgeCeiling * (1.0 - skinProtection);
                     float clarity = uClarityStrength * (1.0 + ai * 0.24) *
                         (1.0 - skinProtection * 0.55);
-                    float shadowRecovery = shadowMask * 0.006 *
+                    float shadowRecovery = shadowMask * deepBlackGuard * 0.008 *
                         max(1.0, min(y, 3.0)) * (1.0 + ai * 0.25);
                     vec3 recovered = base * contrastFactor + vec3(shadowRecovery);
                     vec3 sharpened = recovered +
                         detail * (sharpness + clarity) * edgeGate;
 
-                    // Anti-ringing envelope: constrain overshoot to a small,
-                    // signal-relative margin around the 4-neighbour colour range.
-                    vec3 neighborhoodMin = min(base, min(min(n, s), min(e, w)));
-                    vec3 neighborhoodMax = max(base, max(max(n, s), max(e, w)));
+                    // Anti-ringing envelope across the full 8-neighbor footprint.
+                    vec3 axialMin = min(min(n, s), min(e, w));
+                    vec3 diagMin = min(min(ne, nw), min(se, sw));
+                    vec3 neighborhoodMin = min(base, min(axialMin, diagMin));
+                    vec3 axialMax = max(max(n, s), max(e, w));
+                    vec3 diagMax = max(max(ne, nw), max(se, sw));
+                    vec3 neighborhoodMax = max(base, max(axialMax, diagMax));
                     vec3 neighborhoodRange = max(
                         neighborhoodMax - neighborhoodMin,
                         max(abs(base) * 0.008, vec3(0.0005))
@@ -310,6 +335,19 @@ private class VideoEnhancementPipelineProgram(
                     vec3 haloLimit = max(abs(base) * 0.105, vec3(0.004));
                     vec3 delta = clamp(bounded - base, -haloLimit, haloLimit);
                     base = max(base + delta, vec3(0.0));
+                }
+
+                if (uVibranceStrength > 0.001) {
+                    float maxC = max(base.r, max(base.g, base.b));
+                    float minC = min(base.r, min(base.g, base.b));
+                    float baseY = max(luma(base), 0.0);
+                    float sat = (maxC - minC) / max(maxC, 0.0001);
+                    float skinMask = smoothstep(0.025, 0.16, base.r - base.g) *
+                        smoothstep(0.008, 0.11, base.g - base.b) *
+                        (1.0 - smoothstep(0.20, 0.48, (maxC - minC) / (1.0 + baseY)));
+                    float vibranceBoost = uVibranceStrength * (1.0 - sat) *
+                        smoothstep(0.02, 0.15, sat) * (1.0 - clamp(skinMask * 0.75, 0.0, 0.75));
+                    base = max(mix(vec3(baseY), base, 1.0 + vibranceBoost), vec3(0.0));
                 }
 
                 // Do not upper-clamp RGB: HDR highlights and wide-gamut headroom

@@ -9,12 +9,30 @@ object PlaybackVideoEffects {
     const val ACTION_NOISE_REDUCTION = "com.malekplay.action.SET_NOISE_REDUCTION"
     const val ACTION_QUALITY_PROFILE = "com.malekplay.action.SET_VIDEO_QUALITY_PROFILE"
     const val ACTION_INTERNAL_GPU_ENHANCEMENT = "com.malekplay.action.SET_INTERNAL_GPU_ENHANCEMENT"
+    const val ACTION_VIBRANCE = "com.malekplay.action.SET_VIDEO_VIBRANCE"
+    const val ACTION_CUSTOM_TUNING = "com.malekplay.action.SET_VIDEO_CUSTOM_TUNING"
+    const val ACTION_COMPARISON_BYPASS = "com.malekplay.action.SET_VIDEO_COMPARISON_BYPASS"
     const val ACTION_GET_STATE = "com.malekplay.action.GET_VIDEO_EFFECT_STATE"
     const val KEY_ENABLED = "enabled"
     const val KEY_PROFILE = "profile"
+    const val KEY_CUSTOM_MODE = "custom_mode"
+    const val KEY_DETAIL_STRENGTH = "detail_strength"
+    const val KEY_DENOISE_STRENGTH = "denoise_strength"
+    const val KEY_CONTRAST_BOOST = "contrast_boost"
+    const val KEY_VIBRANCE_STRENGTH = "vibrance_strength"
     const val KEY_STATE_UPSCALING = "state_upscaling"
     const val KEY_STATE_NOISE_REDUCTION = "state_noise_reduction"
+    const val KEY_STATE_VIBRANCE = "state_vibrance"
+    const val KEY_STATE_AI_BOOST = "state_ai_boost"
+    const val KEY_STATE_BYPASSED = "state_bypassed"
+    const val KEY_STATE_CUSTOM_MODE = "state_custom_mode"
     const val KEY_STATE_PROFILE = "state_profile"
+    const val KEY_STATE_EFFECTIVE_PROFILE = "state_effective_profile"
+    const val KEY_STATE_DOWNGRADE_REASON = "state_downgrade_reason"
+    const val KEY_STATE_DETAIL_STRENGTH = "state_detail_strength"
+    const val KEY_STATE_DENOISE_STRENGTH = "state_denoise_strength"
+    const val KEY_STATE_CONTRAST_BOOST = "state_contrast_boost"
+    const val KEY_STATE_VIBRANCE_STRENGTH = "state_vibrance_strength"
     const val KEY_DIAG_UPSCALE_SUBMITTED = "diag_upscale_submitted"
     const val KEY_DIAG_DENOISE_DRAWS = "diag_denoise_draws"
     const val KEY_DIAG_DETAIL_DRAWS = "diag_detail_draws"
@@ -43,6 +61,9 @@ object PlaybackVideoEffects {
             ACTION_NOISE_REDUCTION,
             ACTION_QUALITY_PROFILE,
             ACTION_INTERNAL_GPU_ENHANCEMENT,
+            ACTION_VIBRANCE,
+            ACTION_CUSTOM_TUNING,
+            ACTION_COMPARISON_BYPASS,
             ACTION_GET_STATE
         ).map { SessionCommand(it, Bundle.EMPTY) }
 

@@ -97,6 +97,16 @@ class PlaybackService : MediaSessionService() {
     private var assHandler: AssHandler? = null
     private var videoUpscalingEnabled = false
     private var videoNoiseReductionEnabled = false
+    private var videoVibranceEnabled = false
+    private var videoAiBoostEnabled = false
+    private var videoEnhancementBypassed = false
+    private var videoCustomTuning = false
+    private var customDenoiseStrength = VideoEnhancementProfile.BALANCED.denoiseStrength
+    private var customDetailStrength = VideoEnhancementProfile.BALANCED.detailStrength
+    private var customContrastBoost = VideoEnhancementProfile.BALANCED.contrastBoost
+    private var customVibranceStrength = VideoEnhancementProfile.BALANCED.vibranceStrength
+    private var lastEffectiveProfile = VideoEnhancementProfile.BALANCED
+    private var lastDowngradeReason: String? = null
     // Denoise runs on decoded source pixels; detail enhancement runs after optional upscaling.
     private var videoDenoisePipeline: VideoEnhancementPipelineEffect? = null
     private var videoEnhancementPipeline: VideoEnhancementPipelineEffect? = null
@@ -434,6 +444,27 @@ class PlaybackService : MediaSessionService() {
                     VideoEnhancementProfile.fromWireValue(args.getString(PlaybackVideoEffects.KEY_PROFILE))
                 )
                 PlaybackVideoEffects.ACTION_INTERNAL_GPU_ENHANCEMENT -> setInternalGpuEnhancement(requested)
+                PlaybackVideoEffects.ACTION_VIBRANCE -> setVideoVibrance(requested)
+                PlaybackVideoEffects.ACTION_COMPARISON_BYPASS -> setVideoComparisonBypass(requested)
+                PlaybackVideoEffects.ACTION_CUSTOM_TUNING -> setCustomVideoEnhancement(
+                    customMode = args.getBoolean(PlaybackVideoEffects.KEY_CUSTOM_MODE, true),
+                    denoiseStrength = args.getFloat(
+                        PlaybackVideoEffects.KEY_DENOISE_STRENGTH,
+                        customDenoiseStrength
+                    ),
+                    detailStrength = args.getFloat(
+                        PlaybackVideoEffects.KEY_DETAIL_STRENGTH,
+                        customDetailStrength
+                    ),
+                    contrastBoost = args.getFloat(
+                        PlaybackVideoEffects.KEY_CONTRAST_BOOST,
+                        customContrastBoost
+                    ),
+                    vibranceStrength = args.getFloat(
+                        PlaybackVideoEffects.KEY_VIBRANCE_STRENGTH,
+                        customVibranceStrength
+                    )
+                )
                 else -> false
             }
             return Futures.immediateFuture(
@@ -449,7 +480,17 @@ class PlaybackService : MediaSessionService() {
     private fun videoEffectStateBundle(): Bundle = Bundle().apply {
         putBoolean(PlaybackVideoEffects.KEY_STATE_UPSCALING, videoUpscalingEnabled)
         putBoolean(PlaybackVideoEffects.KEY_STATE_NOISE_REDUCTION, videoNoiseReductionEnabled)
+        putBoolean(PlaybackVideoEffects.KEY_STATE_VIBRANCE, videoVibranceEnabled)
+        putBoolean(PlaybackVideoEffects.KEY_STATE_AI_BOOST, videoAiBoostEnabled)
+        putBoolean(PlaybackVideoEffects.KEY_STATE_BYPASSED, videoEnhancementBypassed)
+        putBoolean(PlaybackVideoEffects.KEY_STATE_CUSTOM_MODE, videoCustomTuning)
         putString(PlaybackVideoEffects.KEY_STATE_PROFILE, videoEnhancementProfile.wireValue)
+        putString(PlaybackVideoEffects.KEY_STATE_EFFECTIVE_PROFILE, lastEffectiveProfile.wireValue)
+        putString(PlaybackVideoEffects.KEY_STATE_DOWNGRADE_REASON, lastDowngradeReason)
+        putFloat(PlaybackVideoEffects.KEY_STATE_DETAIL_STRENGTH, if (videoCustomTuning) customDetailStrength else lastEffectiveProfile.detailStrength)
+        putFloat(PlaybackVideoEffects.KEY_STATE_DENOISE_STRENGTH, if (videoCustomTuning) customDenoiseStrength else lastEffectiveProfile.denoiseStrength)
+        putFloat(PlaybackVideoEffects.KEY_STATE_CONTRAST_BOOST, if (videoCustomTuning) customContrastBoost else lastEffectiveProfile.contrastBoost)
+        putFloat(PlaybackVideoEffects.KEY_STATE_VIBRANCE_STRENGTH, if (videoCustomTuning) customVibranceStrength else lastEffectiveProfile.vibranceStrength)
         // Read the live registry state instead of exposing a stale service-side flag.
         videoEffectsBridgeAttached = localExoPlayer?.let(AssVideoEffectRegistry::isAttached) == true
         val bridgeFailure = localExoPlayer?.let(AssVideoEffectRegistry::lastFailure)
@@ -577,11 +618,11 @@ class PlaybackService : MediaSessionService() {
             // the VideoFrameProcessor's configured effect graph.
             disableAllVideoEnhancements()
             localExoPlayer?.let {
-                applyEffectChain(
-                        it,
-                        listOfNotNull(videoDenoisePipeline, videoEnhancementPipeline),
-                        hasLanczos = false
-                    )
+                videoEffectsBridgeAttached = applyEffectChain(
+                    it,
+                    listOfNotNull(videoDenoisePipeline, videoEnhancementPipeline),
+                    hasLanczos = false
+                )
             }
         }
 
@@ -602,6 +643,9 @@ class PlaybackService : MediaSessionService() {
                 videoGroups.joinToString(",") { "${it.isSelected}:${it.length}" },
                 videoUpscalingEnabled,
                 videoNoiseReductionEnabled,
+                videoVibranceEnabled,
+                videoAiBoostEnabled,
+                videoCustomTuning,
                 videoEnhancementProfile.wireValue,
                 performanceQualityCap?.wireValue.orEmpty()
             ).joinToString("|")
@@ -659,10 +703,28 @@ class PlaybackService : MediaSessionService() {
         return false
     }
 
+    private fun setVideoVibrance(enabled: Boolean): Boolean {
+        if (enabled && !isLocalClearVideoSession()) return false
+        val previous = videoVibranceEnabled
+        if (enabled && !hasAnyVideoEnhancementEnabled()) VideoEnhancementMetrics.resetPlaybackSession()
+        videoVibranceEnabled = enabled
+        if (applyVideoEnhancements()) return true
+        videoVibranceEnabled = previous
+        applyVideoEnhancements()
+        return false
+    }
+
+    private fun setVideoComparisonBypass(bypassed: Boolean): Boolean {
+        videoEnhancementBypassed = bypassed
+        return applyVideoEnhancements()
+    }
+
     private fun setVideoEnhancementProfile(profile: VideoEnhancementProfile): Boolean {
         val previousProfile = videoEnhancementProfile
         val previousUpscaling = videoUpscalingEnabled
+        val previousCustom = videoCustomTuning
         videoEnhancementProfile = profile
+        videoCustomTuning = false
         // A quality preset is an explicit request to activate visible GPU detail enhancement.
         if (!hasAnyVideoEnhancementEnabled() && isLocalClearVideoSession()) {
             videoUpscalingEnabled = true
@@ -670,21 +732,68 @@ class PlaybackService : MediaSessionService() {
         if (applyVideoEnhancements()) return true
         videoEnhancementProfile = previousProfile
         videoUpscalingEnabled = previousUpscaling
+        videoCustomTuning = previousCustom
         applyVideoEnhancements()
         return false
     }
 
-    /** Switch both internal GPU stages in one service transaction for AI fallback. */
+    private fun setCustomVideoEnhancement(
+        customMode: Boolean,
+        denoiseStrength: Float,
+        detailStrength: Float,
+        contrastBoost: Float,
+        vibranceStrength: Float
+    ): Boolean {
+        if (!isLocalClearVideoSession()) return false
+        val prevCustom = videoCustomTuning
+        val prevDenoise = customDenoiseStrength
+        val prevDetail = customDetailStrength
+        val prevContrast = customContrastBoost
+        val prevVibrance = customVibranceStrength
+        val prevUpscaling = videoUpscalingEnabled
+        val prevNoiseFlag = videoNoiseReductionEnabled
+        val prevVibranceFlag = videoVibranceEnabled
+        if (!hasAnyVideoEnhancementEnabled()) VideoEnhancementMetrics.resetPlaybackSession()
+        videoCustomTuning = customMode
+        customDenoiseStrength = denoiseStrength.coerceIn(0f, 0.60f)
+        customDetailStrength = detailStrength.coerceIn(0f, 1.20f)
+        customContrastBoost = contrastBoost.coerceIn(0f, 0.22f)
+        customVibranceStrength = vibranceStrength.coerceIn(0f, 0.35f)
+        if (!hasAnyVideoEnhancementEnabled()) {
+            videoUpscalingEnabled = true
+            videoNoiseReductionEnabled = customDenoiseStrength > 0.01f
+            videoVibranceEnabled = customVibranceStrength > 0.005f
+        }
+        if (applyVideoEnhancements()) return true
+        videoCustomTuning = prevCustom
+        customDenoiseStrength = prevDenoise
+        customDetailStrength = prevDetail
+        customContrastBoost = prevContrast
+        customVibranceStrength = prevVibrance
+        videoUpscalingEnabled = prevUpscaling
+        videoNoiseReductionEnabled = prevNoiseFlag
+        videoVibranceEnabled = prevVibranceFlag
+        applyVideoEnhancements()
+        return false
+    }
+
+    /** Switch both internal GPU stages (plus AI boost & vibrance) in one service transaction. */
     private fun setInternalGpuEnhancement(enabled: Boolean): Boolean {
         if (enabled && !isLocalClearVideoSession()) return false
         val previousUpscaling = videoUpscalingEnabled
         val previousDenoise = videoNoiseReductionEnabled
+        val previousVibrance = videoVibranceEnabled
+        val previousAiBoost = videoAiBoostEnabled
         if (enabled && !hasAnyVideoEnhancementEnabled()) VideoEnhancementMetrics.resetPlaybackSession()
         videoUpscalingEnabled = enabled
         videoNoiseReductionEnabled = enabled
+        videoVibranceEnabled = enabled
+        videoAiBoostEnabled = enabled
         if (applyVideoEnhancements()) return true
         videoUpscalingEnabled = previousUpscaling
         videoNoiseReductionEnabled = previousDenoise
+        videoVibranceEnabled = previousVibrance
+        videoAiBoostEnabled = previousAiBoost
         applyVideoEnhancements()
         return false
     }
@@ -707,12 +816,16 @@ class PlaybackService : MediaSessionService() {
     }
 
     private fun hasAnyVideoEnhancementEnabled(): Boolean =
-        videoUpscalingEnabled || videoNoiseReductionEnabled
+        videoUpscalingEnabled || videoNoiseReductionEnabled || videoVibranceEnabled
 
     private fun disableAllVideoEnhancements() {
         videoUpscalingEnabled = false
         videoNoiseReductionEnabled = false
+        videoVibranceEnabled = false
+        videoAiBoostEnabled = false
+        videoEnhancementBypassed = false
         lastAppliedEnhancementSignature = null
+        lastDowngradeReason = null
         videoDenoisePipeline?.update(VideoEnhancementPipelineConfig())
         videoEnhancementPipeline?.update(VideoEnhancementPipelineConfig())
         videoEffectsBridgeAttached = false
@@ -723,6 +836,9 @@ class PlaybackService : MediaSessionService() {
         val player = localExoPlayer ?: return false
         if (!hasAnyVideoEnhancementEnabled()) {
             videoLanczosSubmitted = false
+            videoAiBoostEnabled = false
+            videoEnhancementBypassed = false
+            lastDowngradeReason = null
             videoDenoisePipeline?.update(VideoEnhancementPipelineConfig())
             videoEnhancementPipeline?.update(VideoEnhancementPipelineConfig())
             videoEffectsBridgeAttached = applyEffectChain(
@@ -749,23 +865,43 @@ class PlaybackService : MediaSessionService() {
         // user has already enabled denoise/detail enhancement.
         val tuning = resolveVideoEnhancementTuning()
         val profile = tuning.effective
+        lastEffectiveProfile = profile
+        lastDowngradeReason = tuning.downgradeReason
         if (tuning.downgradeReason != null) {
             Log.w(TAG, "Video enhancement profile capped: ${tuning.downgradeReason}")
         }
+        val activeDenoiseStrength = if (videoCustomTuning) customDenoiseStrength else profile.denoiseStrength
+        val activeDetailStrength = if (videoCustomTuning) customDetailStrength else profile.detailStrength
+        val activeContrastBoost = if (videoCustomTuning) customContrastBoost else profile.contrastBoost
+        val activeClarityStrength = if (videoCustomTuning) {
+            (customDetailStrength * 0.21f).coerceIn(0f, 0.30f)
+        } else profile.clarityStrength
+        val activeVibranceStrength = when {
+            !videoVibranceEnabled -> 0f
+            videoCustomTuning -> customVibranceStrength
+            else -> profile.vibranceStrength
+        }
         // Denoise consumes original decoded pixels. The second stage receives
-        // the optional upscaled texture and performs only detail/contrast work.
+        // the optional upscaled texture and performs detail/contrast/vibrance work.
         videoDenoisePipeline?.update(
             VideoEnhancementPipelineConfig(
                 denoiseEnabled = videoNoiseReductionEnabled,
-                denoiseStrength = profile.denoiseStrength
+                detailEnabled = false,
+                aiBoostEnabled = videoAiBoostEnabled && videoNoiseReductionEnabled,
+                denoiseStrength = activeDenoiseStrength,
+                bypassed = videoEnhancementBypassed
             )
         )
         videoEnhancementPipeline?.update(
             VideoEnhancementPipelineConfig(
-                detailEnabled = videoUpscalingEnabled || videoNoiseReductionEnabled,
-                detailStrength = profile.detailStrength,
-                contrastBoost = profile.contrastBoost,
-                clarityStrength = profile.clarityStrength
+                denoiseEnabled = false,
+                detailEnabled = videoUpscalingEnabled || videoNoiseReductionEnabled || videoVibranceEnabled,
+                aiBoostEnabled = videoAiBoostEnabled,
+                detailStrength = activeDetailStrength,
+                contrastBoost = activeContrastBoost,
+                clarityStrength = activeClarityStrength,
+                vibranceStrength = activeVibranceStrength,
+                bypassed = videoEnhancementBypassed
             )
         )
 

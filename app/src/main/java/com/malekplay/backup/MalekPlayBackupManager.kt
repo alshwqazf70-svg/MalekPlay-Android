@@ -354,6 +354,18 @@ class MalekPlayBackupManager @Inject constructor(
         .put("foldersFirst", s.foldersFirst)
         .put("manualSortOrder", org.json.JSONArray(s.manualSortOrder))
         .put("viewMode", s.viewMode.name)
+        .put("rememberVideoEnhancement", s.rememberVideoEnhancement)
+        .put("videoEnhancementEnabled", s.videoEnhancementEnabled)
+        .put("videoEnhancementProfile", s.videoEnhancementProfile)
+        .put("videoEnhancementCustom", s.videoEnhancementCustom)
+        .put("videoEnhancementUpscaling", s.videoEnhancementUpscaling)
+        .put("videoEnhancementDenoise", s.videoEnhancementDenoise)
+        .put("videoEnhancementVibrance", s.videoEnhancementVibrance)
+        .put("videoEnhancementSmartAi", s.videoEnhancementSmartAi)
+        .put("videoEnhancementDetailStrength", s.videoEnhancementDetailStrength.toDouble())
+        .put("videoEnhancementDenoiseStrength", s.videoEnhancementDenoiseStrength.toDouble())
+        .put("videoEnhancementContrastBoost", s.videoEnhancementContrastBoost.toDouble())
+        .put("videoEnhancementVibranceStrength", s.videoEnhancementVibranceStrength.toDouble())
 
     private fun settingsFromJson(json: JSONObject): PlayerSettings = PlayerSettings(
         themeMode = runCatching { AppThemeMode.valueOf(json.optString("themeMode", "DARK")) }
@@ -400,7 +412,24 @@ class MalekPlayBackupManager @Inject constructor(
         foldersFirst = json.optBoolean("foldersFirst", true),
         manualSortOrder = json.optJSONArray("manualSortOrder")?.let { array -> List(array.length()) { array.optString(it) }.filter { it.isNotBlank() } } ?: emptyList(),
         viewMode = runCatching { ViewMode.valueOf(json.optString("viewMode", "GRID")) }
-            .getOrDefault(ViewMode.GRID)
+            .getOrDefault(ViewMode.GRID),
+        rememberVideoEnhancement = json.optBoolean("rememberVideoEnhancement", false),
+        videoEnhancementEnabled = json.optBoolean("videoEnhancementEnabled", false),
+        videoEnhancementProfile = json.optString("videoEnhancementProfile", "balanced")
+            .takeIf { it in setOf("economy", "balanced", "ultra") } ?: "balanced",
+        videoEnhancementCustom = json.optBoolean("videoEnhancementCustom", false),
+        videoEnhancementUpscaling = json.optBoolean("videoEnhancementUpscaling", true),
+        videoEnhancementDenoise = json.optBoolean("videoEnhancementDenoise", true),
+        videoEnhancementVibrance = json.optBoolean("videoEnhancementVibrance", true),
+        videoEnhancementSmartAi = json.optBoolean("videoEnhancementSmartAi", false),
+        videoEnhancementDetailStrength = json.optDouble("videoEnhancementDetailStrength", 0.90)
+            .toFloat().takeIf { it.isFinite() }?.coerceIn(0f, 1.20f) ?: 0.90f,
+        videoEnhancementDenoiseStrength = json.optDouble("videoEnhancementDenoiseStrength", 0.34)
+            .toFloat().takeIf { it.isFinite() }?.coerceIn(0f, 0.60f) ?: 0.34f,
+        videoEnhancementContrastBoost = json.optDouble("videoEnhancementContrastBoost", 0.14)
+            .toFloat().takeIf { it.isFinite() }?.coerceIn(0f, 0.22f) ?: 0.14f,
+        videoEnhancementVibranceStrength = json.optDouble("videoEnhancementVibranceStrength", 0.08)
+            .toFloat().takeIf { it.isFinite() }?.coerceIn(0f, 0.35f) ?: 0.08f
     )
 
     private companion object {
