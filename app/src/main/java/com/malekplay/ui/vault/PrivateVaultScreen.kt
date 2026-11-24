@@ -93,10 +93,9 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                         runCatching { DocumentsContract.deleteDocument(context.contentResolver, uri) }
                             .getOrElse { runCatching { context.contentResolver.delete(uri, null, null) > 0 }.getOrDefault(false) }
                     }
-                    if (deleted) deletedUris += uri.toString()
+                    if (deleted) deletedUris += PrivateVaultTreeSupport.libraryMediaId(uri)
                 }
-                libraryViewModel.removeMovedMediaUris(deletedUris)
-                if (deletedUris.isNotEmpty()) libraryViewModel.refresh()
+                libraryViewModel.reconcileMovedMediaUris(deletedUris)
                 refresh()
                 message = "شُفّر $encryptedCount ملفاً؛ حُذفت أصول ${deletedUris.size} ملفاً بعد التحقق، وبقيت أصول الملفات التي رفض مزود التخزين حذفها."
             } catch (failure: Exception) {
@@ -111,8 +110,7 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                 runCatching { context.contentResolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION) }
                 val result = withContext(Dispatchers.IO) { treeSupport.importFolder(uri, password.toCharArray(), moveSource = moveFolderSelection) }
                 moveFolderSelection = false
-                libraryViewModel.removeMovedMediaUris(result.deletedSourceUris)
-                if (result.deletedSourceFiles > 0) libraryViewModel.refresh()
+                libraryViewModel.reconcileMovedMediaUris(result.deletedSourceUris)
                 refresh()
                 message = if (result.sourceFullyMoved && result.deletedSourceFiles > 0) "تم تشفير المجلد ونقل ${result.deletedSourceFiles} ملفاً مع الحفاظ على البنية الداخلية." else if (result.deletedSourceFiles > 0) "شُفّر المجلد؛ نُقلت ${result.deletedSourceFiles} من ${result.fileCount} ملفات فقط، وبقيت أصول أخرى." else "تم تشفير المجلد مع ${result.fileCount} ملفاً؛ بقيت الأصول الأصلية."
             } catch (failure: Exception) { message = failure.localizedMessage ?: "تعذر استيراد المجلد" }
