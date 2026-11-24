@@ -428,11 +428,31 @@ class LegacyUltraShareViewModel @Inject constructor(
         )
         viewModelScope.launch {
             val p2pInvitation = !pairing.invitationId.isNullOrBlank()
-            val candidates = UltraShareNetworkRouting.invitationHostCandidates(
-                confirmedHost = host,
-                advertisedHosts = pairing.hosts,
-                pinToConfirmedHost = p2pInvitation
-            ).filter { UltraShareCore.isValidPrivateLanHost(it) }
+            val confirmedP2pRoutes = (listOfNotNull(preferredNetwork) +
+                UltraShareNetworkRouting.findNetworksForHost(context, host))
+                .distinctBy { it.toString() }
+            // A DNS-SD P2P host must never be dialed through the process-default WLAN
+            // just because Android did not expose a P2P Network. That is the exact
+            // failure mode behind ENETUNREACH to 192.168.49.1 via an unrelated wlan0.
+            // In that case, try only independently verified LAN addresses from the QR.
+            val candidates = if (p2pInvitation && confirmedP2pRoutes.isEmpty()) {
+                val safeLanFallbacks = UltraShareNetworkRouting.findNonP2pLanFallbackHosts(
+                    context,
+                    pairing.hosts.filterNot { it == host }
+                )
+                UltraShareDiagnostics.event(
+                    "NETWORK_ROUTING",
+                    "P2P_ROUTE_UNAVAILABLE_USING_VERIFIED_LAN",
+                    mapOf("verifiedLanFallbackCount" to safeLanFallbacks.size)
+                )
+                safeLanFallbacks
+            } else {
+                UltraShareNetworkRouting.invitationHostCandidates(
+                    confirmedHost = host,
+                    advertisedHosts = pairing.hosts,
+                    pinToConfirmedHost = p2pInvitation
+                ).filter { UltraShareCore.isValidPrivateLanHost(it) }
+            }
             UltraShareDiagnostics.event(
                 "PAIRING",
                 if (p2pInvitation) "P2P_INVITATION_HOST_PINNED" else "LAN_INVITATION_HOST_CANDIDATES",
@@ -447,15 +467,25 @@ class LegacyUltraShareViewModel @Inject constructor(
                 var candidateAccepted = false
                 var candidateFailure: Exception? = null
                 if (!candidateAccepted) {
-                    // Try every Android Network with a route to this exact peer,
-                    // prioritizing Wi-Fi Direct, then the remaining local links.
-                    // Finally try Android's default route for OEM P2P stacks that
-                    // do not expose a bindable Network object.
+                    // Try only Android Networks that can reach this exact peer.
+                    // Non-P2P invitations retain the historical process-default fallback.
+                    // P2P invitations are stricter: never send a P2P group-owner IP over
+                    // an unrelated default WLAN when Android exposes no matching route.
+                    val explicitRoutes = (listOfNotNull(preferredNetwork) +
+                        UltraShareNetworkRouting.findNetworksForHost(context, candidate))
+                        .distinctBy { it.toString() }
                     val routeCandidates: List<android.net.Network?> =
-                        (listOfNotNull(preferredNetwork) +
-                            UltraShareNetworkRouting.findNetworksForHost(context, candidate)
-                                .map { it as android.net.Network? })
-                            .distinctBy { it?.toString() } + listOf(null)
+                        explicitRoutes + if (shouldUseDefaultRouteFallback(p2pInvitation)) listOf(null) else emptyList()
+                    if (routeCandidates.isEmpty()) {
+                        candidateFailure = java.io.IOException(
+                            "لا يوجد مسار Wi-Fi Direct موثق لهذا العنوان؛ لم نرسل الاتصال عبر شبكة WLAN افتراضية."
+                        )
+                        UltraShareDiagnostics.event(
+                            "NETWORK_ROUTING",
+                            "P2P_CONNECT_WITHHELD_NO_CONFIRMED_NETWORK",
+                            mapOf("host" to candidate)
+                        )
+                    }
                     var routeAuthenticationOrProtocolFailure = false
                     for ((routeIndex, route) in routeCandidates.withIndex()) {
                         if (candidateAccepted || routeAuthenticationOrProtocolFailure) break
