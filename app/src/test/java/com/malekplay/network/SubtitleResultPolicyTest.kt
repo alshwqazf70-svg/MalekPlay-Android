@@ -152,4 +152,27 @@ class SubtitleResultPolicyTest {
         assertEquals(2, results.size)
     }
 
+    @Test
+    fun excludesExplicitlyWrongEpisodeButKeepsUnnumberedArabicFallback() {
+        val results = listOf(
+            item("ar", "Avatar S01E02 Arabic"),
+            item("ar", "Avatar S01E03 Arabic"),
+            item("ar", "Avatar The Last Airbender Arabic")
+        )
+        assertEquals(
+            listOf("Avatar S01E03 Arabic", "Avatar The Last Airbender Arabic"),
+            SubtitleResultPolicy.rankAndFilter(results, "ar", 1, 3).map { it.release }
+        )
+    }
+
+    @Test
+    fun excludesWrongSeasonEvenWhenEpisodeNumberMatches() {
+        val results = listOf(
+            item("ar", "Avatar S02E03 Arabic"),
+            item("ar", "Avatar 1x03 Arabic")
+        )
+        assertEquals(listOf("Avatar 1x03 Arabic"),
+            SubtitleResultPolicy.rankAndFilter(results, "ar", 1, 3).map { it.release })
+    }
+
 }
