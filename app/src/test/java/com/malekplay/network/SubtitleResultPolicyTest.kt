@@ -49,6 +49,47 @@ class SubtitleResultPolicyTest {
         assertEquals(1, cache.get("avatar s01e02")?.size)
     }
 
+    @Test
+    fun episodeSearchFallsBackToTitleWhenProviderReturnsNoEpisodeMatches() {
+        var scopedCalls = 0
+        var titleCalls = 0
+        val results = SubtitleResultPolicy.withEpisodeFallback(
+            season = 1,
+            episode = 2,
+            episodeSearch = { scopedCalls++; emptyList() },
+            titleSearch = { titleCalls++; listOf(item("ar", "Show S01E02 Arabic")) }
+        )
+        assertEquals(1, scopedCalls)
+        assertEquals(1, titleCalls)
+        assertEquals(listOf("Show S01E02 Arabic"), results.map { it.release })
+    }
+
+    @Test
+    fun episodeSearchDoesNotRunBroadFallbackWhenSpecificResultsExist() {
+        var titleCalls = 0
+        val results = SubtitleResultPolicy.withEpisodeFallback(
+            season = 1,
+            episode = 2,
+            episodeSearch = { listOf(item("ar", "Show S01E02 Arabic")) },
+            titleSearch = { titleCalls++; emptyList() }
+        )
+        assertEquals(0, titleCalls)
+        assertEquals(1, results.size)
+    }
+
+    @Test
+    fun titleSearchWithoutEpisodeScopeDoesNotRepeatAnEmptyRequest() {
+        var titleCalls = 0
+        val results = SubtitleResultPolicy.withEpisodeFallback(
+            season = null,
+            episode = null,
+            episodeSearch = { emptyList() },
+            titleSearch = { titleCalls++; listOf(item("ar", "Show Arabic")) }
+        )
+        assertEquals(0, titleCalls)
+        assertEquals(0, results.size)
+    }
+
     @Test fun cacheEvictsLeastRecentlyUsedEntry() {
         val cache = SubtitleSearchResultCache(2)
         cache.put("one", listOf(item("ar", "1")))
