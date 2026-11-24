@@ -68,16 +68,14 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
 
     fun restoreFolder(entry: PrivateVaultEntry, destinationTree: Uri, password: CharArray) {
         require(entry.mimeType == FOLDER_ARCHIVE_MIME) { "هذا العنصر ليس مجلداً." }
-        val tempUri = DocumentsContract.createDocument(
-            resolver, rootDocumentUri(destinationTree), "application/zip", ".malek-restore-${UUID.randomUUID()}.zip"
-        ) ?: error("تعذر إنشاء ملف استعادة مؤقت.")
+        val tempArchive = File(appContext.cacheDir, ".malek-restore-${UUID.randomUUID()}.zip")
         try {
-            vault.exportTo(entry.id, tempUri, password)
+            vault.exportToFile(entry.id, tempArchive, password)
             val rootFolder = DocumentsContract.createDocument(
                 resolver, rootDocumentUri(destinationTree), DocumentsContract.Document.MIME_TYPE_DIR,
                 safeSegment(entry.displayName).ifBlank { "Restored folder" }
             ) ?: error("تعذر إنشاء مجلد الاستعادة.")
-            resolver.openInputStream(tempUri)?.use { raw ->
+            FileInputStream(tempArchive).use { raw ->
                 ZipInputStream(raw).use { zip ->
                     while (true) {
                         val item = zip.nextEntry ?: break
@@ -101,9 +99,9 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
                         zip.closeEntry()
                     }
                 }
-            } ?: error("تعذرت قراءة أرشيف الخزنة.")
+            }
         } finally {
-            runCatching { DocumentsContract.deleteDocument(resolver, tempUri) }
+            tempArchive.delete()
         }
     }
 
