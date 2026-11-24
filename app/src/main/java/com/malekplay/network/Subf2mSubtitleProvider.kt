@@ -91,8 +91,7 @@ internal class Subf2mSubtitleProvider {
     }
 
     internal fun resolveDownloadPageLink(page: String, detailUrl: String): String? {
-        // SubF2M's current download action is an anchor with a download class;
-        // older layouts may wrap it in a download div or use a /download href.
+        // SubF2M exposes the final action as #downloadButton; retain a path fallback for older pages.
         val raw = DOWNLOAD_BUTTON.find(page)?.groupValues?.get(1)?.let(::decodeHtml)
             ?: DOWNLOAD_HREF.find(page)?.groupValues?.get(1)?.let(::decodeHtml)
             ?: return null
@@ -347,13 +346,13 @@ internal class Subf2mSubtitleProvider {
         private val YEAR = Regex("\\((\\d{4})\\)")
         private val IMDB = Regex("(?i)imdb\\.com/title/(tt\\d+)")
         private val PAGE_TITLE = Regex("(?is)<title[^>]*>(.*?)</title>")
-        private val TITLE_ANCHOR = Regex("""(?is)<div\\b[^>]*class=['"]title['"][^>]*>\\s*<a\\b[^>]*href=['"](/subtitles/[^'"]+)['"][^>]*>(.*?)</a>""")
+        private val TITLE_ANCHOR = Regex("""(?is)<div\b[^>]*class=['"]title['"][^>]*>\s*<a\b[^>]*href=['"](/subtitles/[^'"]+)['"][^>]*>(.*?)</a>""")
         private val ITEM_START = Regex("(?is)<li\\b[^>]*class=['\"][^'\"]*\\bitem\\b[^'\"]*['\"][^>]*>")
         private val SCROLL_LIST = Regex("(?is)<ul[^>]*class=['\"][^'\"]*\\bscrolllist\\b[^'\"]*['\"][^>]*>(.*?)</ul>")
         private val INNER_LI = Regex("(?is)<li[^>]*>(.*?)</li>")
         private val COMMENT = Regex("(?is)<div[^>]*class=['\"][^'\"]*\\bcomment-col\\b[^'\"]*['\"][^>]*>.*?<p[^>]*>(.*?)</p>")
-        private val DOWNLOAD_LINK = Regex("""(?is)<a\\b(?=[^>]*class=['"][^'"]*\\bdownload\\b)(?=[^>]*href=['"]([^'"]+)['"])[^>]*>""")
-        private val DOWNLOAD_BUTTON = Regex("""(?is)<a\\b(?=[^>]*id=['"]downloadButton['"])(?=[^>]*href=['"]([^'"]+)['"])[^>]*>""")
-        private val DOWNLOAD_HREF = Regex("""(?is)<a\\b(?=[^>]*href=['"]([^'"]*/download(?:\\?[^'"]*)?)['"])[^>]*>""")
+        private val DOWNLOAD_LINK = Regex("""(?is)<a\b(?=[^>]*class=['"][^'"]*\bdownload\b)(?=[^>]*href=['"]([^'"]+)['"])[^>]*>""")
+        private val DOWNLOAD_BUTTON = Regex("""(?is)<a\b(?=[^>]*id=['"]downloadButton['"])(?=[^>]*href=['"]([^'"]+)['"])[^>]*>""")
+        private val DOWNLOAD_HREF = Regex("""(?is)<a\b(?=[^>]*href=['"]([^'"]*/download(?:\?[^'"]*)?)['"])[^>]*>""")
     }
 }
