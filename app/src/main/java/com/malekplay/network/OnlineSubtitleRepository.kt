@@ -566,6 +566,11 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
             error(payload.optString("error").takeIf { it.isNotBlank() }
                 ?: "رفضت خدمة SubDL طلب البحث")
         }
+        val identityResults = payload.optJSONArray("results") ?: return emptyList()
+        val requestedType = if (tvSearch || season != null || episode != null) "tv" else "movie"
+        if (!SubtitleProviderResultParser.subDlHasExactTitleMatch(identityResults, title, year, requestedType)) {
+            return emptyList()
+        }
         val data = payload.optJSONArray("subtitles") ?: return emptyList()
         return buildList {
             for (index in 0 until data.length()) {
