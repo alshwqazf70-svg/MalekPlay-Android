@@ -351,7 +351,7 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary,
                     contentColor = MaterialTheme.colorScheme.onPrimary)
-            ) { Text("إضافة الآن (${selectedUris.size})") }
+            ) { Text("حفظ (${selectedUris.size})") }
         } else if (!unlocked) {
             Text(if (configured) "أدخل كلمة المرور لفتح ملفاتك الخاصة." else "أنشئ كلمة مرور من 8 أحرف على الأقل. سيُشفّر محتوى الملفات وفهرسها داخل مساحة التطبيق.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             OutlinedTextField(password, { password = it }, modifier = Modifier.fillMaxWidth(), label = { Text("كلمة المرور") }, visualTransformation = PasswordVisualTransformation(), singleLine = true)
@@ -456,6 +456,7 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
 }
 
 private fun formatBytes(bytes: Long): String = when {
+    bytes < 0L -> "الحجم غير معروف"
     bytes < 1024 -> bytes.toString() + " B"
     bytes < 1024 * 1024 -> String.format(Locale.ROOT, "%.1f KB", bytes / 1024.0)
     bytes < 1024L * 1024 * 1024 -> String.format(Locale.ROOT, "%.1f MB", bytes / (1024.0 * 1024))
