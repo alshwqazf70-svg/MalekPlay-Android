@@ -191,8 +191,17 @@ fun LibraryScreen(
                         else -> 0f
                     }
                     if (scrollDelta != 0f) {
-                        if (settings.viewMode == ViewMode.GRID) gridState.scrollBy(scrollDelta)
-                        else listState.scrollBy(scrollDelta)
+                        if (settings.viewMode == ViewMode.GRID) {
+                            gridState.scrollBy(scrollDelta)
+                            val visibleKeys = gridState.layoutInfo.visibleItemsInfo
+                                .mapNotNull { it.key as? String }.toSet()
+                            itemBounds.keys.retainAll(visibleKeys)
+                        } else {
+                            listState.scrollBy(scrollDelta)
+                            val visibleKeys = listState.layoutInfo.visibleItemsInfo
+                                .mapNotNull { it.key as? String }.toSet()
+                            itemBounds.keys.retainAll(visibleKeys)
+                        }
                         val hit = findManualDropTargetIndex(
                             latestVisibleItems, itemBounds, draggedId, activeDragPointerRoot, activeDragGrabOffset
                         )
