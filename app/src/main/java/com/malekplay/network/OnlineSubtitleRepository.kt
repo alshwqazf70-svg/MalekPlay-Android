@@ -488,7 +488,8 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                 mediaUri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null
             )?.use { cursor ->
                 if (cursor.moveToFirst()) {
-                    cursor.getString(cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME))
+                    val displayNameColumn = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (displayNameColumn >= 0) cursor.getString(displayNameColumn) else null
                 } else null
             }
         }.getOrNull().orEmpty().ifBlank { mediaUri.lastPathSegment.orEmpty() }
