@@ -54,6 +54,7 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
     var message by remember { mutableStateOf<String?>(null) }
     val entries = remember { mutableStateListOf<PrivateVaultEntry>() }
     var pendingExport by remember { mutableStateOf<PrivateVaultEntry?>(null) }
+    var pendingDelete by remember { mutableStateOf<PrivateVaultEntry?>(null) }
     var pendingFolderRestore by remember { mutableStateOf<PrivateVaultEntry?>(null) }
     var moveFolderSelection by remember { mutableStateOf(false) }
     val vaultPrefs = remember(context) { context.getSharedPreferences("private_vault_browser", android.content.Context.MODE_PRIVATE) }
@@ -147,19 +148,6 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
         if (browserOpen) backFromBrowser() else leaveVault()
     }
 
-    val importPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris: List<Uri> ->
-        if (uris.isNotEmpty()) scope.launch {
-            busy = true
-            try {
-                uris.forEach { uri ->
-                    runCatching { context.contentResolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) }
-                    withContext(Dispatchers.IO) { repository.importUri(uri, password.toCharArray()) }
-                }
-                refresh()
-            } catch (failure: Exception) { message = failure.localizedMessage ?: "تعذر استيراد الملفات" }
-            finally { busy = false }
-        }
-    }
     val moveFilesPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris: List<Uri> ->
         if (uris.isNotEmpty()) scope.launch {
             busy = true
@@ -248,9 +236,6 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
         }
         if (browserOpen) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                IconButton(onClick = { backFromBrowser() }) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "رجوع")
-                }
                 Column(Modifier.weight(1f)) {
                     Text("اختيار ملفات للخزنة", style = MaterialTheme.typography.titleLarge)
                     Text(browserPath.joinToString("  ›  ") { it.second }, style = MaterialTheme.typography.bodySmall,
@@ -406,16 +391,9 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                             } else {
                                 TextButton(onClick = { pendingExport = entry; exportPicker.launch(entry.displayName) }, enabled = !busy) { Text("استعادة") }
                             }
-                            IconButton(onClick = {
-                                scope.launch {
-                                    busy = true
-                                    try {
-                                        withContext(Dispatchers.IO) { repository.delete(entry.id, password.toCharArray()) }
-                                        entries.remove(entry); message = "حُذفت النسخة المشفّرة من الخزنة."
-                                    } catch (failure: Exception) { message = failure.localizedMessage ?: "تعذر الحذف" }
-                                    finally { busy = false }
-                                }
-                            }, enabled = !busy) { Icon(Icons.Filled.Delete, contentDescription = "حذف من الخزنة") }
+                            IconButton(onClick = { pendingDelete = entry }, enabled = !busy) {
+                                Icon(Icons.Filled.Delete, contentDescription = "حذف من الخزنة")
+                            }
                         }
                     }
                 }
@@ -432,6 +410,38 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
             )
         }
         message?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
+        pendingDelete?.let { entry ->
+            AlertDialog(
+                onDismissRequest = { if (!busy) pendingDelete = null },
+                title = { Text("حذف الملف من الخزنة؟") },
+                text = { Text("سيُحذف الملف المشفّر «${entry.displayName}» نهائياً من الخزنة. لن يؤثر ذلك على الملف الأصلي في الهاتف.") },
+                confirmButton = {
+                    TextButton(
+                        enabled = !busy,
+                        onClick = {
+                            pendingDelete = null
+                            scope.launch {
+                                busy = true
+                                try {
+                                    withContext(Dispatchers.IO) { repository.delete(entry.id, password.toCharArray()) }
+                                    entries.remove(entry)
+                                    message = "حُذفت النسخة المشفّرة من الخزنة."
+                                } catch (failure: kotlinx.coroutines.CancellationException) {
+                                    throw failure
+                                } catch (failure: Exception) {
+                                    message = failure.localizedMessage ?: "تعذر الحذف"
+                                } finally {
+                                    busy = false
+                                }
+                            }
+                        }
+                    ) { Text("حذف نهائياً") }
+                },
+                dismissButton = {
+                    TextButton(enabled = !busy, onClick = { pendingDelete = null }) { Text("إلغاء") }
+                }
+            )
+        }
     }
 }
 
