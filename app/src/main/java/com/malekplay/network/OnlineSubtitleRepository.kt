@@ -445,12 +445,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                 .get().build()
         )
         val results = payload.optJSONArray("results") ?: return null
-        for (index in 0 until results.length()) {
-            val item = results.optJSONObject(index) ?: continue
-            val id = item.optString("imdb_id").takeIf { it.matches(Regex("tt\\d{5,12}")) }
-            if (id != null) return id
-        }
-        return null
+        return SubtitleProviderResultParser.subDlImdbId(results, title, year, mediaType)
     }
 
     private suspend fun downloadSubF2m(subtitle: OnlineSubtitle): Uri {
