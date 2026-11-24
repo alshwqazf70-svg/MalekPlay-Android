@@ -34,13 +34,17 @@ internal object SubtitleResultPolicy {
     }.distinct().sorted()
 
     /** Reject releases that describe a season pack or more than one episode. */
+    private fun normalizeEpisodeRelease(release: String): String =
+        release.replace(Regex("[._]+"), " ")
+
     internal fun isSeasonPackRelease(release: String): Boolean = Regex(
         """(?i)\b(?:full\s+season|season\s+pack|all\s+episodes|complete\s+season\s*0*\d+|season\s*0*\d+\s*(?:complete|pack|batch)|s0*\d{1,2}\s*(?:complete|pack))\b"""
-    ).containsMatchIn(release)
+    ).containsMatchIn(normalizeEpisodeRelease(release))
 
     internal fun isMultiEpisodeRange(release: String, season: Int, episode: Int): Boolean {
+        val normalized = normalizeEpisodeRelease(release)
         val seasonEpisodeRange = Regex(
-            """(?i)\bS0*${season}E0*${episode}\s*(?:-|–|—|\bto\b|\bthrough\b|E)\s*(?:S0*${season})?E?0*\d{1,3}\b"""
+            """(?i)\bS0*${season}E0*${episode}\s*(?:-|–|—|\bto\b|\bthrough\b|\band\b|&|,|\+|E)\s*(?:S0*${season})?E?0*\d{1,3}\b"""
         )
         val xEpisodeRange = Regex(
             """(?i)\b0*${season}x0*${episode}\s*(?:-|–|—|\bto\b|\bthrough\b)\s*(?:0*${season}x)?0*\d{1,3}\b"""
@@ -48,9 +52,9 @@ internal object SubtitleResultPolicy {
         val namedEpisodeRange = Regex(
             """(?i)\bSeason\s*0*${season}\s+Episodes?\s*0*${episode}\s*(?:-|–|—|\bto\b|\bthrough\b)\s*(?:Episode\s*)?0*\d{1,3}\b"""
         )
-        return seasonEpisodeRange.containsMatchIn(release) ||
-            xEpisodeRange.containsMatchIn(release) ||
-            namedEpisodeRange.containsMatchIn(release)
+        return seasonEpisodeRange.containsMatchIn(normalized) ||
+            xEpisodeRange.containsMatchIn(normalized) ||
+            namedEpisodeRange.containsMatchIn(normalized)
     }
 
     /** Returns only individually identified episode files for the selected season. */
