@@ -524,7 +524,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                     downloads = item.optInt("downloads"),
                     fallbackTitle = displayName,
                     providerSeason = item.optInt("season").takeIf { it > 0 },
-                    providerEpisode = item.optInt("episode").takeIf { it > 0 },
+                    providerEpisode = item.optInt("episode").takeIf { it > 0 } ?: item.optInt("episode_from").takeIf { it > 0 },
                     providerEpisodeEnd = item.optInt("episode_end").takeIf { it > 0 },
                     fullSeasonPack = item.optBoolean("full_season")
                 ) ?: continue
@@ -580,7 +580,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                             downloads = file.optInt("downloads"),
                             fallbackTitle = title,
                             providerSeason = file.optInt("season").takeIf { it > 0 } ?: parent.optInt("season").takeIf { it > 0 },
-                            providerEpisode = file.optInt("episode").takeIf { it > 0 } ?: parent.optInt("episode").takeIf { it > 0 },
+                            providerEpisode = file.optInt("episode").takeIf { it > 0 } ?: file.optInt("episode_from").takeIf { it > 0 } ?: parent.optInt("episode").takeIf { it > 0 } ?: parent.optInt("episode_from").takeIf { it > 0 },
                             providerEpisodeEnd = file.optInt("episode").takeIf { it > 0 }?.let {
                                 file.optInt("episode_end").takeIf { it > 0 } ?: it
                             } ?: parent.optInt("episode_end").takeIf { it > 0 },
@@ -598,7 +598,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                         downloads = parent.optInt("downloads"),
                         fallbackTitle = title,
                         providerSeason = parent.optInt("season").takeIf { it > 0 },
-                        providerEpisode = parent.optInt("episode").takeIf { it > 0 },
+                        providerEpisode = parent.optInt("episode").takeIf { it > 0 } ?: parent.optInt("episode_from").takeIf { it > 0 },
                         providerEpisodeEnd = parent.optInt("episode_end").takeIf { it > 0 },
                         fullSeasonPack = parent.optBoolean("full_season")
                     ) ?: continue
