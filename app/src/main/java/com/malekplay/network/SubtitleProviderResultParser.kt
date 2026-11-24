@@ -23,7 +23,11 @@ internal object SubtitleProviderResultParser {
         languageCode: String,
         formatName: String,
         downloads: Int,
-        fallbackTitle: String
+        fallbackTitle: String,
+        providerSeason: Int? = null,
+        providerEpisode: Int? = null,
+        providerEpisodeEnd: Int? = null,
+        fullSeasonPack: Boolean = false
     ): OnlineSubtitle? {
         val source = url.trim()
         val language = language(languageCode)
@@ -39,7 +43,11 @@ internal object SubtitleProviderResultParser {
             downloads = downloadCount(downloads),
             format = extension,
             sourceId = source,
-            provider = "subdl"
+            provider = "subdl",
+            providerSeasonNumber = providerSeason,
+            providerEpisodeNumber = providerEpisode,
+            providerEpisodeEnd = providerEpisodeEnd,
+            fullSeasonPack = fullSeasonPack
         )
     }
 }
