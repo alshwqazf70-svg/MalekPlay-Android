@@ -41,20 +41,41 @@ internal object SubtitleResultPolicy {
         """(?i)\b(?:full\s+season|season\s+pack|all\s+episodes|complete\s+season\s*0*\d+|season\s*0*\d+\s*(?:complete|pack|batch)|s0*\d{1,2}\s*(?:complete|pack))\b"""
     ).containsMatchIn(normalizeEpisodeRelease(release))
 
-    internal fun isMultiEpisodeRange(release: String, season: Int, episode: Int): Boolean {
+    internal fun isMultiEpisodeRange(release: String, season: Int): Boolean {
         val normalized = normalizeEpisodeRelease(release)
         val seasonEpisodeRange = Regex(
-            """(?i)\bS0*${season}E0*${episode}\s*(?:-|–|—|\bto\b|\bthrough\b|\band\b|&|,|\+|E)\s*(?:S0*${season})?E?0*\d{1,3}\b"""
+            """(?i)\\bS0*(\\d{1,2})E0*(\\d{1,3})\\s*(?:-|–|—|\\bto\\b|\\bthrough\\b|\\band\\b|&|,|\\+|E)\\s*(?:S0*(\\d{1,2}))?E?0*(\\d{1,3})\\b"""
         )
         val xEpisodeRange = Regex(
-            """(?i)\b0*${season}x0*${episode}\s*(?:-|–|—|\bto\b|\bthrough\b)\s*(?:0*${season}x)?0*\d{1,3}\b"""
+            """(?i)\\b0*(\\d{1,2})x0*(\\d{1,3})\\s*(?:-|–|—|\\bto\\b|\\bthrough\\b)\\s*(?:(0*\\d{1,2})x)?0*(\\d{1,3})\\b"""
         )
         val namedEpisodeRange = Regex(
-            """(?i)\bSeason\s*0*${season}\s+Episodes?\s*0*${episode}\s*(?:-|–|—|\bto\b|\bthrough\b)\s*(?:Episode\s*)?0*\d{1,3}\b"""
+            """(?i)\\bSeason\\s*0*(\\d{1,2})\\s+Episodes?\\s*0*(\\d{1,3})\\s*(?:-|–|—|\\bto\\b|\\bthrough\\b)\\s*(?:Episode\\s*)?0*(\\d{1,3})\\b"""
         )
-        return seasonEpisodeRange.containsMatchIn(normalized) ||
-            xEpisodeRange.containsMatchIn(normalized) ||
-            namedEpisodeRange.containsMatchIn(normalized)
+        val seasonRange = seasonEpisodeRange.findAll(normalized).any { match ->
+            val firstSeason = match.groupValues[1].toIntOrNull()
+            val firstEpisode = match.groupValues[2].toIntOrNull()
+            val lastSeason = match.groupValues[3].takeIf { it.isNotBlank() }?.toIntOrNull() ?: firstSeason
+            val lastEpisode = match.groupValues[4].toIntOrNull()
+            firstSeason == season && lastSeason == season &&
+                firstEpisode != null && lastEpisode != null && lastEpisode > firstEpisode
+        }
+        val xRange = xEpisodeRange.findAll(normalized).any { match ->
+            val firstSeason = match.groupValues[1].toIntOrNull()
+            val firstEpisode = match.groupValues[2].toIntOrNull()
+            val lastSeason = match.groupValues[3].takeIf { it.isNotBlank() }?.toIntOrNull() ?: firstSeason
+            val lastEpisode = match.groupValues[4].toIntOrNull()
+            firstSeason == season && lastSeason == season &&
+                firstEpisode != null && lastEpisode != null && lastEpisode > firstEpisode
+        }
+        val namedRange = namedEpisodeRange.findAll(normalized).any { match ->
+            val firstSeason = match.groupValues[1].toIntOrNull()
+            val firstEpisode = match.groupValues[2].toIntOrNull()
+            val lastEpisode = match.groupValues[3].toIntOrNull()
+            firstSeason == season && firstEpisode != null && lastEpisode != null &&
+                lastEpisode > firstEpisode
+        }
+        return seasonRange || xRange || namedRange
     }
 
     /** Returns only individually identified episode files for the selected season. */
@@ -62,7 +83,7 @@ internal object SubtitleResultPolicy {
         if (result.fullSeasonPack || isSeasonPackRelease(result.release)) return@mapNotNull null
         val parsed = parseReleaseEpisode(result.release)
         if (parsed?.second != null && parsed.first == season &&
-            isMultiEpisodeRange(result.release, season, parsed.second)
+            isMultiEpisodeRange(result.release, season)
         ) return@mapNotNull null
         val providerSeason = result.providerSeasonNumber?.takeIf { it > 0 }
         val actualSeason = providerSeason ?: parsed?.first
@@ -110,7 +131,7 @@ internal object SubtitleResultPolicy {
             // Provider metadata is authoritative: never show a known neighbouring episode
             // or a whole-season archive as though it were a single-episode subtitle.
             if (result.fullSeasonPack || isSeasonPackRelease(result.release) ||
-                isMultiEpisodeRange(result.release, season, episode)
+                isMultiEpisodeRange(result.release, season)
             ) return@filter false
             val providerSeason = result.providerSeasonNumber?.takeIf { it > 0 }
             val providerEpisode = result.providerEpisodeNumber?.takeIf { it > 0 }
