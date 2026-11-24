@@ -251,6 +251,7 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                         maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Text("${selectedUris.size} محدد", color = MaterialTheme.colorScheme.primary)
+                TextButton(onClick = { browserRootPicker.launch(null) }) { Text("تغيير المجلد") }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 TextButton(onClick = {
