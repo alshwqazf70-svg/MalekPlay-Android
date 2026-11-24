@@ -42,6 +42,13 @@ internal object SubtitleResultPolicy {
         return results.filter { result ->
             if (SubtitleQueryCleaner.normalizeLanguage(result.language) !in wanted) return@filter false
             if (season == null || episode == null) return@filter true
+            // Provider metadata is authoritative: never show a known neighbouring episode
+            // or a whole-season archive as though it were a single-episode subtitle.
+            if (result.fullSeasonPack) return@filter false
+            if (result.providerSeasonNumber != null && result.providerSeasonNumber != season) return@filter false
+            if (result.providerEpisodeNumber != null && result.providerEpisodeNumber != episode) return@filter false
+            if (result.providerEpisodeNumber != null && result.providerEpisodeEnd != null &&
+                result.providerEpisodeEnd != result.providerEpisodeNumber) return@filter false
             val explicit = explicitEpisodePattern.find(result.release) ?: return@filter true
             val groups = explicit.groupValues
             val actualSeason = (groups[1].ifBlank { groups[3] }).toIntOrNull()
@@ -49,7 +56,9 @@ internal object SubtitleResultPolicy {
             // Keep unnumbered broad-search hits as fallbacks, but reject explicit neighbouring episodes.
             actualSeason == season && actualEpisode == episode
         }.sortedWith(compareBy<OnlineSubtitle>(
-            { if (episodePattern == null || episodePattern.containsMatchIn(it.release)) 0 else 1 },
+            { if (episodePattern == null ||
+                (it.providerSeasonNumber == season && it.providerEpisodeNumber == episode) ||
+                episodePattern.containsMatchIn(it.release)) 0 else 1 },
             { if (SubtitleQueryCleaner.normalizeLanguage(it.language) == "ar") 0 else 1 },
             { -it.downloads }
         ))
