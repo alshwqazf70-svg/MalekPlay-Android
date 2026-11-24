@@ -63,6 +63,7 @@ fun OnlineSubtitleSearchSheet(
     onSearch: () -> Unit, onDownload: (OnlineSubtitle) -> Unit,
     onDownloadAndTranslate: (OnlineSubtitle) -> Unit, onCancelTranslation: () -> Unit,
     onSaveProviderKeys: (String, String) -> Unit,
+    savedWyzieWorkerUrl: String,
     onSaveWyzieWorkerUrl: (String) -> Unit, onDismiss: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -74,6 +75,7 @@ fun OnlineSubtitleSearchSheet(
     var downloadingKey by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(loading) { if (!loading) downloadingKey = null }
+    LaunchedEffect(savedWyzieWorkerUrl) { wyzieWorkerUrl = savedWyzieWorkerUrl }
     androidx.compose.runtime.CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
         ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
             Column(
