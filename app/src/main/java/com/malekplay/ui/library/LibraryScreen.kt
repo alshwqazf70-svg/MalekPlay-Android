@@ -54,7 +54,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.positionChange
@@ -413,9 +412,14 @@ fun LibraryScreen(
                                         }
                                         .zIndex(if (isDragging) 10f else 0f)
                                         .onGloballyPositioned {
-                                            itemPositionRoot = it.positionInRoot()
-                                            itemBounds[item.media.id] = it.boundsInRoot()
-                                            if (isDragging) dragOffset = dragPointerRoot - grabOffset - itemPositionRoot
+                                            val bounds = it.boundsInRoot()
+                                            itemBounds[item.media.id] = bounds
+                                            // Remove the active graphics translation to retain the
+                                            // untransformed slot position after Lazy re-layout.
+                                            itemPositionRoot = bounds.topLeft - dragOffset
+                                            if (isDragging) {
+                                                dragOffset = dragPointerRoot - grabOffset - itemPositionRoot
+                                            }
                                         }
                                         .pointerInput(item.media.id, settings.sortMode, selectionMode) {
                                             if (settings.sortMode == SortMode.MANUAL && !selectionMode) {
