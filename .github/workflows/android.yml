@@ -251,17 +251,7 @@ jobs:
               exit 0
             fi
             ERR_LINES=$(grep -E "(^e: |FAILED|There were failing tests|FAILURE:|Execution failed for task)" "${LOG_FILE}" | head -n 40 | tr '\r' ' ')
-            TEST_FAILURES=$(python3 -c 'import glob, xml.etree.ElementTree as ET
-out = []
-for p in sorted(glob.glob("app/build/test-results/testDebugUnitTest/TEST-*.xml")):
-    root = ET.parse(p).getroot()
-    for tc in root.findall("testcase"):
-        f = tc.find("failure")
-        if f is None: f = tc.find("error")
-        if f is not None:
-            msg = (f.attrib.get("message") or f.text or "").strip().splitlines()[:3]
-            out.append(tc.attrib.get("classname", "") + "." + tc.attrib.get("name", "") + ": " + " | ".join(msg))
-print("\n".join(out[:25]))' || true)
+            TEST_FAILURES=$(python3 -c 'import glob, xml.etree.ElementTree as ET; nl = chr(10); print(nl.join([tc.attrib.get("classname", "") + "." + tc.attrib.get("name", "") + ": " + " | ".join((el.attrib.get("message") or el.text or "").strip().splitlines()[:3]) for p in sorted(glob.glob("app/build/test-results/testDebugUnitTest/TEST-*.xml")) for tc in ET.parse(p).getroot().findall("testcase") for el in tc if el.tag in ("failure", "error")][:25]))' || true)
             if [ -n "${TEST_FAILURES}" ]; then
               echo "::error title=Failed unit tests::${TEST_FAILURES//$'\n'/%0A}"
               echo "Unit test failures detected; failing without retrying."
