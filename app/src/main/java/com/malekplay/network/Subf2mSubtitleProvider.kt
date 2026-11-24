@@ -48,7 +48,7 @@ internal class Subf2mSubtitleProvider {
             val html = getText(searchUrl)
             parseSearchResultCandidates(html, title, year, season).forEach { (path, resultTitle) ->
                 if (candidates.size < MAX_CANDIDATE_PAGES) {
-                    candidates.putIfAbsent(path, resultTitle)
+                    if (!candidates.containsKey(path)) candidates[path] = resultTitle
                 }
             }
             // Continue through alternate title/IMDb queries even after a fuzzy hit.
