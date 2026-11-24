@@ -29,7 +29,7 @@ data class VaultFolderResult(
 class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultRepository) {
     private val appContext = context.applicationContext
     private val resolver: ContentResolver = appContext.contentResolver
-    init { appContext.cacheDir.listFiles()?.filter { it.name.startsWith(".malek-vault-") }?.forEach { it.delete() } }
+    init { appContext.cacheDir.listFiles()?.filter { it.name.startsWith(".malek-vault-") || it.name.startsWith(".malek-restore-") }?.forEach { it.delete() } }
     private data class Node(val uri: Uri, val name: String, val relativePath: String, val directory: Boolean)
 
     fun importFolder(treeUri: Uri, password: CharArray, moveSource: Boolean): VaultFolderResult {
