@@ -10,7 +10,11 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.DataOutputStream
 import java.io.File
+import java.io.FileOutputStream
+import java.util.UUID
 
 @RunWith(RobolectricTestRunner::class)
 class PrivateVaultRepositoryTest {
@@ -35,6 +39,7 @@ class PrivateVaultRepositoryTest {
             )
 
             assertEquals(entry.id, repository.list(password).single().id)
+            assertEquals(source.size.toLong(), entry.sizeBytes)
             repository.exportToFile(entry.id, restored, password)
             assertArrayEquals(source, restored.readBytes())
 
@@ -104,4 +109,45 @@ class PrivateVaultRepositoryTest {
             vaultDirectory.deleteRecursively()
         }
     }
+    @Test
+    fun migratesLegacyCiphertextSizeToOriginalPlaintextSize() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val vaultDirectory = File(context.filesDir, "private_vault")
+        vaultDirectory.deleteRecursively()
+        val password = "legacy-migration-password".toCharArray()
+        val original = ByteArray(91_337) { (it * 13).toByte() }
+        val id = UUID.randomUUID().toString()
+
+        try {
+            val repository = PrivateVaultRepository(context)
+            val payload = File(vaultDirectory, "$id.mkv")
+            FileOutputStream(payload).use { encrypted ->
+                PrivateVaultCrypto.encrypt(ByteArrayInputStream(original), encrypted, password)
+            }
+
+            val legacyIndex = ByteArrayOutputStream()
+            DataOutputStream(legacyIndex).use { output ->
+                output.writeInt(0x4D4B5649) // Previous index format
+                output.writeInt(1)
+                output.writeUTF(id)
+                output.writeUTF("legacy.bin")
+                output.writeUTF("application/octet-stream")
+                output.writeLong(payload.length()) // Previous builds stored ciphertext length
+            }
+            val encryptedIndex = File(vaultDirectory, "vault.index.enc")
+            FileOutputStream(encryptedIndex).use { output ->
+                PrivateVaultCrypto.encrypt(ByteArrayInputStream(legacyIndex.toByteArray()), output, password)
+            }
+
+            val migrated = repository.list(password).single()
+            assertEquals(original.size.toLong(), migrated.sizeBytes)
+
+            val reopened = PrivateVaultRepository(context).list(password).single()
+            assertEquals(original.size.toLong(), reopened.sizeBytes)
+        } finally {
+            password.fill('\u0000')
+            vaultDirectory.deleteRecursively()
+        }
+    }
+
 }
