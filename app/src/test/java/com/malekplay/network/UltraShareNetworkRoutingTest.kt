@@ -10,8 +10,8 @@ import org.junit.Test
 class UltraShareNetworkRoutingTest {
     @Test
     fun p2pInvitationNeverFallsBackToAnUnverifiedDefaultWlan() {
-        assertFalse(shouldUseDefaultRouteFallback(isP2pInvitation = true))
-        assertTrue(shouldUseDefaultRouteFallback(isP2pInvitation = false))
+        assertFalse(UltraShareNetworkRouting.shouldUseDefaultRouteFallback(isP2pInvitation = true))
+        assertTrue(UltraShareNetworkRouting.shouldUseDefaultRouteFallback(isP2pInvitation = false))
     }
 
 
