@@ -223,7 +223,7 @@ class SubtitleResultPolicyTest {
             providerSeasonNumber = 1,
             providerEpisodeNumber = 3
         )
-        assertEquals(listOf(1, 2), SubtitleResultPolicy.availableSeasons(listOf(item)))
+        assertEquals(listOf(1), SubtitleResultPolicy.availableSeasons(listOf(item)))
         assertEquals(listOf(3), SubtitleResultPolicy.availableEpisodes(listOf(item), 1))
         assertEquals(emptyList<Int>(), SubtitleResultPolicy.availableEpisodes(listOf(item), 2))
     }
