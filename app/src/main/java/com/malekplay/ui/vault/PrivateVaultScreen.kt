@@ -340,7 +340,7 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                     }
                 }
                 if (move && result.deletedSourceUris.isNotEmpty()) {
-                    libraryViewModel.markMediaDeletedExternally(result.deletedSourceUris)
+                    libraryViewModel.reconcileMovedMediaUris(result.deletedSourceUris)
                 }
                 refreshEntries(session)
                 result
@@ -1280,7 +1280,7 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                                             byteFraction = 0f
                                         }
                                     }
-                                    if (deletedIds.isNotEmpty()) libraryViewModel.markMediaDeletedExternally(deletedIds)
+                                    if (deletedIds.isNotEmpty()) libraryViewModel.reconcileMovedMediaUris(deletedIds)
                                     refreshEntries(activeSession)
                                     selectedUris.clear()
                                 }.onSuccess {
