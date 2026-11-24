@@ -6,6 +6,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -15,9 +16,13 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -25,6 +30,8 @@ import androidx.compose.ui.unit.dp
 import com.malekplay.vault.PrivateVaultEntry
 import com.malekplay.vault.PrivateVaultRepository
 import com.malekplay.vault.PrivateVaultTreeSupport
+import com.malekplay.vault.VaultBrowserItem
+import coil.compose.AsyncImage
 import com.malekplay.ui.library.LibraryViewModel
 import androidx.hilt.navigation.compose.hiltViewModel
 import kotlinx.coroutines.Dispatchers
@@ -49,6 +56,15 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
     var pendingExport by remember { mutableStateOf<PrivateVaultEntry?>(null) }
     var pendingFolderRestore by remember { mutableStateOf<PrivateVaultEntry?>(null) }
     var moveFolderSelection by remember { mutableStateOf(false) }
+    val vaultPrefs = remember(context) { context.getSharedPreferences("private_vault_browser", android.content.Context.MODE_PRIVATE) }
+    var browserTreeUri by remember { mutableStateOf(vaultPrefs.getString("source_tree_uri", null)?.let(Uri::parse)) }
+    var browserOpen by remember { mutableStateOf(false) }
+    var browserLoading by remember { mutableStateOf(false) }
+    val browserPath = remember { mutableStateListOf<Pair<String, String>>() }
+    val browserItems = remember { mutableStateListOf<VaultBrowserItem>() }
+    val selectedUris = remember { mutableStateListOf<String>() }
+    var importProgress by remember { mutableIntStateOf(0) }
+    var importTotal by remember { mutableIntStateOf(0) }
 
     fun leaveVault() {
         password = ""
