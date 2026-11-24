@@ -90,6 +90,23 @@ import kotlinx.coroutines.withContext
 
 private enum class LibraryFilter { ALL, WATCHING, FAVOURITES }
 
+private fun findManualDropTargetIndex(
+    items: List<LibraryItem>,
+    bounds: Map<String, Rect>,
+    draggedId: String,
+    pointerRoot: Offset,
+    grabOffset: Offset
+): Int {
+    val draggedBounds = bounds[draggedId] ?: return -1
+    val draggedCenter = Offset(
+        pointerRoot.x - grabOffset.x + draggedBounds.width / 2f,
+        pointerRoot.y - grabOffset.y + draggedBounds.height / 2f
+    )
+    return items.indexOfFirst { row ->
+        row.media.id != draggedId && bounds[row.media.id]?.contains(draggedCenter) == true
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun LibraryScreen(
@@ -116,6 +133,7 @@ fun LibraryScreen(
     var dragViewportBounds by remember { mutableStateOf<Rect?>(null) }
     var activeDragId by remember { mutableStateOf<String?>(null) }
     var activeDragPointerRoot by remember { mutableStateOf(Offset.Zero) }
+    var activeDragGrabOffset by remember { mutableStateOf(Offset.Zero) }
     var dragHasMoved by remember { mutableStateOf(false) }
     var lastDragTargetIndex by remember { mutableIntStateOf(-1) }
     val dragEdgePx = with(LocalDensity.current) { 72.dp.toPx() }
@@ -175,9 +193,9 @@ fun LibraryScreen(
                     if (scrollDelta != 0f) {
                         if (settings.viewMode == ViewMode.GRID) gridState.scrollBy(scrollDelta)
                         else listState.scrollBy(scrollDelta)
-                        val hit = latestVisibleItems.indexOfFirst { row ->
-                            itemBounds[row.media.id]?.contains(activeDragPointerRoot) == true
-                        }
+                        val hit = findManualDropTargetIndex(
+                            latestVisibleItems, itemBounds, draggedId, activeDragPointerRoot, activeDragGrabOffset
+                        )
                         if (hit >= 0 && hit != lastDragTargetIndex) {
                             lastDragTargetIndex = hit
                             viewModel.moveManualItem(draggedId, hit, latestVisibleItems)
@@ -471,6 +489,7 @@ fun LibraryScreen(
                                                     dragPointerRoot = itemPositionRoot + longPress.position
                                                     activeDragId = item.media.id
                                                     activeDragPointerRoot = dragPointerRoot
+                                                    activeDragGrabOffset = grabOffset
                                                     dragHasMoved = false
                                                     lastDragTargetIndex = latestItems.indexOfFirst { it.media.id == item.media.id }
                                                     var released = false
@@ -490,9 +509,9 @@ fun LibraryScreen(
                                                                     dragOffset = dragPointerRoot - grabOffset - itemPositionRoot
                                                                     change.consume()
                                                                 }
-                                                                val hit = latestItems.indexOfFirst { row ->
-                                                                    itemBounds[row.media.id]?.contains(dragPointerRoot) == true
-                                                                }
+                                                                val hit = findManualDropTargetIndex(
+                                                                    latestItems, itemBounds, item.media.id, dragPointerRoot, grabOffset
+                                                                )
                                                                 if (hit >= 0 && hit != lastDragTargetIndex) {
                                                                     lastDragTargetIndex = hit
                                                                     viewModel.moveManualItem(item.media.id, hit, latestItems)
