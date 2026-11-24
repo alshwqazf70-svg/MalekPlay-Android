@@ -25,9 +25,14 @@ class PrivateVaultRepository(context: Context) {
     }
     @Synchronized fun list(password: CharArray): List<PrivateVaultEntry> = readIndex(password)
 
-    @Synchronized fun importUri(uri: Uri, password: CharArray): PrivateVaultEntry {
-        val name = queryName(uri)
-        val mime = resolver.getType(uri) ?: "application/octet-stream"
+    @Synchronized fun importUri(
+        uri: Uri,
+        password: CharArray,
+        displayNameOverride: String? = null,
+        mimeTypeOverride: String? = null
+    ): PrivateVaultEntry {
+        val name = displayNameOverride?.takeIf { it.isNotBlank() } ?: queryName(uri)
+        val mime = mimeTypeOverride?.takeIf { it.isNotBlank() } ?: resolver.getType(uri) ?: "application/octet-stream"
         val id = UUID.randomUUID().toString()
         val target = payload(id)
         val temp = File(directory, "$id.tmp")
