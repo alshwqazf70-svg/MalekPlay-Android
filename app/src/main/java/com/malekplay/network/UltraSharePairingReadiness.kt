@@ -117,7 +117,7 @@ internal object UltraSharePairingReadiness {
             hosts.any(UltraShareCore::isValidPrivateLanHost)
 
     /** Allow slow OEM DNS-SD setup and discovery, but bound a scan that never finds its peer before falling back to LAN. */
-    const val WIFI_DIRECT_INVITATION_DISCOVERY_TIMEOUT_MS = 15_000L
+    const val WIFI_DIRECT_INVITATION_DISCOVERY_TIMEOUT_MS = 25_000L
 
     /** Bound Wi-Fi Direct peer connection negotiation before falling back to LAN automatically. */
     const val WIFI_DIRECT_CONNECT_FALLBACK_TIMEOUT_MS = 18_000L
