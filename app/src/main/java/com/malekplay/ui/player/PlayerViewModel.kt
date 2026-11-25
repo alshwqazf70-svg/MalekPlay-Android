@@ -270,6 +270,10 @@ class PlayerViewModel @Inject constructor(
     private var subtitleTranslationJob: Job? = null
     private var subtitleTranslationGeneration: Long = 0L
     private var translationSourceSubtitleUri: Uri? = null
+    private var pendingExternalSubtitleMediaId: String? = null
+    private var pendingExternalSubtitleId: String? = null
+    private var onlineSubtitleSearchJob: Job? = null
+    private var onlineSubtitleSearchGeneration: Long = 0L
     private var playbackGeneration: Long = 0L
 
     private val _sleepTimerEndsAtMs = MutableStateFlow(0L)
@@ -393,6 +397,7 @@ class PlayerViewModel @Inject constructor(
                 if (_dlnaPlayback.value.activeDevice != null) stopDlnaPlayback()
                 nextMediaId?.let(restoredTrackPreferenceIds::remove)
                 clearSubtitleTranslationSource()
+                clearOnlineSubtitleState()
             }
             currentMediaId = nextMediaId
             _currentItemId.value = nextMediaId
@@ -789,6 +794,7 @@ class PlayerViewModel @Inject constructor(
         _queueSize.value = safeItems.size
         val nextMediaId = safeItems[safeIndex].id
         clearSubtitleTranslationSource()
+        if (nextMediaId != currentMediaId) clearOnlineSubtitleState()
         restoredTrackPreferenceIds.remove(nextMediaId)
         currentMediaId = nextMediaId
         _currentItemId.value = nextMediaId
@@ -853,6 +859,7 @@ class PlayerViewModel @Inject constructor(
         _queue.value = emptyList()
         val nextMediaId = uri.toString()
         clearSubtitleTranslationSource()
+        if (nextMediaId != currentMediaId) clearOnlineSubtitleState()
         currentMediaId = nextMediaId
         _currentItemId.value = nextMediaId
         _playerError.value = null
@@ -1122,10 +1129,21 @@ class PlayerViewModel @Inject constructor(
     }
 
     /** Adds an external subtitle without discarding the current playback queue. */
-    fun addExternalSubtitle(uri: Uri, rememberAsTranslationSource: Boolean = true) {
+    fun addExternalSubtitle(
+        uri: Uri,
+        rememberAsTranslationSource: Boolean = true,
+        language: String = "und",
+        label: String? = null
+    ) {
         val targetMediaId = currentMediaId
         viewModelScope.launch {
-            addExternalSubtitleForMedia(uri, targetMediaId, rememberAsTranslationSource)
+            addExternalSubtitleForMedia(
+                uri = uri,
+                targetMediaId = targetMediaId,
+                rememberAsTranslationSource = rememberAsTranslationSource,
+                subtitleLanguage = language,
+                subtitleLabel = label
+            )
         }
     }
 
@@ -1137,7 +1155,9 @@ class PlayerViewModel @Inject constructor(
     private suspend fun addExternalSubtitleForMedia(
         uri: Uri,
         targetMediaId: String?,
-        rememberAsTranslationSource: Boolean
+        rememberAsTranslationSource: Boolean,
+        subtitleLanguage: String = "und",
+        subtitleLabel: String? = null
     ): Boolean {
         val extension = withContext(Dispatchers.IO) { resolveSubtitleExtension(uri) }
         val mimeType = when (extension) {
@@ -1174,14 +1194,34 @@ class PlayerViewModel @Inject constructor(
             _subtitleTranslationError.value = null
         }
         val existing = current.localConfiguration?.subtitleConfigurations.orEmpty()
-        if (existing.any { it.uri == uri }) {
+        val subtitleId = "malekplay_ext:${uri}"
+        val cleanLanguage = subtitleLanguage.trim().ifBlank { "und" }
+        val cleanLabel = subtitleLabel?.trim()?.takeIf { it.isNotBlank() }
+
+        // Prevent old saved subtitle preferences from overriding the newly selected track.
+        restoredTrackPreferenceIds.add(targetMediaId)
+        pendingExternalSubtitleMediaId = targetMediaId
+        pendingExternalSubtitleId = subtitleId
+
+        val existingConfig = existing.firstOrNull { it.uri == uri }
+        if (existingConfig != null) {
+            val existingMatchId = existingConfig.id ?: subtitleId
+            pendingExternalSubtitleId = existingMatchId
+            player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+                .build()
+            _textTrackDisabled.value = false
+            refreshTracks()
             _playerError.value = null
             return true
         }
 
         val configuration = MediaItem.SubtitleConfiguration.Builder(uri)
+            .setId(subtitleId)
             .setMimeType(mimeType)
-            .setLanguage("und")
+            .setLanguage(cleanLanguage)
+            .apply { if (cleanLabel != null) setLabel(cleanLabel) }
             .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
             .build()
         val updated = current.buildUpon()
@@ -1192,6 +1232,11 @@ class PlayerViewModel @Inject constructor(
         }
         val position = player.currentPosition.coerceAtLeast(0L)
         val playWhenReady = player.playWhenReady
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+            .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+            .build()
+        _textTrackDisabled.value = false
         player.setMediaItems(queue, index, position)
         player.prepare()
         player.playWhenReady = playWhenReady
@@ -1249,10 +1294,23 @@ class PlayerViewModel @Inject constructor(
     private fun clearSubtitleTranslationSource() {
         cancelSubtitleTranslation()
         translationSourceSubtitleUri = null
+        pendingExternalSubtitleMediaId = null
+        pendingExternalSubtitleId = null
         _subtitleTranslationAvailable.value = false
         _subtitleTranslationError.value = null
         _subtitleTranslationCompletedCues.value = 0
         _subtitleTranslationTotalCues.value = 0
+    }
+
+    private fun clearOnlineSubtitleState() {
+        onlineSubtitleSearchGeneration++
+        onlineSubtitleSearchJob?.cancel()
+        onlineSubtitleSearchJob = null
+        _onlineSubtitleLoading.value = false
+        _onlineSubtitleResults.value = emptyList()
+        _onlineSubtitleError.value = null
+        clearOnlineSubtitlePreview()
+        clearOnlineSubtitleEpisodeGuide()
     }
 
     /** Translates the currently added external subtitle to Arabic on-device. */
@@ -1288,7 +1346,13 @@ class PlayerViewModel @Inject constructor(
                     _subtitleTranslationError.value = "تغير الملف أثناء الترجمة؛ أعد المحاولة على الملف الحالي"
                     return@launch
                 }
-                if (!addExternalSubtitleForMedia(translated, targetMediaId, rememberAsTranslationSource = false)) {
+                if (!addExternalSubtitleForMedia(
+                        uri = translated,
+                        targetMediaId = targetMediaId,
+                        rememberAsTranslationSource = false,
+                        subtitleLanguage = "ar",
+                        subtitleLabel = "ترجمة عربية"
+                    )) {
                     _subtitleTranslationError.value = _playerError.value ?: "تعذر إرفاق الترجمة بالفيديو الحالي"
                     return@launch
                 }
@@ -1346,6 +1410,37 @@ class PlayerViewModel @Inject constructor(
         _textTracks.value = text
         _textTrackDisabled.value = player.trackSelectionParameters.disabledTrackTypes
             .contains(C.TRACK_TYPE_TEXT)
+
+        val pendingId = pendingExternalSubtitleId
+        val pendingMedia = pendingExternalSubtitleMediaId
+        if (pendingId != null && pendingMedia == currentMediaId) {
+            val matchedDescriptor = text.firstOrNull { descriptor ->
+                val formatId = lastGroups.getOrNull(descriptor.groupIndex)
+                    ?.getTrackFormat(descriptor.trackIndex)
+                    ?.id
+                formatId == pendingId || formatId?.endsWith(":$pendingId") == true
+            }
+            if (matchedDescriptor != null) {
+                pendingExternalSubtitleId = null
+                pendingExternalSubtitleMediaId = null
+                lastGroups.getOrNull(matchedDescriptor.groupIndex)?.let { group ->
+                    player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                        .setOverrideForType(
+                            TrackSelectionOverride(group.mediaTrackGroup, matchedDescriptor.trackIndex)
+                        )
+                        .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                        .build()
+                    _textTrackDisabled.value = false
+                    matchedDescriptor.stableId?.let { stableId ->
+                        persistTrackPreferences(
+                            subtitleTrackId = stableId,
+                            updateSubtitle = true,
+                            subtitlesEnabled = true
+                        )
+                    }
+                }
+            }
+        }
         restoreTrackPreferencesForCurrentMedia()
     }
 
@@ -1785,9 +1880,10 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun searchOnlineSubtitles(title: String, language: String, season: Int?, episode: Int?) {
-        if (_onlineSubtitleLoading.value) return
         val targetMediaId = currentMediaId
-        viewModelScope.launch {
+        onlineSubtitleSearchJob?.cancel()
+        val generation = ++onlineSubtitleSearchGeneration
+        onlineSubtitleSearchJob = viewModelScope.launch {
             _onlineSubtitleLoading.value = true
             _onlineSubtitleError.value = null
             _onlineSubtitleResults.value = emptyList()
@@ -1804,13 +1900,13 @@ class PlayerViewModel @Inject constructor(
                     onlineSubtitleRepository.searchAutomatic(title, language, season, episode, sourceUri)
                 }
                 // A slow provider response must never populate the sheet for a different video.
-                if (currentMediaId != targetMediaId) return@launch
+                if (generation != onlineSubtitleSearchGeneration || currentMediaId != targetMediaId) return@launch
                 _onlineSubtitleResults.value = results
                 if (results.isEmpty()) _onlineSubtitleError.value = "لم نعثر على ترجمة مطابقة. جرّب تعديل اسم العنوان أو اللغة."
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
-                if (currentMediaId == targetMediaId) {
+                if (generation == onlineSubtitleSearchGeneration && currentMediaId == targetMediaId) {
                     _onlineSubtitleError.value = when (error) {
                         is com.malekplay.network.SubtitleHttpException ->
                             error.message ?: "رفض مزود الترجمة طلب البحث"
@@ -1820,7 +1916,10 @@ class PlayerViewModel @Inject constructor(
                     }
                 }
             } finally {
-                _onlineSubtitleLoading.value = false
+                if (generation == onlineSubtitleSearchGeneration) {
+                    _onlineSubtitleLoading.value = false
+                    onlineSubtitleSearchJob = null
+                }
             }
         }
     }
@@ -1842,7 +1941,15 @@ class PlayerViewModel @Inject constructor(
                     _onlineSubtitleError.value = "تغير الفيديو أثناء تنزيل الترجمة؛ أعد المحاولة على الفيديو الحالي"
                     return@launch
                 }
-                if (!addExternalSubtitleForMedia(uri, targetMediaId, rememberAsTranslationSource = true)) {
+                val normalizedLang = SubtitleQueryCleaner.normalizeLanguage(subtitle.language)
+                    .takeIf { it.isNotBlank() } ?: "und"
+                if (!addExternalSubtitleForMedia(
+                        uri = uri,
+                        targetMediaId = targetMediaId,
+                        rememberAsTranslationSource = true,
+                        subtitleLanguage = normalizedLang,
+                        subtitleLabel = subtitle.release.take(80)
+                    )) {
                     _onlineSubtitleError.value = _playerError.value ?: "تغير الفيديو قبل إرفاق الترجمة"
                     return@launch
                 }
@@ -1901,7 +2008,13 @@ class PlayerViewModel @Inject constructor(
                     _subtitleTranslationError.value = "تغير الفيديو أثناء الترجمة؛ لم نطبق النتيجة على الفيديو الجديد"
                     return@launch
                 }
-                if (!addExternalSubtitleForMedia(translated, targetMediaId, rememberAsTranslationSource = false)) {
+                if (!addExternalSubtitleForMedia(
+                        uri = translated,
+                        targetMediaId = targetMediaId,
+                        rememberAsTranslationSource = false,
+                        subtitleLanguage = "ar",
+                        subtitleLabel = "ترجمة عربية"
+                    )) {
                     _subtitleTranslationError.value = _playerError.value
                         ?: "تغير الفيديو قبل إرفاق الترجمة المترجمة"
                     return@launch

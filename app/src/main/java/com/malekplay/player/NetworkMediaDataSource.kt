@@ -189,9 +189,11 @@ class NetworkMediaDataSource(
             readWithReconnect(
                 read = {
                     validateNetworkReadCount(readNetworkChunk {
+                        val activeSmb = smbFile
+                        val activeSftp = sftpFile
                         when {
-                            smbFile != null -> smbFile!!.read(buffer, position, offset, requested)
-                            sftpFile != null -> sftpFile!!.read(position, buffer, offset, requested)
+                            activeSmb != null -> activeSmb.read(buffer, position, offset, requested)
+                            activeSftp != null -> activeSftp.read(position, buffer, offset, requested)
                             else -> throw IOException("اتصال الشبكة غير جاهز")
                         }
                     }, requested)
