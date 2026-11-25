@@ -296,18 +296,34 @@ fun UltraShareExperienceScreen(
             val wasAdvertisingInvitation = pendingInvitationAdvertisement
             pendingQrPairing = null
             pendingInvitationAdvertisement = false
-            if (pairing != null && !pairing.hotspotSsid.isNullOrBlank()) {
-                Toast.makeText(
-                    context,
-                    "يلزم إذن الأجهزة القريبة للانضمام تلقائياً إلى شبكة MalekPlayer. امنح الإذن ثم أعد مسح QR.",
-                    Toast.LENGTH_LONG
-                ).show()
-            } else if (pairing != null && pairing.hosts.isNotEmpty()) {
-                viewModel.requestConnection(
-                    pairing.hosts.first(),
-                    pairing.pairingSecret,
-                    alternateHosts = pairing.hosts.drop(1)
-                )
+            if (pairing != null) {
+                val lanFallbacks = UltraShareNetworkRouting.findNonP2pLanFallbackHosts(context, pairing.hosts)
+                    .ifEmpty {
+                        pairing.hosts.filter {
+                            UltraShareCore.isValidPrivateLanHost(it) &&
+                                !UltraShareNetworkRouting.isWifiDirectGroupHost(it) &&
+                                !UltraShareNetworkRouting.isLocalAddress(context, it)
+                        }
+                    }
+                if (lanFallbacks.isNotEmpty()) {
+                    Toast.makeText(
+                        context,
+                        "لم يُمنح إذن Wi-Fi Direct؛ سيتم الاتصال تلقائياً عبر الشبكة المحلية (LAN).",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    viewModel.requestConnection(
+                        lanFallbacks.first(),
+                        pairing.pairingSecret,
+                        alternateHosts = lanFallbacks.drop(1),
+                        port = pairing.port
+                    )
+                } else if (!pairing.hotspotSsid.isNullOrBlank()) {
+                    Toast.makeText(
+                        context,
+                        "يلزم إذن الأجهزة القريبة للانضمام تلقائياً إلى شبكة MalekPlayer. امنح الإذن ثم أعد مسح QR.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
             } else if (pendingReceiverStart) {
                 pendingReceiverStart = false
                 // Permission denial disables only the optional Wi-Fi Direct route.

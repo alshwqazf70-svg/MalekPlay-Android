@@ -640,4 +640,90 @@ class UltraSharePairingReadinessTest {
         assertFalse(UltraSharePairingReadiness.isDataListenerReady(38742, 0))
     }
 
+    @Test fun primaryWifiDirectStartsEvenWhenLanRouteExists() {
+        assertTrue(
+            UltraSharePairingReadiness.shouldStartPrimaryWifiDirect(
+                receiving = true,
+                hotspotActive = false,
+                hotspotFallbackStarted = false,
+                invitationIdBlank = true,
+                wifiDirectAlreadyAttempted = false,
+                hasActivePeers = false
+            )
+        )
+        assertFalse(
+            UltraSharePairingReadiness.shouldStartPrimaryWifiDirect(
+                receiving = true,
+                hotspotActive = false,
+                hotspotFallbackStarted = true,
+                invitationIdBlank = true,
+                wifiDirectAlreadyAttempted = false,
+                hasActivePeers = false
+            )
+        )
+        assertFalse(
+            UltraSharePairingReadiness.shouldStartPrimaryWifiDirect(
+                receiving = true,
+                hotspotActive = false,
+                hotspotFallbackStarted = false,
+                invitationIdBlank = false,
+                wifiDirectAlreadyAttempted = false,
+                hasActivePeers = false
+            )
+        )
+    }
+
+    @Test fun qrJoinPlanPrefersWifiDirectFirstThenFallsBackToLanBeforeHotspot() {
+        assertEquals(
+            listOf(
+                UltraSharePairingReadiness.QrJoinTransport.WIFI_DIRECT,
+                UltraSharePairingReadiness.QrJoinTransport.LAN,
+                UltraSharePairingReadiness.QrJoinTransport.HOTSPOT
+            ),
+            UltraSharePairingReadiness.resolveQrJoinRoutePlan(
+                mode = "p2p",
+                invitationId = "invite-1",
+                hasWifiCredentials = true,
+                hasLanHosts = true
+            )
+        )
+        assertEquals(
+            listOf(
+                UltraSharePairingReadiness.QrJoinTransport.WIFI_DIRECT,
+                UltraSharePairingReadiness.QrJoinTransport.LAN
+            ),
+            UltraSharePairingReadiness.resolveQrJoinRoutePlan(
+                mode = null,
+                invitationId = "legacy-invite",
+                hasWifiCredentials = false,
+                hasLanHosts = true
+            )
+        )
+        assertEquals(
+            listOf(
+                UltraSharePairingReadiness.QrJoinTransport.LAN,
+                UltraSharePairingReadiness.QrJoinTransport.WIFI_DIRECT,
+                UltraSharePairingReadiness.QrJoinTransport.HOTSPOT
+            ),
+            UltraSharePairingReadiness.resolveQrJoinRoutePlan(
+                mode = "lan",
+                invitationId = "invite-1",
+                hasWifiCredentials = true,
+                hasLanHosts = true
+            )
+        )
+        assertEquals(
+            listOf(
+                UltraSharePairingReadiness.QrJoinTransport.HOTSPOT,
+                UltraSharePairingReadiness.QrJoinTransport.LAN
+            ),
+            UltraSharePairingReadiness.resolveQrJoinRoutePlan(
+                mode = "hotspot",
+                invitationId = null,
+                hasWifiCredentials = true,
+                hasLanHosts = true
+            )
+        )
+    }
+
 }

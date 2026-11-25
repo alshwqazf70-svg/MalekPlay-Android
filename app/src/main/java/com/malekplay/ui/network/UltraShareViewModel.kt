@@ -150,9 +150,14 @@ class UltraShareViewModel @Inject constructor(
     private var hotspotNetworkPaired: Boolean
         get() = retainedHotspotNetworkPaired
         set(value) { retainedHotspotNetworkPaired = value }
-    private data class PendingQrPairing(val secret: String, val hosts: List<String>)
+    private data class PendingQrPairing(
+        val secret: String,
+        val hosts: List<String>,
+        val details: com.malekplay.network.UltraShareQrCode.PairingDetails? = null
+    )
     private var pendingQrPairing: PendingQrPairing? = null
     private var qrP2pConnectStarted = false
+    private var receiverWifiDirectTimeoutJob: kotlinx.coroutines.Job? = null
     // UI's requestingConnection also covers Wi-Fi Network requests and P2P discovery.
     // Keep the actual MPC2 handshake guard independent so those flows can hand off
     // into requestConnection without blocking themselves.
@@ -263,25 +268,24 @@ class UltraShareViewModel @Inject constructor(
                 }
                 // A navigation-scoped ViewModel can be recreated while the foreground
                 // receiver service and P2P group remain alive. Re-publish the ephemeral
-                // invitation on the retained group instead of leaving a dead QR session.
-                if (UltraSharePairingReadiness.shouldStartWifiDirectFallback(
+                // invitation on the retained group with Wi-Fi Direct as primary transport.
+                if (UltraSharePairingReadiness.shouldStartPrimaryWifiDirect(
                         receiving = serviceState.receiving,
-                        lanProbeInProgress = lanProbeInProgress,
                         hotspotActive = serviceState.hotspotActive || serviceState.hotspotStarting ||
                             _state.value.hotspotActive || _state.value.hotspotStarting,
                         hotspotFallbackStarted = hotspotFallbackStarted,
                         invitationIdBlank = _state.value.invitationId.isBlank(),
                         wifiDirectAlreadyAttempted = wifiDirectPrimaryAttempt,
-                        hasActivePeers = serviceState.activePeers.isNotEmpty(),
-                        hasActiveLanRoute = UltraShareNetworkRouting.nonP2pLocalIpv4Addresses(
-                            context, serviceState.localAddresses
-                        ).isNotEmpty()
+                        hasActivePeers = serviceState.activePeers.isNotEmpty()
                     )
                 ) {
                     wifiDirectPrimaryAttempt = true
                     viewModelScope.launch {
                         delay(350L)
-                        if (_state.value.receiving && _state.value.invitationId.isBlank()) {
+                        if (_state.value.receiving &&
+                            _state.value.invitationId.isBlank() &&
+                            !hotspotFallbackStarted
+                        ) {
                             advertiseCurrentWifiDirectInvitation()
                         }
                     }
@@ -389,9 +393,11 @@ class UltraShareViewModel @Inject constructor(
         UltraShareDiagnostics.beginSession("RECEIVER", "start_receiving")
         UltraShareDiagnostics.event("PAIRING", "RECEIVER_WAITING_FOR_PEER")
         val secret = UltraShareCore.createPairingSecret()
-        wifiDirectPrimaryAttempt = false
+        receiverWifiDirectTimeoutJob?.cancel()
+        receiverWifiDirectTimeoutJob = null
+        wifiDirectPrimaryAttempt = true
         hotspotFallbackStarted = false
-        lanProbeInProgress = true
+        lanProbeInProgress = false
         wifiDirectGroupSsid = null
         wifiDirectGroupPassword = null
         wifiDirectOwnerAddress = null
@@ -415,61 +421,50 @@ class UltraShareViewModel @Inject constructor(
             wifiDirectLocalAddress = null,
             progress = null,
             error = null,
-            status = "جارٍ تشغيل مستقبل النقل وفحص الشبكة المحلية أولاً..."
+            status = "جارٍ تشغيل الاتصال المباشر Wi-Fi Direct (وينتقل تلقائياً إلى LAN عند التعذر)..."
         )
         runCatching {
-            // Keep the authenticated listeners independent of radio setup. A shared
-            // WLAN is the least disruptive route and must be preferred over P2P.
+            // Start the authenticated listeners immediately and advertise Wi-Fi Direct
+            // as the primary transport; local LAN addresses are refreshed in parallel
+            // so automatic LAN fallback works immediately if Wi-Fi Direct fails.
             UltraShareForegroundService.startReceiving(context, secret, createHotspot = false)
             UltraShareForegroundService.refreshLocalAddresses(context)
-            viewModelScope.launch {
-                try {
-                    var lanHosts: List<String> = emptyList()
-                    repeat(8) {
-                        if (!_state.value.receiving) return@launch
-                        UltraShareForegroundService.refreshLocalAddresses(context)
-                        val serviceState = UltraShareForegroundService.state.value
-                        lanHosts = UltraShareNetworkRouting.nonP2pLocalIpv4Addresses(
-                            context,
-                            _state.value.localAddresses + serviceState.localAddresses
-                        )
-                        if (serviceState.controlChannelReady && lanHosts.isNotEmpty()) {
-                            _state.value = _state.value.copy(
-                                localAddresses = lanHosts,
-                                lanFallbackReady = true,
-                                error = null,
-                                status = "الشبكة المحلية جاهزة؛ امسح رمز QR للاتصال الفوري."
-                            )
-                            UltraShareDiagnostics.event(
-                                "NETWORK_ROUTING", "LAN_RECEIVER_READY",
-                                mapOf("hostCount" to lanHosts.size, "hosts" to lanHosts.joinToString(","))
-                            )
-                            publishUnifiedReceiverQrIfReady()
-                            return@launch
-                        }
-                        delay(150L)
-                    }
+        }.onFailure { failure ->
+            wifiDirectPrimaryAttempt = false
+            UltraShareDiagnostics.failure("RECEIVER_START_LISTENER", failure)
+            _state.value = _state.value.copy(
+                receiving = false,
+                pairingSecret = "",
+                error = failure.localizedMessage ?: "تعذر تشغيل مستقبل النقل."
+            )
+            return
+        }
 
-                    if (!_state.value.receiving) return@launch
-                    // LAN is preferred when already available. Otherwise Wi-Fi Direct
-                    // is the primary no-router transport; LocalOnlyHotspot is started
-                    // only by startHotspotFallback() after P2P reports failure and
-                    // cleanupWifiDirectBeforeFallback() confirms group removal.
-                    wifiDirectPrimaryAttempt = true
-                    UltraShareDiagnostics.event(
-                        "PAIRING",
-                        "LAN_UNAVAILABLE_STARTING_WIFI_DIRECT"
-                    )
-                    advertiseCurrentWifiDirectInvitation()
-                } finally {
-                    lanProbeInProgress = false
-                }
+        val requiredPermissions = UltraSharePlatformCompatibility.wifiDirectRuntimePermissions(Build.VERSION.SDK_INT)
+        val missingPermissions = requiredPermissions.filter {
+            androidx.core.content.ContextCompat.checkSelfPermission(context, it) !=
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+        }
+        if (missingPermissions.isNotEmpty()) {
+            UltraShareDiagnostics.event("PAIRING", "WIFI_DIRECT_PERMISSION_MISSING_FALLING_BACK_TO_LAN")
+            startHotspotFallback("لم يُمنح إذن Wi-Fi Direct؛ تم الانتقال تلقائياً إلى الشبكة المحلية (LAN).")
+            return
+        }
+
+        advertiseCurrentWifiDirectInvitation()
+        receiverWifiDirectTimeoutJob = viewModelScope.launch {
+            delay(UltraSharePairingReadiness.WIFI_DIRECT_RECEIVER_STARTUP_FALLBACK_TIMEOUT_MS)
+            val current = _state.value
+            val service = UltraShareForegroundService.state.value
+            if (current.receiving &&
+                wifiDirectPrimaryAttempt &&
+                !hotspotFallbackStarted &&
+                wifiDirectAdvertisedInvitationId.isNullOrBlank() &&
+                service.activePeers.isEmpty()
+            ) {
+                UltraShareDiagnostics.event("PAIRING", "WIFI_DIRECT_RECEIVER_STARTUP_TIMEOUT_SWITCHING_TO_LAN")
+                startHotspotFallback("استغرق تجهيز Wi-Fi Direct وقتاً أطول من المتوقع؛ تم الانتقال تلقائياً إلى LAN.")
             }
-        }.onFailure {
-            lanProbeInProgress = false
-            UltraShareDiagnostics.failure("RECEIVER_LAN_FIRST_START", it)
-            wifiDirectPrimaryAttempt = true
-            advertiseCurrentWifiDirectInvitation()
         }
     }
 
@@ -501,10 +496,12 @@ class UltraShareViewModel @Inject constructor(
     private fun startHotspotFallback(reason: String) {
         if (hotspotFallbackStarted || !_state.value.receiving) return
         hotspotFallbackStarted = true
+        receiverWifiDirectTimeoutJob?.cancel()
+        receiverWifiDirectTimeoutJob = null
         wifiDirectSession?.invalidateGroupCredentials()
         clearStoredInvitation()
         // The P2P group is being retired. Never carry its SSID/passphrase or
-        // owner address into the independent LocalOnlyHotspot/LAN QR payload.
+        // owner address into the independent LAN/LocalOnlyHotspot QR payload.
         wifiDirectGroupSsid = null
         wifiDirectGroupPassword = null
         wifiDirectOwnerAddress = null
@@ -524,101 +521,132 @@ class UltraShareViewModel @Inject constructor(
         pendingQrPairing = null
         qrP2pConnectStarted = false
         val session = wifiDirectSession
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
-            val beginLanFallback: () -> Unit = {
-                val lanHosts = UltraShareNetworkRouting.nonP2pLocalIpv4Addresses(
+
+        viewModelScope.launch {
+            // Wi-Fi Direct failed -> automatically switch to LAN first whenever a
+            // live non-P2P LAN interface exists; fall back to Hotspot only if no LAN exists.
+            var lanHosts = emptyList<String>()
+            repeat(3) { attempt ->
+                if (!_state.value.receiving) return@launch
+                UltraShareForegroundService.refreshLocalAddresses(context)
+                val serviceState = UltraShareForegroundService.state.value
+                lanHosts = UltraShareNetworkRouting.nonP2pLocalIpv4Addresses(
                     context,
-                    _state.value.localAddresses + UltraShareForegroundService.state.value.localAddresses
+                    _state.value.localAddresses + serviceState.localAddresses
                 )
-                val hasExistingLan = lanHosts.isNotEmpty()
+                if (lanHosts.isNotEmpty() || attempt == 2) return@repeat
+                delay(150L)
+            }
+            if (!_state.value.receiving) return@launch
+
+            if (lanHosts.isNotEmpty()) {
+                UltraShareDiagnostics.event(
+                    "PAIRING",
+                    "WIFI_DIRECT_FAILED_SWITCHED_TO_LAN",
+                    mapOf("hostCount" to lanHosts.size, "reason" to reason.take(120))
+                )
+                if (session != null) {
+                    cleanupWifiDirectBeforeFallback(session) { }
+                }
                 _state.value = _state.value.copy(
                     invitationId = "",
                     localAddresses = lanHosts,
-                    lanFallbackReady = hasExistingLan,
+                    lanFallbackReady = true,
                     wifiDirectHost = null,
                     wifiDirectLocalAddress = null,
                     wifiDirectScanning = false,
-                    error = if (hasExistingLan) null
-                        else "تعذر Wi-Fi Direct، وهذا الإصدار لا يدعم نقطة الاتصال المحلية داخل التطبيق. اتصل الهاتفان بشبكة Wi-Fi نفسها أو فعّل نقطة اتصال النظام يدوياً.",
-                    status = if (hasExistingLan)
-                        "تعذر Wi-Fi Direct؛ نستخدم شبكة Wi-Fi الحالية كبديل. يجب أن يكون الهاتف الآخر على الشبكة نفسها."
-                    else "الاستقبال يعمل؛ ننتظر شبكة محلية أو نقطة اتصال نظام لعرض رمز QR."
+                    hotspotStarting = false,
+                    error = null,
+                    status = "تعذر الاتصال المباشر Wi-Fi Direct؛ تم الانتقال تلقائياً إلى الشبكة المحلية (LAN). صِل الهاتفين بالشبكة نفسها وامسح الرمز."
                 )
+                publishUnifiedReceiverQrIfReady()
+                return@launch
             }
-            // Android 6–7 cannot create LocalOnlyHotspot. LAN fallback does not
-            // replace a radio group, so it must not wait for P2P cleanup permission.
-            beginLanFallback()
-            return
-        }
-        val beginFallback: () -> Unit = {
-            _state.value = _state.value.copy(
-                invitationId = "",
-                wifiDirectHost = null,
-                wifiDirectLocalAddress = null,
-                wifiDirectScanning = false,
-                error = null,
-                status = "تعذر Wi-Fi Direct؛ جارٍ تشغيل نقطة الاتصال المحلية كمسار بديل..."
-            )
-            runCatching { UltraShareForegroundService.startHotspot(context) }
-                .onFailure { failure ->
-                    UltraShareDiagnostics.failure("HOTSPOT_FALLBACK_START", failure)
-                    hotspotFallbackStarted = false
-                    val lanHosts = UltraShareNetworkRouting.nonP2pLocalIpv4Addresses(
-                        context,
-                        _state.value.localAddresses + UltraShareForegroundService.state.value.localAddresses
-                    )
-                    val lanReady = lanHosts.isNotEmpty()
-                    _state.value = _state.value.copy(
-                        localAddresses = lanHosts,
-                        invitationId = "",
-                        lanFallbackReady = lanReady,
-                        wifiDirectHost = null,
-                        wifiDirectScanning = false,
-                        error = if (lanReady) null else failure.localizedMessage
-                            ?: "فشل Wi-Fi Direct وتعذر تشغيل نقطة الاتصال المحلية.",
-                        status = if (lanReady)
-                            "تعذر تشغيل نقطة الاتصال؛ سنستخدم شبكة Wi-Fi الحالية. صِل الجهازين بالشبكة نفسها ثم امسح رمز LAN."
-                        else
-                            "تعذر Wi-Fi Direct ونقطة الاتصال؛ ما زال الاستقبال يعمل، ويمكن إعادة المحاولة بعد تفعيل Wi-Fi أو نقطة الاتصال."
-                    )
-                }
-        }
-        if (session == null) {
-            beginFallback()
-        } else {
-            cleanupWifiDirectBeforeFallback(session) { removed ->
-                if (removed) {
-                    beginFallback()
-                } else {
-                    UltraShareDiagnostics.event(
-                        "WIFI_DIRECT",
-                        "FALLBACK_BLOCKED_GROUP_CLEANUP_FAILED",
-                        mapOf("reason" to reason.take(160))
-                    )
-                    val lanHosts = UltraShareNetworkRouting.nonP2pLocalIpv4Addresses(
-                        context,
-                        _state.value.localAddresses + UltraShareForegroundService.state.value.localAddresses
-                    )
-                    if (lanHosts.isNotEmpty()) {
-                        // A same-WLAN route does not create or replace a radio group,
-                        // so it remains safe even when P2P cleanup cannot be verified.
+
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+                _state.value = _state.value.copy(
+                    invitationId = "",
+                    localAddresses = emptyList(),
+                    lanFallbackReady = false,
+                    wifiDirectHost = null,
+                    wifiDirectLocalAddress = null,
+                    wifiDirectScanning = false,
+                    error = "تعذر Wi-Fi Direct ولا تتوفر شبكة LAN حالياً، وهذا الإصدار لا يدعم نقطة الاتصال المحلية داخل التطبيق. صِل الهاتفين بشبكة Wi-Fi نفسها أو فعّل نقطة اتصال النظام.",
+                    status = "الاستقبال يعمل؛ ننتظر اتصال الجهازين بشبكة Wi-Fi (LAN) لعرض رمز QR."
+                )
+                return@launch
+            }
+
+            val beginHotspot: () -> Unit = {
+                _state.value = _state.value.copy(
+                    invitationId = "",
+                    wifiDirectHost = null,
+                    wifiDirectLocalAddress = null,
+                    wifiDirectScanning = false,
+                    error = null,
+                    status = "تعذر Wi-Fi Direct ولا تتوفر شبكة LAN؛ جارٍ تشغيل نقطة الاتصال المحلية كبديل..."
+                )
+                runCatching { UltraShareForegroundService.startHotspot(context) }
+                    .onFailure { failure ->
+                        UltraShareDiagnostics.failure("HOTSPOT_FALLBACK_START", failure)
+                        hotspotFallbackStarted = false
+                        val retryLan = UltraShareNetworkRouting.nonP2pLocalIpv4Addresses(
+                            context,
+                            _state.value.localAddresses + UltraShareForegroundService.state.value.localAddresses
+                        )
+                        val lanReady = retryLan.isNotEmpty()
                         _state.value = _state.value.copy(
+                            localAddresses = retryLan,
                             invitationId = "",
-                            localAddresses = lanHosts,
-                            lanFallbackReady = true,
+                            lanFallbackReady = lanReady,
                             wifiDirectHost = null,
                             wifiDirectScanning = false,
-                            hotspotStarting = false,
-                            error = null,
-                            status = "تعذر إغلاق مجموعة Wi-Fi Direct؛ نستخدم الشبكة المحلية الحالية دون تشغيل نقطة اتصال جديدة."
+                            error = if (lanReady) null else failure.localizedMessage
+                                ?: "فشل Wi-Fi Direct وتعذر تشغيل نقطة الاتصال المحلية.",
+                            status = if (lanReady)
+                                "تم الانتقال تلقائياً إلى الشبكة المحلية (LAN). صِل الجهازين بالشبكة نفسها ثم امسح رمز QR."
+                            else
+                                "تعذر Wi-Fi Direct ونقطة الاتصال؛ ما زال الاستقبال يعمل ويمكن إعادة المحاولة بعد تفعيل Wi-Fi."
                         )
+                        if (lanReady) publishUnifiedReceiverQrIfReady()
+                    }
+            }
+            if (session == null) {
+                beginHotspot()
+            } else {
+                cleanupWifiDirectBeforeFallback(session) { removed ->
+                    if (removed) {
+                        beginHotspot()
                     } else {
-                        hotspotFallbackStarted = false
-                        _state.value = _state.value.copy(
-                            invitationId = "",
-                            lanFallbackReady = false,
-                            error = "تعذر إغلاق مجموعة Wi-Fi Direct ولا توجد شبكة LAN بديلة مؤكدة؛ لم نشغّل نقطة اتصال قد تتعارض مع المجموعة."
+                        UltraShareDiagnostics.event(
+                            "WIFI_DIRECT",
+                            "FALLBACK_BLOCKED_GROUP_CLEANUP_FAILED",
+                            mapOf("reason" to reason.take(160))
                         )
+                        val lateLan = UltraShareNetworkRouting.nonP2pLocalIpv4Addresses(
+                            context,
+                            _state.value.localAddresses + UltraShareForegroundService.state.value.localAddresses
+                        )
+                        if (lateLan.isNotEmpty()) {
+                            _state.value = _state.value.copy(
+                                invitationId = "",
+                                localAddresses = lateLan,
+                                lanFallbackReady = true,
+                                wifiDirectHost = null,
+                                wifiDirectScanning = false,
+                                hotspotStarting = false,
+                                error = null,
+                                status = "تعذر إغلاق مجموعة Wi-Fi Direct؛ تم الانتقال تلقائياً إلى الشبكة المحلية (LAN)."
+                            )
+                            publishUnifiedReceiverQrIfReady()
+                        } else {
+                            hotspotFallbackStarted = false
+                            _state.value = _state.value.copy(
+                                invitationId = "",
+                                lanFallbackReady = false,
+                                error = "تعذر إغلاق مجموعة Wi-Fi Direct ولا توجد شبكة LAN بديلة متاحة."
+                            )
+                        }
                     }
                 }
             }
@@ -1000,6 +1028,8 @@ private fun forgetApprovedSenderTarget(host: String) {
     fun stopReceiving() {
         // Explicitly closing the room releases all network pins owned by this
         // temporary sharing session; a later session must negotiate its own route.
+        receiverWifiDirectTimeoutJob?.cancel()
+        receiverWifiDirectTimeoutJob = null
         UltraShareNetworkRouting.clearPinnedNetworks()
         hotspotNetworkCallback?.let { callback ->
             val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE)
@@ -1340,6 +1370,67 @@ private fun forgetApprovedSenderTarget(host: String) {
         )
     }
 
+    private fun resolveLanFallbackCandidates(hosts: List<String>): List<String> {
+        val verified = UltraShareNetworkRouting.findNonP2pLanFallbackHosts(context, hosts)
+        val extraNonP2p = hosts.asSequence()
+            .map { it.trim() }
+            .filter { UltraShareCore.isValidPrivateLanHost(it) }
+            .filterNot { UltraShareNetworkRouting.isWifiDirectGroupHost(it) }
+            .filterNot { UltraShareNetworkRouting.isLocalAddress(context, it) }
+            .filterNot { it in verified }
+            .toList()
+        return (verified + extraNonP2p).distinct()
+    }
+
+    private fun fallbackAfterWifiDirectScanFailure(
+        secret: String,
+        hosts: List<String>,
+        pairing: com.malekplay.network.UltraShareQrCode.PairingDetails?,
+        invitationId: String,
+        reason: String
+    ) {
+        val lanCandidates = resolveLanFallbackCandidates((hosts + listOfNotNull(pairing?.host)).distinct())
+        if (lanCandidates.isNotEmpty()) {
+            UltraShareDiagnostics.event(
+                "PAIRING",
+                "WIFI_DIRECT_SCAN_FAILED_FALLING_BACK_TO_LAN",
+                mapOf("lanCount" to lanCandidates.size, "reason" to reason.take(120))
+            )
+            _state.value = _state.value.copy(
+                requestingConnection = true,
+                error = null,
+                status = "تعذر الاتصال المباشر Wi-Fi Direct؛ جارٍ الانتقال تلقائياً إلى الشبكة المحلية (LAN)..."
+            )
+            requestConnection(
+                host = lanCandidates.first(),
+                secret = secret,
+                alternateHosts = lanCandidates.drop(1),
+                port = pairing?.port ?: UltraShareControlChannel.DEFAULT_PORT,
+                onConnectionFailed = { rejected, failReason ->
+                    if (!rejected && !fallbackToQrWifiCredentials(
+                            pairing,
+                            invitationId,
+                            secret,
+                            failReason ?: reason
+                        )
+                    ) {
+                        _state.value = _state.value.copy(
+                            requestingConnection = false,
+                            error = failReason ?: "تعذر الاتصال عبر Wi-Fi Direct وعبر الشبكة المحلية (LAN)."
+                        )
+                    }
+                }
+            )
+            return
+        }
+        if (!fallbackToQrWifiCredentials(pairing, invitationId, secret, reason)) {
+            _state.value = _state.value.copy(
+                requestingConnection = false,
+                error = "تعذر الاتصال عبر Wi-Fi Direct، ولا يتوفر مسار شبكة محلية (LAN) صالح للاتصال البديل."
+            )
+        }
+    }
+
     fun joinUnifiedInvitation(pairing: com.malekplay.network.UltraShareQrCode.PairingDetails) {
         if (controlPairingInProgress) return
         if (pendingQrPairing != null && !qrP2pConnectStarted) {
@@ -1348,46 +1439,23 @@ private fun forgetApprovedSenderTarget(host: String) {
             return
         }
 
-        viewModelScope.launch {
-            // Always try a sub-second direct LAN/SoftAP probe first when hosts are
-            // present (even on p2p rooms): if both devices already share Wi-Fi,
-            // pairing completes in <500ms without waiting on Android DNS-SD.
-            val nonLocalHosts = pairing.hosts.filterNot {
-                UltraShareNetworkRouting.isLocalAddress(context, it)
-            }
-            val reachableHosts = if (nonLocalHosts.isNotEmpty()) {
-                withTimeoutOrNull(500L) {
-                    UltraShareDiscovery.probeControlHostsFast(nonLocalHosts, timeoutMs = 400)
-                }.orEmpty()
-            } else {
-                emptyList()
-            }
-            val directHost = reachableHosts.firstOrNull()
-            if (directHost != null) {
-                UltraShareDiagnostics.event(
-                    "PAIRING", "QR_FAST_LAN_ROUTE_SELECTED",
-                    mapOf("reachableHostCount" to reachableHosts.size)
-                )
-                requestConnection(
-                    host = directHost,
-                    secret = pairing.pairingSecret,
-                    alternateHosts = reachableHosts.drop(1) + nonLocalHosts.filterNot { it in reachableHosts },
-                    port = pairing.port
-                )
-                return@launch
-            }
+        val hasWifiCredentials = !pairing.hotspotSsid.isNullOrBlank() &&
+            !pairing.hotspotPassword.isNullOrBlank()
+        val lanCandidates = resolveLanFallbackCandidates(pairing.hosts.ifEmpty { listOf(pairing.host) })
+        val routePlan = UltraSharePairingReadiness.resolveQrJoinRoutePlan(
+            mode = pairing.mode,
+            invitationId = pairing.invitationId,
+            hasWifiCredentials = hasWifiCredentials,
+            hasLanHosts = lanCandidates.isNotEmpty()
+        )
+        val primaryRoute = routePlan.firstOrNull()
 
-            // A P2P room must use the Wi-Fi Direct framework negotiation when no
-            // direct host responded immediately.
-            if (UltraSharePairingReadiness.shouldUseWifiDirectInvitation(
-                    pairing.mode,
-                    pairing.invitationId
-                )
-            ) {
+        when (primaryRoute) {
+            UltraSharePairingReadiness.QrJoinTransport.WIFI_DIRECT -> {
                 UltraShareDiagnostics.event(
                     "PAIRING",
-                    "QR_P2P_MAIN_FLOW_SELECTED",
-                    mapOf("sdkInt" to Build.VERSION.SDK_INT)
+                    "QR_WIFI_DIRECT_PRIMARY_SELECTED",
+                    mapOf("sdkInt" to Build.VERSION.SDK_INT, "lanFallbackCount" to lanCandidates.size)
                 )
                 joinWifiDirectInvitation(
                     requireNotNull(pairing.invitationId),
@@ -1395,24 +1463,53 @@ private fun forgetApprovedSenderTarget(host: String) {
                     pairing.hosts,
                     pairing
                 )
-                return@launch
             }
-
-            if (!pairing.hotspotSsid.isNullOrBlank() && !pairing.hotspotPassword.isNullOrBlank()) {
+            UltraSharePairingReadiness.QrJoinTransport.LAN -> {
+                viewModelScope.launch {
+                    val reachableHosts = withTimeoutOrNull(700L) {
+                        UltraShareDiscovery.probeControlHostsFast(lanCandidates, timeoutMs = 500)
+                    }.orEmpty()
+                    val orderedLan = (reachableHosts + lanCandidates.filterNot { it in reachableHosts }).distinct()
+                    val firstHost = orderedLan.firstOrNull() ?: pairing.host
+                    if (firstHost.isNotBlank()) {
+                        UltraShareDiagnostics.event(
+                            "PAIRING", "QR_LAN_ROUTE_SELECTED",
+                            mapOf("lanCount" to orderedLan.size)
+                        )
+                        requestConnection(
+                            host = firstHost,
+                            secret = pairing.pairingSecret,
+                            alternateHosts = orderedLan.drop(1),
+                            port = pairing.port,
+                            onConnectionFailed = { rejected, reason ->
+                                if (!rejected && !pairing.invitationId.isNullOrBlank()) {
+                                    joinWifiDirectInvitation(
+                                        pairing.invitationId,
+                                        pairing.pairingSecret,
+                                        pairing.hosts,
+                                        pairing
+                                    )
+                                } else if (!rejected && hasWifiCredentials) {
+                                    connectHotspotInvitation(pairing)
+                                } else if (!rejected) {
+                                    _state.value = _state.value.copy(
+                                        requestingConnection = false,
+                                        error = reason ?: "تعذر الاتصال عبر الشبكة المحلية (LAN)."
+                                    )
+                                }
+                            }
+                        )
+                    }
+                }
+            }
+            UltraSharePairingReadiness.QrJoinTransport.HOTSPOT -> {
                 UltraShareDiagnostics.event(
                     "PAIRING", "QR_DIRECT_WIFI_JOIN_SELECTED",
                     mapOf("sdkInt" to Build.VERSION.SDK_INT)
                 )
                 connectHotspotInvitation(pairing)
-            } else if (!pairing.invitationId.isNullOrBlank()) {
-                UltraShareDiagnostics.event("PAIRING", "QR_DNSSD_FALLBACK_SELECTED")
-                joinWifiDirectInvitation(
-                    pairing.invitationId,
-                    pairing.pairingSecret,
-                    pairing.hosts,
-                    pairing
-                )
-            } else {
+            }
+            null -> {
                 val firstHost = pairing.hosts.firstOrNull() ?: pairing.host
                 if (firstHost.isNotBlank()) {
                     requestConnection(
@@ -1882,11 +1979,8 @@ private fun forgetApprovedSenderTarget(host: String) {
             onError = { message ->
                 val receiving = _state.value.receiving || UltraShareForegroundService.state.value.receiving
                 val pending = pendingQrPairing
-                val fallbackHosts = pending?.let {
-                    UltraShareNetworkRouting.findNonP2pLanFallbackHosts(context, it.hosts)
-                }.orEmpty()
                 if (pending != null) {
-                    // A terminal scanner-side DNS-SD error can leave an OEM session
+                    // A terminal scanner-side DNS-SD/P2P error can leave an OEM session
                     // marked as discovering even after cleanup was attempted. Retire
                     // that session before LAN fallback or a later QR retry; keep any
                     // established foreground transfers independent of this ViewModel.
@@ -1898,24 +1992,26 @@ private fun forgetApprovedSenderTarget(host: String) {
                 }
                 if (pending == null && receiving && wifiDirectPrimaryAttempt) {
                     startHotspotFallback(message)
+                } else if (pending != null) {
+                    _state.value = _state.value.copy(
+                        wifiDirectScanning = false,
+                        wifiDirectHost = null,
+                        invitationId = if (receiving) "" else _state.value.invitationId
+                    )
+                    fallbackAfterWifiDirectScanFailure(
+                        secret = pending.secret,
+                        hosts = pending.hosts,
+                        pairing = pending.details,
+                        invitationId = pending.details?.invitationId.orEmpty(),
+                        reason = message
+                    )
                 } else {
                     _state.value = _state.value.copy(
                         wifiDirectScanning = false,
                         wifiDirectHost = null,
                         invitationId = if (receiving) "" else _state.value.invitationId,
-                        requestingConnection = if (pending != null) fallbackHosts.isNotEmpty() else _state.value.requestingConnection,
-                        error = if (pending != null && fallbackHosts.isNotEmpty()) null else message,
-                        status = if (pending != null && fallbackHosts.isNotEmpty())
-                            "تعذر إكمال Wi-Fi Direct؛ ننتقل الآن إلى مسار الشبكة المحلية الآمن..."
-                        else _state.value.status
+                        error = message
                     )
-                    if (pending != null && fallbackHosts.isNotEmpty()) {
-                        requestConnection(
-                            host = fallbackHosts.first(),
-                            secret = pending.secret,
-                            alternateHosts = fallbackHosts.drop(1)
-                        )
-                    }
                 }
             },
             onLocalAddress = { address ->
@@ -2007,6 +2103,10 @@ private fun forgetApprovedSenderTarget(host: String) {
             // Give requestGroupInfo a short opportunity to publish WPA2 credentials.
             // If this OEM withholds them, retain the compatible DNS-SD invitation QR.
             repeat(20) {
+                val current = _state.value
+                if (!current.receiving || hotspotFallbackStarted || current.invitationId != invitationId) {
+                    return@launch
+                }
                 if (wifiDirectGroupSsid != null && wifiDirectGroupPassword != null) {
                     // Prefer the richer room QR when its live route is ready. If
                     // Android has not exposed a usable IPv4 yet, still publish the
@@ -2017,9 +2117,8 @@ private fun forgetApprovedSenderTarget(host: String) {
                         ?.let { runCatching { UltraShareQrCode.parsePayload(it).invitationId }.getOrNull() }
                     if (publishedInvitationId == invitationId) return@launch
                 }
-                val current = _state.value
                 val service = UltraShareForegroundService.state.value
-                if (current.receiving && service.controlChannelReady) {
+                if (current.receiving && service.controlChannelReady && current.invitationId == invitationId) {
                     val secret = service.pairingSecret.takeIf { UltraShareCore.isValidPairingSecret(it) }
                         ?: current.pairingSecret.takeIf { UltraShareCore.isValidPairingSecret(it) }
                         ?: return@launch
@@ -2255,6 +2354,8 @@ private fun forgetApprovedSenderTarget(host: String) {
                 // can start discovery before the invitation exists on the radio.
                 session.advertiseInvitation(invitationId) {
                     if (wifiDirectSession !== session || !_state.value.receiving) return@advertiseInvitation
+                    receiverWifiDirectTimeoutJob?.cancel()
+                    receiverWifiDirectTimeoutJob = null
                     wifiDirectAdvertisedInvitationId = invitationId
                     UltraShareForegroundService.refreshLocalAddresses(context)
                     _state.value = _state.value.copy(
@@ -2302,7 +2403,7 @@ private fun forgetApprovedSenderTarget(host: String) {
             )
             return
         }
-        val pairingAttempt = PendingQrPairing(secret.trim(), fallbackHosts)
+        val pairingAttempt = PendingQrPairing(secret.trim(), fallbackHosts, fallbackPairing)
         pendingQrPairing = pairingAttempt
         qrP2pConnectStarted = false
         try {
@@ -2311,7 +2412,7 @@ private fun forgetApprovedSenderTarget(host: String) {
                 requestingConnection = true,
                 wifiDirectHost = null,
                 error = null,
-                status = "تمت قراءة الدعوة؛ جارٍ العثور على الجهاز وإنشاء اتصال مباشر آمن..."
+                status = "تمت قراءة الدعوة؛ جارٍ الاتصال المباشر عبر Wi-Fi Direct..."
             )
             // QR service discovery must not overlap a regular discoverPeers request.
             // Wait for the framework's stop callback before installing DNS-SD requests.
@@ -2321,93 +2422,84 @@ private fun forgetApprovedSenderTarget(host: String) {
                 ) return@stopDiscoveryChecked
                 if (!stopped) {
                     val pending = pendingQrPairing ?: return@stopDiscoveryChecked
-                    val safeFallbacks = UltraShareNetworkRouting.findNonP2pLanFallbackHosts(
-                        context,
-                        pending.hosts
-                    )
                     pendingQrPairing = null
                     qrP2pConnectStarted = false
                     session.stopInvitationDiscovery()
-                    val fallback = safeFallbacks.firstOrNull()
-                    if (fallback != null) {
-                        UltraShareDiagnostics.event("PAIRING", "DISCOVERY_STOP_FAILED_USING_VERIFIED_LAN")
-                        requestConnection(
-                            host = fallback,
-                            secret = pending.secret,
-                            alternateHosts = safeFallbacks.drop(1)
-                        )
-                    } else {
-                        wifiDirectSession = null
-                        runCatching { session.close() }
-                        if (!fallbackToQrWifiCredentials(
-                                fallbackPairing,
-                                invitationId,
-                                pending.secret,
-                                "discovery_stop_unconfirmed"
-                            )
-                        ) {
-                            _state.value = _state.value.copy(
-                                requestingConnection = false,
-                                error = "لم يؤكد Android إيقاف البحث السابق، ولا يوجد مسار LAN صالح أو بيانات شبكة في QR للاتصال البديل."
-                            )
-                        }
-                    }
+                    wifiDirectSession = null
+                    runCatching { session.close() }
+                    fallbackAfterWifiDirectScanFailure(
+                        secret = pending.secret,
+                        hosts = pending.hosts,
+                        pairing = fallbackPairing,
+                        invitationId = invitationId,
+                        reason = "discovery_stop_unconfirmed"
+                    )
                     return@stopDiscoveryChecked
                 }
                 session.discoverInvitation(invitationId) { peer ->
-                if (UltraSharePairingReadiness.isCurrentInvitationAttempt(pendingQrPairing, pairingAttempt) &&
-                    !qrP2pConnectStarted
-                ) {
-                    qrP2pConnectStarted = true
-                    _state.value = _state.value.copy(
-                        status = "تم العثور على جهاز الاستقبال؛ جارٍ إنشاء الاتصال المباشر..."
-                    )
-                    session.stopInvitationDiscoveryChecked { stopped ->
-                        if (!UltraSharePairingReadiness.isCurrentInvitationAttempt(pendingQrPairing, pairingAttempt) ||
-                            wifiDirectSession !== session
-                        ) return@stopInvitationDiscoveryChecked
-                        if (!stopped) {
-                            val pending = pendingQrPairing ?: return@stopInvitationDiscoveryChecked
-                            // A timed-out OEM cleanup can leave this Session marked as
-                            // actively discovering. Retire the scanner-side session before
-                            // switching to LAN so a later retry starts with a fresh P2P channel.
-                            val failedInvitationSession = wifiDirectSession
-                            wifiDirectSession = null
-                            runCatching { failedInvitationSession?.close() }
-                            val fallbackHosts = UltraShareNetworkRouting.findNonP2pLanFallbackHosts(context, pending.hosts)
-                            val fallback = fallbackHosts.firstOrNull()
-                            if (fallback != null) {
+                    if (UltraSharePairingReadiness.isCurrentInvitationAttempt(pendingQrPairing, pairingAttempt) &&
+                        !qrP2pConnectStarted
+                    ) {
+                        qrP2pConnectStarted = true
+                        _state.value = _state.value.copy(
+                            status = "تم العثور على جهاز الاستقبال؛ جارٍ إنشاء اتصال Wi-Fi Direct..."
+                        )
+                        session.stopInvitationDiscoveryChecked { discoveryStopped ->
+                            if (!UltraSharePairingReadiness.isCurrentInvitationAttempt(pendingQrPairing, pairingAttempt) ||
+                                wifiDirectSession !== session
+                            ) return@stopInvitationDiscoveryChecked
+                            if (!discoveryStopped) {
+                                val pending = pendingQrPairing ?: return@stopInvitationDiscoveryChecked
+                                val failedInvitationSession = wifiDirectSession
+                                wifiDirectSession = null
+                                runCatching { failedInvitationSession?.close() }
                                 pendingQrPairing = null
                                 qrP2pConnectStarted = false
-                                requestConnection(fallback, pending.secret, alternateHosts = fallbackHosts.drop(1))
-                            } else {
-                                pendingQrPairing = null
-                                qrP2pConnectStarted = false
-                                if (!fallbackToQrWifiCredentials(
-                                        fallbackPairing,
-                                        invitationId,
-                                        pending.secret,
-                                        "invitation_discovery_stop_unconfirmed"
-                                    )
+                                fallbackAfterWifiDirectScanFailure(
+                                    secret = pending.secret,
+                                    hosts = pending.hosts,
+                                    pairing = fallbackPairing,
+                                    invitationId = invitationId,
+                                    reason = "invitation_discovery_stop_unconfirmed"
+                                )
+                                return@stopInvitationDiscoveryChecked
+                            }
+                            session.connect(peer.deviceAddress, preferThisDeviceAsGroupOwner = false)
+                            // Guard against silent OEM WifiP2pManager.connect() stalls:
+                            // if group formation has not completed within the connect window,
+                            // fall back automatically to LAN.
+                            viewModelScope.launch {
+                                delay(UltraSharePairingReadiness.WIFI_DIRECT_CONNECT_FALLBACK_TIMEOUT_MS)
+                                val serviceState = UltraShareForegroundService.state.value
+                                val alreadyPaired = controlPairingInProgress ||
+                                    _state.value.receiving ||
+                                    serviceState.activePeers.isNotEmpty() ||
+                                    UltraShareForegroundService.approvedSendTargets().isNotEmpty()
+                                if (UltraSharePairingReadiness.isCurrentInvitationAttempt(pendingQrPairing, pairingAttempt) &&
+                                    qrP2pConnectStarted &&
+                                    !alreadyPaired &&
+                                    wifiDirectSession === session
                                 ) {
-                                    _state.value = _state.value.copy(
-                                        requestingConnection = false,
-                                        error = "لم يؤكد Android إيقاف اكتشاف دعوة Wi-Fi Direct؛ لا يوجد LAN صالح أو بيانات شبكة في QR للاتصال البديل."
+                                    UltraShareDiagnostics.event("PAIRING", "P2P_CONNECT_TIMEOUT_FALLING_BACK_TO_LAN")
+                                    wifiDirectSession = null
+                                    runCatching { session.close() }
+                                    pendingQrPairing = null
+                                    qrP2pConnectStarted = false
+                                    fallbackAfterWifiDirectScanFailure(
+                                        secret = pairingAttempt.secret,
+                                        hosts = pairingAttempt.hosts,
+                                        pairing = fallbackPairing,
+                                        invitationId = invitationId,
+                                        reason = "p2p_connect_timeout"
                                     )
                                 }
                             }
-                            return@stopInvitationDiscoveryChecked
                         }
-                        session.connect(peer.deviceAddress, preferThisDeviceAsGroupOwner = false)
                     }
-                }
                 }
             }
             // This deadline covers DNS-SD discovery only. Once a peer is found,
-            // the P2P session owns connection negotiation and its bounded retries.
-            // On timeout, serialize cleanup before starting LAN fallback: calling the
-            // unchecked stop method here allowed a new scan to race a still-active
-            // OEM discovery request after its callback had been delayed or dropped.
+            // the connect watchdog above bounds P2P negotiation before falling back to LAN.
             viewModelScope.launch {
                 delay(UltraSharePairingReadiness.WIFI_DIRECT_INVITATION_DISCOVERY_TIMEOUT_MS)
                 val pending = pairingAttempt
@@ -2417,22 +2509,15 @@ private fun forgetApprovedSenderTarget(host: String) {
                         wifiDirectConnectionStarted = qrP2pConnectStarted
                     )
                 ) {
-                    val safeFallbacks = UltraShareNetworkRouting.findNonP2pLanFallbackHosts(
-                        context,
-                        pending.hosts
-                    )
                     UltraShareDiagnostics.event(
                         "PAIRING",
                         "INVITATION_DISCOVERY_TIMEOUT",
                         mapOf(
-                            "verifiedLanFallbackCount" to safeFallbacks.size,
                             "qrHostCount" to pending.hosts.size,
                             "sdkInt" to Build.VERSION.SDK_INT
                         )
                     )
                     session.stopInvitationDiscoveryChecked { stopped ->
-                        // A newer QR attempt or a successful DNS-SD match supersedes
-                        // this timer; never let an old timeout cancel that attempt.
                         if (!UltraSharePairingReadiness.isCurrentInvitationAttempt(pendingQrPairing, pending) ||
                             qrP2pConnectStarted || wifiDirectSession !== session
                         ) return@stopInvitationDiscoveryChecked
@@ -2447,63 +2532,29 @@ private fun forgetApprovedSenderTarget(host: String) {
                         }
                         pendingQrPairing = null
                         qrP2pConnectStarted = false
-                        val fallback = safeFallbacks.firstOrNull()
-                        if (fallback != null) {
-                            UltraShareDiagnostics.event(
-                                "PAIRING",
-                                "INVITATION_DISCOVERY_TIMEOUT_USING_VERIFIED_LAN"
-                            )
-                            requestConnection(
-                                host = fallback,
-                                secret = pending.secret,
-                                alternateHosts = safeFallbacks.drop(1)
-                            )
-                        } else if (!fallbackToQrWifiCredentials(
-                                fallbackPairing,
-                                invitationId,
-                                pending.secret,
-                                if (stopped) "dnssd_timeout" else "dnssd_timeout_cleanup_unconfirmed"
-                            )
-                        ) {
-                            _state.value = _state.value.copy(
-                                requestingConnection = false,
-                                error = if (stopped)
-                                    "لم يتم العثور على دعوة Wi-Fi Direct، ولا يوجد LAN صالح أو بيانات شبكة في QR للاتصال البديل."
-                                else
-                                    "انتهت مهلة اكتشاف الدعوة ولم يؤكد Android تنظيف طلب Wi-Fi Direct؛ أُغلقت الجلسة ولا توجد بيانات شبكة صالحة للاتصال البديل."
-                            )
-                        }
+                        fallbackAfterWifiDirectScanFailure(
+                            secret = pending.secret,
+                            hosts = pending.hosts,
+                            pairing = fallbackPairing,
+                            invitationId = invitationId,
+                            reason = if (stopped) "dnssd_timeout" else "dnssd_timeout_cleanup_unconfirmed"
+                        )
                     }
                 }
             }
         } catch (failure: Exception) {
             pendingQrPairing = null
             qrP2pConnectStarted = false
-            val safeFallbacks = UltraShareNetworkRouting.findNonP2pLanFallbackHosts(context, fallbackHosts)
-            val fallback = safeFallbacks.firstOrNull()
-            if (fallback != null) {
-                requestConnection(
-                    host = fallback,
-                    secret = secret,
-                    alternateHosts = safeFallbacks.drop(1)
-                )
-            } else {
-                val failedSession = wifiDirectSession
-                wifiDirectSession = null
-                runCatching { failedSession?.close() }
-                if (!fallbackToQrWifiCredentials(
-                        fallbackPairing,
-                        invitationId,
-                        secret.trim(),
-                        "dnssd_start_failure"
-                    )
-                ) {
-                    _state.value = _state.value.copy(
-                        requestingConnection = false,
-                        error = failure.localizedMessage ?: "تعذر بدء اكتشاف دعوة الجهاز."
-                    )
-                }
-            }
+            val failedSession = wifiDirectSession
+            wifiDirectSession = null
+            runCatching { failedSession?.close() }
+            fallbackAfterWifiDirectScanFailure(
+                secret = secret.trim(),
+                hosts = fallbackHosts,
+                pairing = fallbackPairing,
+                invitationId = invitationId,
+                reason = failure.localizedMessage ?: "dnssd_start_failure"
+            )
         }
     }
 
