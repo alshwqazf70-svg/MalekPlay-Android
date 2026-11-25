@@ -724,6 +724,20 @@ class UltraSharePairingReadinessTest {
                 hasLanHosts = true
             )
         )
+        assertEquals(
+            listOf(
+                UltraSharePairingReadiness.QrJoinTransport.WIFI_DIRECT,
+                UltraSharePairingReadiness.QrJoinTransport.HOTSPOT,
+                UltraSharePairingReadiness.QrJoinTransport.LAN
+            ),
+            UltraSharePairingReadiness.resolveQrJoinRoutePlan(
+                mode = "p2p",
+                invitationId = "invite-1",
+                hasWifiCredentials = true,
+                hasLanHosts = true,
+                preferHotspotOverLan = true
+            )
+        )
     }
 
 }

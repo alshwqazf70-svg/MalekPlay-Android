@@ -58,14 +58,15 @@ internal object UltraSharePairingReadiness {
 
     /**
      * Orders QR join transports so Wi-Fi Direct is primary whenever the invitation
-     * carries a P2P identity, falling back to LAN first and Hotspot last.
-     * When the receiver itself already fell back to "lan" mode, use LAN immediately.
+     * carries a P2P identity. On captive-portal ("voucher"/public) Wi-Fi networks,
+     * Hotspot takes priority over LAN fallback to bypass client isolation like Zapya.
      */
     fun resolveQrJoinRoutePlan(
         mode: String?,
         invitationId: String?,
         hasWifiCredentials: Boolean,
-        hasLanHosts: Boolean
+        hasLanHosts: Boolean,
+        preferHotspotOverLan: Boolean = false
     ): List<QrJoinTransport> = buildList {
         val hasInvitation = !invitationId.isNullOrBlank()
         when (mode?.lowercase()) {
@@ -76,13 +77,18 @@ internal object UltraSharePairingReadiness {
             }
             "hotspot" -> {
                 if (hasWifiCredentials) add(QrJoinTransport.HOTSPOT)
-                if (hasLanHosts) add(QrJoinTransport.LAN)
                 if (hasInvitation) add(QrJoinTransport.WIFI_DIRECT)
+                if (hasLanHosts) add(QrJoinTransport.LAN)
             }
             else -> {
                 if (hasInvitation) add(QrJoinTransport.WIFI_DIRECT)
-                if (hasLanHosts) add(QrJoinTransport.LAN)
-                if (hasWifiCredentials) add(QrJoinTransport.HOTSPOT)
+                if (preferHotspotOverLan) {
+                    if (hasWifiCredentials) add(QrJoinTransport.HOTSPOT)
+                    if (hasLanHosts) add(QrJoinTransport.LAN)
+                } else {
+                    if (hasLanHosts) add(QrJoinTransport.LAN)
+                    if (hasWifiCredentials) add(QrJoinTransport.HOTSPOT)
+                }
             }
         }
     }
