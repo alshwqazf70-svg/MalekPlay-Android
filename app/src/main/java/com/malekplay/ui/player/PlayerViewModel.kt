@@ -1128,6 +1128,24 @@ class PlayerViewModel @Inject constructor(
         _shuffleEnabled.value = player.shuffleModeEnabled
     }
 
+    /** Stops active playback and clears the mini-player dock cleanly. */
+    fun dismissMiniPlayer() {
+        if (_dlnaPlayback.value.activeDevice != null) stopDlnaPlayback()
+        playbackGeneration++
+        val player = _controller.value ?: return
+        player.playWhenReady = false
+        player.stop()
+        player.clearMediaItems()
+        _queue.value = emptyList()
+        _currentIndex.value = 0
+        _queueSize.value = 0
+        _isPlaying.value = false
+        _positionMs.value = 0L
+        _durationMs.value = 0L
+        currentMediaId = null
+        _currentItemId.value = null
+    }
+
     /** Adds an external subtitle without discarding the current playback queue. */
     fun addExternalSubtitle(
         uri: Uri,

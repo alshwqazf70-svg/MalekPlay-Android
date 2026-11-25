@@ -311,7 +311,13 @@ fun VideoPlayerScreen(
     }
 
     LaunchedEffect(resolved, controller) {
-        if (!resolved || controller == null) return@LaunchedEffect
+        val activeController = controller ?: return@LaunchedEffect
+        if (!resolved) return@LaunchedEffect
+        if (activeController.currentMediaItem?.mediaId == mediaId &&
+            activeController.playbackState != Player.STATE_IDLE
+        ) {
+            return@LaunchedEffect
+        }
         val item = media
         if (item != null) {
             // Series playback stays inside the same show and follows numeric

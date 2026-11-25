@@ -55,6 +55,7 @@ class TenBandEqualizerAudioProcessor : BaseAudioProcessor() {
     @Volatile private var loudnessGainDb = 0
     @Volatile private var coefficients = Array(BAND_COUNT) { Coefficients() }
     @Volatile private var linearGain = 1f
+    @Volatile private var spectrumCaptureEnabled = false
 
     private var sampleRate = 0
     private var channelCount = 0
@@ -62,9 +63,26 @@ class TenBandEqualizerAudioProcessor : BaseAudioProcessor() {
     private var buffersProcessed = 0L
     private var framesProcessed = 0L
     @Volatile private var framesWithEffects = 0L
+    private var spectrumSmoothed = FloatArray(SPECTRUM_BAR_COUNT)
+    private var lastSpectrumEmitNs = 0L
+    private var lowPassState = 0f
+    private var prevSampleState = 0f
 
     private val _metrics = MutableStateFlow(Metrics())
     val metrics: StateFlow<Metrics> = _metrics.asStateFlow()
+
+    private val _pcmSpectrum = MutableStateFlow(FloatArray(SPECTRUM_BAR_COUNT))
+    val pcmSpectrum: StateFlow<FloatArray> = _pcmSpectrum.asStateFlow()
+
+    fun setSpectrumCaptureEnabled(enabled: Boolean) {
+        spectrumCaptureEnabled = enabled
+        if (!enabled) {
+            spectrumSmoothed.fill(0f)
+            lowPassState = 0f
+            prevSampleState = 0f
+            _pcmSpectrum.value = FloatArray(SPECTRUM_BAR_COUNT)
+        }
+    }
 
     fun setBandsMillibels(values: List<Int>) {
         requestedBandsMb = IntArray(BAND_COUNT) { index ->
@@ -109,12 +127,20 @@ class TenBandEqualizerAudioProcessor : BaseAudioProcessor() {
 
     override fun onFlush(streamMetadata: AudioProcessor.StreamMetadata) {
         clearFilterState()
+        spectrumSmoothed.fill(0f)
+        lowPassState = 0f
+        prevSampleState = 0f
+        if (spectrumCaptureEnabled) _pcmSpectrum.value = FloatArray(SPECTRUM_BAR_COUNT)
     }
 
     override fun onReset() {
         sampleRate = 0
         channelCount = 0
         states = emptyArray()
+        spectrumSmoothed.fill(0f)
+        lowPassState = 0f
+        prevSampleState = 0f
+        _pcmSpectrum.value = FloatArray(SPECTRUM_BAR_COUNT)
         _metrics.value = Metrics()
     }
 
@@ -140,6 +166,7 @@ class TenBandEqualizerAudioProcessor : BaseAudioProcessor() {
             // Exact byte-for-byte bypass when every control is neutral.
             output.put(input)
             output.flip()
+            if (spectrumCaptureEnabled) publishPcmSpectrum(output, channels)
             buffersProcessed++
             framesProcessed += frameCount
             if (buffersProcessed == 1L || buffersProcessed % METRICS_UPDATE_INTERVAL == 0L) {
@@ -182,6 +209,7 @@ class TenBandEqualizerAudioProcessor : BaseAudioProcessor() {
         }
         input.position(input.limit())
         output.flip()
+        if (spectrumCaptureEnabled) publishPcmSpectrum(output, channels)
 
         buffersProcessed++
         framesProcessed += frameCount
@@ -232,6 +260,73 @@ class TenBandEqualizerAudioProcessor : BaseAudioProcessor() {
         states.forEach { channel -> channel.forEach(FilterState::clear) }
     }
 
+    private fun publishPcmSpectrum(outputBuffer: ByteBuffer, channels: Int) {
+        val nowNs = System.nanoTime()
+        if (lastSpectrumEmitNs != 0L && nowNs - lastSpectrumEmitNs < SPECTRUM_EMIT_INTERVAL_NS) return
+        val totalShorts = outputBuffer.remaining() / 2
+        if (totalShorts <= 0 || channels <= 0) return
+
+        val snap = outputBuffer.asReadOnlyBuffer().order(outputBuffer.order())
+        val totalFrames = totalShorts / channels
+        val strideFrames = maxOf(1, totalFrames / 256)
+        var bassAccum = 0f
+        var midAccum = 0f
+        var highAccum = 0f
+        var count = 0
+        var lp = lowPassState
+        var prev = prevSampleState
+
+        var frame = 0
+        while (frame < totalFrames) {
+            val byteIndex = frame * channels * 2
+            if (byteIndex + 1 >= snap.limit()) break
+            val sample = snap.getShort(byteIndex).toFloat() / 32768f
+            lp += 0.14f * (sample - lp)
+            val high = sample - prev
+            val mid = sample - lp - high * 0.45f
+            prev = sample
+            bassAccum += abs(lp)
+            midAccum += abs(mid)
+            highAccum += abs(high)
+            count++
+            frame += strideFrames
+        }
+        lowPassState = lp
+        prevSampleState = prev
+        if (count <= 0) return
+
+        val bassLevel = ((bassAccum / count) * 3.1f).coerceIn(0f, 1f)
+        val midLevel = ((midAccum / count) * 3.6f).coerceIn(0f, 1f)
+        val highLevel = ((highAccum / count) * 4.2f).coerceIn(0f, 1f)
+
+        val bars = FloatArray(SPECTRUM_BAR_COUNT)
+        for (i in 0 until SPECTRUM_BAR_COUNT) {
+            val ratio = i.toFloat() / (SPECTRUM_BAR_COUNT - 1)
+            val centerWeighted = when {
+                ratio < 0.35f -> {
+                    val t = ratio / 0.35f
+                    bassLevel * (1f - t * 0.35f) + midLevel * (t * 0.35f)
+                }
+                ratio < 0.72f -> {
+                    val t = (ratio - 0.35f) / 0.37f
+                    midLevel * (1f - t * 0.35f) + highLevel * (t * 0.25f) + bassLevel * 0.1f
+                }
+                else -> {
+                    val t = (ratio - 0.72f) / 0.28f
+                    highLevel * (0.65f + 0.35f * t) + midLevel * (0.35f * (1f - t))
+                }
+            }
+            // Slight organic modulation per bar so neighbouring bars feel dynamic.
+            val harmonic = 0.84f + 0.16f * sin(i * 1.15f + (nowNs % 1_000_000_000L) / 140_000_000f)
+            val target = (centerWeighted * harmonic).coerceIn(0f, 1f)
+            val smoothed = target * 0.62f + spectrumSmoothed[i] * 0.38f
+            spectrumSmoothed[i] = smoothed
+            bars[i] = smoothed
+        }
+        lastSpectrumEmitNs = nowNs
+        _pcmSpectrum.value = bars
+    }
+
     private fun peakingFilter(sampleRate: Int, frequencyHz: Int, gainDb: Float): Coefficients {
         if (abs(gainDb) < 0.001f || frequencyHz >= sampleRate * NYQUIST_GUARD) {
             return Coefficients()
@@ -255,6 +350,8 @@ class TenBandEqualizerAudioProcessor : BaseAudioProcessor() {
 
     companion object {
         const val BAND_COUNT = 10
+        const val SPECTRUM_BAR_COUNT = 32
+        const val SPECTRUM_EMIT_INTERVAL_NS = 28_000_000L
         const val MIN_BAND_MB = -1_200
         const val MAX_BAND_MB = 1_200
         const val MAX_BASS_BOOST_DB = 8

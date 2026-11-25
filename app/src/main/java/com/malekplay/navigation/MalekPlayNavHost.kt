@@ -9,7 +9,11 @@ import android.os.Looper
 import android.provider.MediaStore
 import androidx.compose.runtime.DisposableEffect
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.media3.common.Player
 import com.malekplay.ui.library.LibraryViewModel
+import com.malekplay.ui.player.PlayerViewModel
+import com.malekplay.ui.player.components.MiniPlayerDock
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -153,10 +157,66 @@ fun MalekPlayNavHost(
     // إخفاء الشريط السفلي في شاشات المشغل والإرسال والاستقبال
     val showBottomBar = BOTTOM_DESTINATIONS.any { it.screen.route == currentRoute }
 
+    val playerViewModel: PlayerViewModel = hiltViewModel()
+    val playerController by playerViewModel.controller.collectAsStateWithLifecycle()
+    val miniCurrentItemId by playerViewModel.currentItemId.collectAsStateWithLifecycle()
+    val miniIsPlaying by playerViewModel.isPlaying.collectAsStateWithLifecycle()
+    val miniPositionMs by playerViewModel.positionMs.collectAsStateWithLifecycle()
+    val miniDurationMs by playerViewModel.durationMs.collectAsStateWithLifecycle()
+    val miniCurrentIndex by playerViewModel.currentIndex.collectAsStateWithLifecycle()
+    val miniQueueSize by playerViewModel.queueSize.collectAsStateWithLifecycle()
+
+    val activeMedia3Item = playerController?.currentMediaItem
+    val resolvedMediaId = miniCurrentItemId ?: activeMedia3Item?.mediaId
+    var miniDomainMedia by remember { mutableStateOf<MediaItem?>(null) }
+    LaunchedEffect(resolvedMediaId) {
+        miniDomainMedia = resolvedMediaId?.let { id -> playerViewModel.loadMedia(id) }
+    }
+
+    val hideMiniPlayer = currentRoute == Screen.VideoPlayer.route ||
+        currentRoute == Screen.AudioPlayer.route ||
+        currentRoute == Screen.KidsMode.route ||
+        currentRoute == Screen.PrivateVault.route ||
+        currentRoute == Screen.Settings.route ||
+        currentRoute == Screen.UltraShare.route
+    val hasActivePlayback = playerController != null &&
+        activeMedia3Item != null &&
+        playerController?.playbackState != Player.STATE_IDLE &&
+        !resolvedMediaId.isNullOrBlank()
+
     Scaffold(
         bottomBar = {
-            if (showBottomBar) {
-                Column {
+            Column {
+                MiniPlayerDock(
+                    visible = !hideMiniPlayer && hasActivePlayback,
+                    media = miniDomainMedia,
+                    media3Item = activeMedia3Item,
+                    isPlaying = miniIsPlaying,
+                    positionMs = miniPositionMs,
+                    durationMs = miniDurationMs,
+                    hasPrevious = playerController?.hasPreviousMediaItem() == true || miniCurrentIndex > 0,
+                    hasNext = playerController?.hasNextMediaItem() == true || (miniQueueSize > 0 && miniCurrentIndex < miniQueueSize - 1),
+                    addNavigationBarPadding = !showBottomBar,
+                    onOpenPlayer = {
+                        val id = resolvedMediaId ?: return@MiniPlayerDock
+                        val domain = miniDomainMedia
+                        if (domain != null) {
+                            navController.openMedia(domain)
+                        } else {
+                            val mime = activeMedia3Item?.localConfiguration?.mimeType.orEmpty()
+                            if (mime.startsWith("video/", ignoreCase = true)) {
+                                navController.navigate(Screen.VideoPlayer.create(id))
+                            } else {
+                                navController.openNetworkMedia(id)
+                            }
+                        }
+                    },
+                    onTogglePlayPause = playerViewModel::togglePlayPause,
+                    onPrevious = playerViewModel::seekToPrevious,
+                    onNext = playerViewModel::seekToNext,
+                    onDismiss = playerViewModel::dismissMiniPlayer
+                )
+                if (showBottomBar) {
                     MalekPlayBottomBar(
                         navController = navController,
                         currentRoute = currentRoute
