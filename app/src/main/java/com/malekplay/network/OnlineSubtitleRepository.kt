@@ -81,7 +81,7 @@ internal fun subtitleCacheToken(sourceId: String): String {
 
 private val INVISIBLE_BIDI_MARKS_REGEX = Regex("""[\u200E\u200F\u202A-\u202E\u2066-\u2069\uFEFF\u00A0]""")
 private val SUBTITLE_TIMESTAMP_REGEX = Regex(
-    """(?m)^[ \t\u200E\u200F\u202A-\u202E\u2066-\u2069\uFEFF\u00A0]*(?:\d{1,3}:)?\d{1,2}:\d{2}(?:[,.]\d{1,4}|:\d{2})?[ \t\u200E\u200F]*-->[ \t\u200E\u200F]*(?:\d{1,3}:)?\d{1,2}:\d{2}(?:[,.]\d{1,4}|:\d{2})?(?:[ \t]+.*)?$"""
+    """^(?:\d{1,3}:)?\d{1,2}:\d{2}(?:[,.]\d{1,4}|:\d{2})?\s*-->\s*(?:\d{1,3}:)?\d{1,2}:\d{2}(?:[,.]\d{1,4}|:\d{2})?(?:\s+.*)?$"""
 )
 private val MICRODVD_LINE_REGEX = Regex("""^\s*\{(\d+)\}\{(\d+)\}(.+)$""")
 private val SUBVIEWER_TIMING_REGEX = Regex("""^\s*(\d{1,2}:\d{2}:\d{2}[.,]\d{2}),(\d{1,2}:\d{2}:\d{2}[.,]\d{2})\s*$""")
@@ -90,6 +90,11 @@ private val UTF8_BOM = byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte())
 
 private fun cleanTimestampLine(line: String): String =
     INVISIBLE_BIDI_MARKS_REGEX.replace(line, " ").trim()
+
+private fun hasSubtitleTimestampLine(text: String): Boolean =
+    text.lineSequence().any { line ->
+        line.contains("-->") && SUBTITLE_TIMESTAMP_REGEX.matches(cleanTimestampLine(line))
+    }
 
 private fun isAssDialogueText(text: String): Boolean =
     text.contains("[Events]", ignoreCase = true) &&
@@ -264,8 +269,9 @@ internal fun normalizeSubtitleForStorage(
         convertLegacySubToSrtIfApplicable(decoded) ?: decoded
     } else decoded
     val normalized = converted.lines().joinToString("\n") { line ->
-        if (line.contains("-->") && SUBTITLE_TIMESTAMP_REGEX.matches(line)) {
-            cleanTimestampLine(line)
+        if (line.contains("-->")) {
+            val cleaned = cleanTimestampLine(line)
+            if (SUBTITLE_TIMESTAMP_REGEX.matches(cleaned)) cleaned else line
         } else {
             line
         }
@@ -285,7 +291,7 @@ internal fun detectSubtitleFormat(bytes: ByteArray, preferArabicLegacy: Boolean 
         .replace("\r\n", "\n")
         .replace('\r', '\n')
     if (isAssDialogueText(text)) return "ass"
-    val hasCue = SUBTITLE_TIMESTAMP_REGEX.containsMatchIn(text)
+    val hasCue = hasSubtitleTimestampLine(text)
     if (hasCue) {
         return if (text.startsWith("WEBVTT", ignoreCase = true)) "vtt" else "srt"
     }
@@ -311,7 +317,7 @@ internal fun isHtmlOrCloudflarePayload(bytes: ByteArray, contentType: String? = 
     if (!looksLikeCloudflareChallenge) return false
     // Real English subtitles can contain "Just a moment..." in early dialogue lines.
     // Only reject as Cloudflare when no subtitle timing/dialogue structure exists.
-    return !SUBTITLE_TIMESTAMP_REGEX.containsMatchIn(head) && !isAssDialogueText(head)
+    return !hasSubtitleTimestampLine(head) && !isAssDialogueText(head)
 }
 
 internal fun validateSubtitleDownloadResponse(
