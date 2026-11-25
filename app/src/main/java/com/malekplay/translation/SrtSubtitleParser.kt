@@ -7,7 +7,8 @@ import java.nio.charset.StandardCharsets
 
 /** Small, deterministic SRT parser helpers kept independent from ML Kit for unit testing. */
 internal object SrtSubtitleParser {
-    private val timingPattern = Regex("""^\s*(?:\d{1,}:)?\d{2}:\d{2}[,.]\d{3}\s*-->\s*(?:\d{1,}:)?\d{2}:\d{2}[,.]\d{3}(?:\s+.*)?\s*$""")
+    private val timingPattern = Regex("""^\s*(?:\d{1,}:)?\d{1,2}:\d{2}(?:[,.]\d{1,4}|:\d{2})?\s*-->\s*(?:\d{1,}:)?\d{1,2}:\d{2}(?:[,.]\d{1,4}|:\d{2})?(?:\s+.*)?\s*$""")
+    private val invisibleDirectionMarks = Regex("""[\u200E\u200F\u202A-\u202E\u2066-\u2069\uFEFF\u00A0]""")
     private val vttTimestampPattern = Regex("""((?:\d{1,}:)?\d{2}:\d{2})\.(\d{3})""")
     private val markupPattern = Regex("""<[^>]+>""")
     private val assOverridePattern = Regex("""\{\\[^}]*}""")
@@ -28,13 +29,15 @@ internal object SrtSubtitleParser {
 
     private fun decodeStrict(bytes: ByteArray, offset: Int, charset: Charset): String {
         val unitSize = if (charset == StandardCharsets.UTF_8) 1 else 2
-        require((bytes.size - offset) % unitSize == 0) {
+        val available = bytes.size - offset
+        val alignedLength = if (unitSize == 2) (available and 1.inv()) else available
+        require(alignedLength > 0) {
             "ملف الترجمة يحتوي على بيانات ترميز غير مكتملة"
         }
         return charset.newDecoder()
             .onMalformedInput(CodingErrorAction.REPORT)
             .onUnmappableCharacter(CodingErrorAction.REPORT)
-            .decode(ByteBuffer.wrap(bytes, offset, bytes.size - offset))
+            .decode(ByteBuffer.wrap(bytes, offset, alignedLength))
             .toString()
     }
 
@@ -202,7 +205,10 @@ internal object SrtSubtitleParser {
     }
 
     fun timingLineIndex(lines: List<String>): Int =
-        lines.indexOfFirst { timingPattern.matches(it) }
+        lines.indexOfFirst { line ->
+            val cleaned = invisibleDirectionMarks.replace(line, " ").trim()
+            timingPattern.matches(cleaned)
+        }
 
     fun maskMarkup(text: String): Pair<String, List<String>> {
         val tags = mutableListOf<String>()

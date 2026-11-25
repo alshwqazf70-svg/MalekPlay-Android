@@ -79,11 +79,96 @@ internal fun subtitleCacheToken(sourceId: String): String {
     }
 }
 
+private val INVISIBLE_BIDI_MARKS_REGEX = Regex("""[\u200E\u200F\u202A-\u202E\u2066-\u2069\uFEFF\u00A0]""")
 private val SUBTITLE_TIMESTAMP_REGEX = Regex(
-    """(?m)^\s*(?:\d{1,3}:)?\d{1,2}:\d{2}[,.]\d{2,3}\s*-->\s*(?:\d{1,3}:)?\d{1,2}:\d{2}[,.]\d{2,3}(?:\s+.*)?$"""
+    """(?m)^[ \t\u200E\u200F\u202A-\u202E\u2066-\u2069\uFEFF\u00A0]*(?:\d{1,3}:)?\d{1,2}:\d{2}(?:[,.]\d{1,4}|:\d{2})?[ \t\u200E\u200F]*-->[ \t\u200E\u200F]*(?:\d{1,3}:)?\d{1,2}:\d{2}(?:[,.]\d{1,4}|:\d{2})?(?:[ \t]+.*)?$"""
 )
+private val MICRODVD_LINE_REGEX = Regex("""^\s*\{(\d+)\}\{(\d+)\}(.+)$""")
+private val SUBVIEWER_TIMING_REGEX = Regex("""^\s*(\d{1,2}:\d{2}:\d{2}[.,]\d{2}),(\d{1,2}:\d{2}:\d{2}[.,]\d{2})\s*$""")
 
 private val UTF8_BOM = byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte())
+
+private fun cleanTimestampLine(line: String): String =
+    INVISIBLE_BIDI_MARKS_REGEX.replace(line, " ").trim()
+
+private fun isAssDialogueText(text: String): Boolean =
+    text.contains("[Events]", ignoreCase = true) &&
+        text.lineSequence().any { it.trimStart().startsWith("Dialogue:", ignoreCase = true) }
+
+private fun formatSrtTimestampFromMillis(totalMillis: Long): String {
+    val safe = totalMillis.coerceAtLeast(0L)
+    val hours = safe / 3_600_000L
+    val minutes = (safe / 60_000L) % 60L
+    val seconds = (safe / 1_000L) % 60L
+    val millis = safe % 1_000L
+    return "%02d:%02d:%02d,%03d".format(Locale.ROOT, hours, minutes, seconds, millis)
+}
+
+/** Converts MicroDVD ({start}{end}text) or SubViewer (HH:MM:SS.cc,HH:MM:SS.cc) to SRT when matched. */
+internal fun convertLegacySubToSrtIfApplicable(text: String): String? {
+    val lines = text.replace("\r\n", "\n").replace('\r', '\n').lines()
+    val microLines = lines.mapNotNull { line -> MICRODVD_LINE_REGEX.matchEntire(line)?.let { it to line } }
+    if (microLines.size >= 2) {
+        var fps = 23.976
+        val firstMatch = microLines.first().first
+        if (firstMatch.groupValues[1] == "1" && firstMatch.groupValues[2] == "1") {
+            firstMatch.groupValues[3].trim().toDoubleOrNull()?.takeIf { it in 10.0..120.0 }?.let { fps = it }
+        }
+        val srtCues = ArrayList<String>(microLines.size)
+        for ((match, _) in microLines) {
+            val startFrame = match.groupValues[1].toLongOrNull() ?: continue
+            val endFrame = match.groupValues[2].toLongOrNull() ?: continue
+            if (startFrame == 1L && endFrame == 1L && match.groupValues[3].trim().toDoubleOrNull() != null) continue
+            val startMs = ((startFrame * 1000.0) / fps).toLong()
+            val endMs = ((endFrame * 1000.0) / fps).toLong().coerceAtLeast(startMs + 500L)
+            val body = match.groupValues[3]
+                .replace(Regex("""\{[^}]*\}"""), "")
+                .replace("|", "\n")
+                .trim()
+            if (body.isBlank()) continue
+            srtCues += "${srtCues.size + 1}\n${formatSrtTimestampFromMillis(startMs)} --> ${formatSrtTimestampFromMillis(endMs)}\n$body"
+        }
+        if (srtCues.isNotEmpty()) return srtCues.joinToString("\n\n") + "\n"
+    }
+
+    val subViewerIndices = lines.indices.filter { SUBVIEWER_TIMING_REGEX.matches(lines[it]) }
+    if (subViewerIndices.size >= 2) {
+        val srtCues = ArrayList<String>(subViewerIndices.size)
+        for (pos in subViewerIndices.indices) {
+            val lineIdx = subViewerIndices[pos]
+            val match = SUBVIEWER_TIMING_REGEX.matchEntire(lines[lineIdx]) ?: continue
+            val start = match.groupValues[1].replace('.', ',') + "0"
+            val end = match.groupValues[2].replace('.', ',') + "0"
+            val nextTimingIdx = subViewerIndices.getOrNull(pos + 1) ?: lines.size
+            val body = lines.subList(lineIdx + 1, nextTimingIdx)
+                .takeWhile { it.isNotBlank() && !it.trimStart().startsWith("[") }
+                .joinToString("\n")
+                .replace("[br]", "\n", ignoreCase = true)
+                .trim()
+            if (body.isBlank()) continue
+            srtCues += "${srtCues.size + 1}\n$start --> $end\n$body"
+        }
+        if (srtCues.isNotEmpty()) return srtCues.joinToString("\n\n") + "\n"
+    }
+    return null
+}
+
+private fun unsupportedArchiveTypeMessage(bytes: ByteArray): String? {
+    if (bytes.size >= 4 &&
+        bytes[0] == 0x52.toByte() && bytes[1] == 0x61.toByte() &&
+        bytes[2] == 0x72.toByte() && bytes[3] == 0x21.toByte()
+    ) {
+        return "ملف الترجمة مضغوط بصيغة RAR غير المدعومة؛ جرّب نتيجة أخرى بصيغة SRT أو ZIP."
+    }
+    if (bytes.size >= 6 &&
+        bytes[0] == 0x37.toByte() && bytes[1] == 0x7A.toByte() &&
+        bytes[2] == 0xBC.toByte() && bytes[3] == 0xAF.toByte() &&
+        bytes[4] == 0x27.toByte() && bytes[5] == 0x1C.toByte()
+    ) {
+        return "ملف الترجمة مضغوط بصيغة 7z غير المدعومة؛ جرّب نتيجة أخرى بصيغة SRT أو ZIP."
+    }
+    return null
+}
 
 /**
  * Decodes subtitle bytes with explicit BOM handling (UTF-8, UTF-16LE/BE, UTF-32LE/BE),
@@ -96,13 +181,15 @@ internal fun decodeSubtitleBytes(bytes: ByteArray, preferArabicLegacy: Boolean =
         bytes[0] == 0xFF.toByte() && bytes[1] == 0xFE.toByte() &&
         bytes[2] == 0x00.toByte() && bytes[3] == 0x00.toByte()
     ) {
-        return String(bytes, 4, bytes.size - 4, java.nio.charset.Charset.forName("UTF-32LE"))
+        val aligned = ((bytes.size - 4) and 3.inv()).coerceAtLeast(0)
+        return String(bytes, 4, aligned, java.nio.charset.Charset.forName("UTF-32LE"))
     }
     if (bytes.size >= 4 &&
         bytes[0] == 0x00.toByte() && bytes[1] == 0x00.toByte() &&
         bytes[2] == 0xFE.toByte() && bytes[3] == 0xFF.toByte()
     ) {
-        return String(bytes, 4, bytes.size - 4, java.nio.charset.Charset.forName("UTF-32BE"))
+        val aligned = ((bytes.size - 4) and 3.inv()).coerceAtLeast(0)
+        return String(bytes, 4, aligned, java.nio.charset.Charset.forName("UTF-32BE"))
     }
     val hasExplicitBom =
         (bytes.size >= 3 && bytes[0] == 0xEF.toByte() && bytes[1] == 0xBB.toByte() && bytes[2] == 0xBF.toByte()) ||
@@ -129,24 +216,28 @@ internal fun decodeSubtitleBytes(bytes: ByteArray, preferArabicLegacy: Boolean =
             .decode(java.nio.ByteBuffer.wrap(bytes))
             .toString()
     }.getOrNull()
-    if (strictUtf8OrUtf16 != null) return strictUtf8OrUtf16
+    if (strictUtf8OrUtf16 != null) return strictUtf8OrUtf16.replace("\u0000", "")
 
     // Legacy 8-bit encodings: distinguish Windows-1256 (Arabic) vs Windows-1252 (Western/Latin).
-    val win1256 = runCatching {
+    val win1256Strict = runCatching {
         java.nio.charset.Charset.forName("windows-1256").newDecoder()
             .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
             .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
             .decode(java.nio.ByteBuffer.wrap(bytes))
             .toString()
     }.getOrNull()
+    val win1256Lenient = runCatching {
+        String(bytes, java.nio.charset.Charset.forName("windows-1256"))
+    }.getOrNull()
     val win1252 = runCatching {
         String(bytes, java.nio.charset.Charset.forName("windows-1252"))
     }.getOrNull()
-    if (win1256 != null) {
-        val arabicChars = win1256.count { it in '\u0600'..'\u06FF' }
-        if (preferArabicLegacy || arabicChars >= 2) return win1256
+    val arabicChars = (win1256Strict ?: win1256Lenient)?.count { it in '\u0600'..'\u06FF' } ?: 0
+    if (preferArabicLegacy || arabicChars >= 2) {
+        return (win1256Strict ?: win1256Lenient ?: win1252 ?: SrtSubtitleParser.decode(bytes))
+            .replace("\u0000", "")
     }
-    return win1252 ?: win1256 ?: SrtSubtitleParser.decode(bytes)
+    return (win1252 ?: win1256Lenient ?: SrtSubtitleParser.decode(bytes)).replace("\u0000", "")
 }
 
 /**
@@ -159,10 +250,19 @@ internal fun normalizeSubtitleForStorage(
     preferArabicLegacy: Boolean = false
 ): ByteArray {
     val decoded = decodeSubtitleBytes(bytes, preferArabicLegacy)
-    val normalized = decoded
         .trimStart('\uFEFF')
         .replace("\r\n", "\n")
         .replace('\r', '\n')
+    val converted = if (!extension.equals("vtt", ignoreCase = true) && !isAssDialogueText(decoded)) {
+        convertLegacySubToSrtIfApplicable(decoded) ?: decoded
+    } else decoded
+    val normalized = converted.lines().joinToString("\n") { line ->
+        if (line.contains("-->") && SUBTITLE_TIMESTAMP_REGEX.matches(line)) {
+            cleanTimestampLine(line)
+        } else {
+            line
+        }
+    }
     val utf8Body = normalized.toByteArray(Charsets.UTF_8)
     return if (extension.equals("vtt", ignoreCase = true)) {
         utf8Body
@@ -172,17 +272,18 @@ internal fun normalizeSubtitleForStorage(
 }
 
 internal fun detectSubtitleFormat(bytes: ByteArray, preferArabicLegacy: Boolean = false): String? {
+    if (isHtmlOrCloudflarePayload(bytes)) return null
     val decodedText = runCatching { decodeSubtitleBytes(bytes, preferArabicLegacy) }.getOrNull() ?: return null
     val text = decodedText.trimStart('\uFEFF', ' ', '\t', '\n', '\r')
         .replace("\r\n", "\n")
         .replace('\r', '\n')
-    val assCue = text.contains("[Script Info]", ignoreCase = true) &&
-        text.contains("[Events]", ignoreCase = true) &&
-        text.lineSequence().any { it.trimStart().startsWith("Dialogue:", ignoreCase = true) }
-    if (assCue) return "ass"
+    if (isAssDialogueText(text)) return "ass"
     val hasCue = SUBTITLE_TIMESTAMP_REGEX.containsMatchIn(text)
-    if (!hasCue) return null
-    return if (text.startsWith("WEBVTT", ignoreCase = true)) "vtt" else "srt"
+    if (hasCue) {
+        return if (text.startsWith("WEBVTT", ignoreCase = true)) "vtt" else "srt"
+    }
+    if (convertLegacySubToSrtIfApplicable(text) != null) return "srt"
+    return null
 }
 
 internal fun isHtmlOrCloudflarePayload(bytes: ByteArray, contentType: String? = null): Boolean {
@@ -191,14 +292,19 @@ internal fun isHtmlOrCloudflarePayload(bytes: ByteArray, contentType: String? = 
     val head = runCatching {
         String(bytes, 0, minOf(bytes.size, 2048), Charsets.UTF_8)
     }.getOrDefault("").trimStart('\uFEFF', ' ', '\t', '\n', '\r').lowercase(Locale.ROOT)
-    return head.startsWith("<!doctype html") ||
+    if (head.startsWith("<!doctype html") ||
         head.startsWith("<html") ||
         head.startsWith("<head") ||
-        head.startsWith("<body") ||
-        head.contains("just a moment...") ||
+        head.startsWith("<body")
+    ) return true
+    val looksLikeCloudflareChallenge = head.contains("just a moment...") ||
         head.contains("cf-browser-verification") ||
         head.contains("attention required! | cloudflare") ||
         head.contains("enable javascript and cookies to continue")
+    if (!looksLikeCloudflareChallenge) return false
+    // Real English subtitles can contain "Just a moment..." in early dialogue lines.
+    // Only reject as Cloudflare when no subtitle timing/dialogue structure exists.
+    return !SUBTITLE_TIMESTAMP_REGEX.containsMatchIn(head) && !isAssDialogueText(head)
 }
 
 internal fun validateSubtitleDownloadResponse(
@@ -207,19 +313,24 @@ internal fun validateSubtitleDownloadResponse(
     providerName: String = "مزود الترجمة"
 ) {
     require(bytes.isNotEmpty()) { "ملف الترجمة فارغ" }
+    unsupportedArchiveTypeMessage(bytes)?.let { error(it) }
     val mime = contentType?.substringBefore(';')?.trim()?.lowercase(Locale.ROOT).orEmpty()
     if (isHtmlOrCloudflarePayload(bytes, mime)) {
         error(
             "تم حجب تنزيل الترجمة من $providerName بواسطة حماية Cloudflare أو صفحة HTML غير صالحة. جرّب نتيجة أخرى أو تحقّق من مفتاح API."
         )
     }
-    if (mime.contains("json")) {
+    val trimmedHead = runCatching {
+        String(bytes, 0, minOf(bytes.size, 2048), Charsets.UTF_8)
+    }.getOrDefault("").trimStart('\uFEFF', ' ', '\t', '\n', '\r')
+    if (mime.contains("json") || (trimmedHead.startsWith("{") && !trimmedHead.startsWith("{1}"))) {
         val text = runCatching { String(bytes, Charsets.UTF_8) }.getOrDefault("")
-        val apiMsg = runCatching {
-            val obj = JSONObject(text)
-            obj.optString("error").ifBlank { obj.optString("message") }
-        }.getOrNull()?.takeIf { it.isNotBlank() }
-        error(apiMsg ?: "أعاد $providerName استجابة JSON بدلاً من ملف الترجمة.")
+        val apiObj = runCatching { JSONObject(text) }.getOrNull()
+        if (apiObj != null && (mime.contains("json") || apiObj.has("error") || apiObj.has("message") || apiObj.has("status"))) {
+            val apiMsg = apiObj.optString("error").ifBlank { apiObj.optString("message") }
+                .takeIf { it.isNotBlank() }
+            error(apiMsg ?: "أعاد $providerName استجابة JSON بدلاً من ملف الترجمة.")
+        }
     }
     val looksZip = bytes.size > 3 && bytes[0] == 0x50.toByte() && bytes[1] == 0x4b.toByte()
     val looksGzip = bytes.size > 2 && bytes[0] == 0x1f.toByte() && bytes[1] == 0x8b.toByte()
@@ -246,26 +357,17 @@ internal fun validateSubtitleDownloadResponse(
 }
 
 /** Strict content/extension check shared by the cache writer and unit tests. */
-internal fun isValidSubtitlePayload(bytes: ByteArray, extension: String): Boolean {
+internal fun isValidSubtitlePayload(
+    bytes: ByteArray,
+    extension: String,
+    preferArabicLegacy: Boolean = false
+): Boolean {
     if (extension !in setOf("srt", "ass", "ssa", "vtt") ||
         bytes.isEmpty() || bytes.size > 8 * 1024 * 1024
     ) return false
     if (isHtmlOrCloudflarePayload(bytes)) return false
 
-    val decodedText = runCatching { decodeSubtitleBytes(bytes) }.getOrNull() ?: return false
-    val text = decodedText.trimStart('\uFEFF', ' ', '\t', '\n', '\r')
-        .replace("\r\n", "\n")
-        .replace('\r', '\n')
-    val arrowCue = SUBTITLE_TIMESTAMP_REGEX.containsMatchIn(text)
-    val assCue = text.contains("[Script Info]", ignoreCase = true) &&
-        text.contains("[Events]", ignoreCase = true) &&
-        text.lineSequence().any { it.trimStart().startsWith("Dialogue:", ignoreCase = true) }
-    val detected = when {
-        text.startsWith("WEBVTT", ignoreCase = true) && arrowCue -> "vtt"
-        assCue -> "ass"
-        arrowCue -> "srt"
-        else -> return false
-    }
+    val detected = detectSubtitleFormat(bytes, preferArabicLegacy) ?: return false
     return if (extension == "ssa") detected == "ass" else detected == extension
 }
 
@@ -675,6 +777,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         findReusableCachedSubtitle(directory, prefix)?.let { return Uri.fromFile(it) }
         val rawBytes = subf2mProvider.download(detailUrl)
         val bytes = unwrapGzipIfNeeded(rawBytes)
+        unsupportedArchiveTypeMessage(bytes)?.let { error(it) }
         val preferArabic = subtitle.language.equals("ar", ignoreCase = true)
         val target = if (bytes.isZip()) {
             extract(
@@ -1025,7 +1128,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                     baseName.startsWith("._")
                 if (!isSystemNoise) {
                     val entryExt = baseName.substringAfterLast('.', "").lowercase(Locale.ROOT)
-                    if (entryExt in FORMATS || entryExt == "txt") {
+                    if (entryExt in FORMATS || entryExt == "txt" || entryExt == "sub" || baseName == entryExt) {
                         val output = ByteArrayOutputStream()
                         val buffer = ByteArray(8192)
                         var total = 0
@@ -1037,31 +1140,37 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                             output.write(buffer, 0, n)
                         }
                         val rawPayload = output.toByteArray()
-                        val detectedExt = detect(rawPayload, preferArabicLegacy)
-                            ?: entryExt.takeIf { it in FORMATS }
-                        if (detectedExt != null && detectedExt in FORMATS) {
-                            sawSupportedExtensionEntry = true
-                            if (isValidSubtitlePayload(rawPayload, detectedExt)) {
-                                val normalizedPayload = normalizeSubtitleForStorage(
-                                    rawPayload,
-                                    detectedExt,
-                                    preferArabicLegacy
-                                )
-                                var score = 0
-                                if (episodeMatchRegex != null && episodeMatchRegex.containsMatchIn(entryName)) {
-                                    score += 100
-                                }
-                                if (preferredFormat != null && detectedExt.equals(preferredFormat, ignoreCase = true)) {
-                                    score += 20
-                                } else if (detectedExt == "srt") {
-                                    score += 10
-                                }
-                                val currentBest = bestCandidate
-                                if (currentBest == null ||
-                                    score > currentBest.third ||
-                                    (score == currentBest.third && normalizedPayload.size > currentBest.second.size)
+                        if (rawPayload.isNotEmpty()) {
+                            val detectedExt = detect(rawPayload, preferArabicLegacy)
+                                ?: entryExt.takeIf { it in FORMATS }
+                            if (detectedExt != null && detectedExt in FORMATS) {
+                                sawSupportedExtensionEntry = true
+                                val normalizedPayload = runCatching {
+                                    normalizeSubtitleForStorage(
+                                        rawPayload,
+                                        detectedExt,
+                                        preferArabicLegacy
+                                    )
+                                }.getOrNull()
+                                if (normalizedPayload != null &&
+                                    isValidSubtitlePayload(normalizedPayload, detectedExt, preferArabicLegacy)
                                 ) {
-                                    bestCandidate = Triple(detectedExt, normalizedPayload, score)
+                                    var score = 0
+                                    if (episodeMatchRegex != null && episodeMatchRegex.containsMatchIn(entryName)) {
+                                        score += 100
+                                    }
+                                    if (preferredFormat != null && detectedExt.equals(preferredFormat, ignoreCase = true)) {
+                                        score += 20
+                                    } else if (detectedExt == "srt") {
+                                        score += 10
+                                    }
+                                    val currentBest = bestCandidate
+                                    if (currentBest == null ||
+                                        score > currentBest.third ||
+                                        (score == currentBest.third && normalizedPayload.size > currentBest.second.size)
+                                    ) {
+                                        bestCandidate = Triple(detectedExt, normalizedPayload, score)
+                                    }
                                 }
                             }
                         }
