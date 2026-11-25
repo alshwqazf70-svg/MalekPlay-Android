@@ -29,15 +29,13 @@ internal object SrtSubtitleParser {
 
     private fun decodeStrict(bytes: ByteArray, offset: Int, charset: Charset): String {
         val unitSize = if (charset == StandardCharsets.UTF_8) 1 else 2
-        val available = bytes.size - offset
-        val alignedLength = if (unitSize == 2) (available and 1.inv()) else available
-        require(alignedLength > 0) {
+        require((bytes.size - offset) % unitSize == 0) {
             "ملف الترجمة يحتوي على بيانات ترميز غير مكتملة"
         }
         return charset.newDecoder()
             .onMalformedInput(CodingErrorAction.REPORT)
             .onUnmappableCharacter(CodingErrorAction.REPORT)
-            .decode(ByteBuffer.wrap(bytes, offset, alignedLength))
+            .decode(ByteBuffer.wrap(bytes, offset, bytes.size - offset))
             .toString()
     }
 
@@ -100,10 +98,11 @@ internal object SrtSubtitleParser {
         val isWebVtt = blocks.firstOrNull()?.lineSequence()?.firstOrNull()
             ?.trim()?.startsWith("WEBVTT", ignoreCase = true) == true
 
-        return blocks.mapIndexedNotNull { index, rawBlock ->
+        val resultBlocks = mutableListOf<String>()
+        blocks.forEachIndexed { index, rawBlock ->
             val firstLine = rawBlock.lineSequence().firstOrNull()?.trim().orEmpty()
             if (isWebVtt && index == 0) {
-                return@mapIndexedNotNull null
+                return@forEachIndexed
             }
             if (isWebVtt && (
                 firstLine.startsWith("NOTE", ignoreCase = true) ||
@@ -111,17 +110,45 @@ internal object SrtSubtitleParser {
                     firstLine.equals("REGION", ignoreCase = true)
                 )
             ) {
-                return@mapIndexedNotNull null
+                return@forEachIndexed
             }
 
-            rawBlock.lineSequence().map { line ->
+            val normalizedLines = rawBlock.lineSequence().map { line ->
                 if (line.contains("-->")) {
                     vttTimestampPattern.replace(line, "\$1,\$2")
                 } else {
                     line
                 }
-            }.joinToString("\n")
+            }.toList()
+
+            val timingIndices = normalizedLines.indices.filter { idx ->
+                timingPattern.matches(invisibleDirectionMarks.replace(normalizedLines[idx], " ").trim())
+            }
+            if (timingIndices.size <= 1) {
+                resultBlocks += normalizedLines.joinToString("\n")
+            } else {
+                // Split adjacent cues that lack blank separator lines.
+                var start = 0
+                for (tPos in timingIndices.indices) {
+                    val timingIdx = timingIndices[tPos]
+                    val nextTimingIdx = timingIndices.getOrNull(tPos + 1)
+                    val end = if (nextTimingIdx == null) {
+                        normalizedLines.size
+                    } else if (nextTimingIdx - 1 > timingIdx &&
+                        normalizedLines[nextTimingIdx - 1].trim().all(Char::isDigit)
+                    ) {
+                        nextTimingIdx - 1
+                    } else {
+                        nextTimingIdx
+                    }
+                    if (end > start) {
+                        resultBlocks += normalizedLines.subList(start, end).joinToString("\n")
+                    }
+                    start = end
+                }
+            }
         }
+        return resultBlocks
     }
 
 
@@ -223,7 +250,8 @@ internal object SrtSubtitleParser {
     fun restoreMarkup(text: String, tags: List<String>): String {
         var restored = text
         tags.forEachIndexed { index, tag ->
-            restored = Regex("""§\s*T\s*$index\s*§""", RegexOption.IGNORE_CASE).replace(restored, tag)
+            val safeReplacement = Regex.escapeReplacement(tag)
+            restored = Regex("""§\s*T\s*$index\s*§""", RegexOption.IGNORE_CASE).replace(restored, safeReplacement)
         }
         return restored
     }

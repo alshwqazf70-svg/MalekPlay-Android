@@ -261,7 +261,7 @@ class SubtitleTranslationEngine @Inject constructor(
 
     private companion object {
         val SUPPORTED_FORMATS = setOf("srt", "vtt", "ass", "ssa")
-        const val MAX_SUBTITLE_BYTES = 5_000_000
+        const val MAX_SUBTITLE_BYTES = 8 * 1024 * 1024
     }
 
     private suspend fun <T> Task<T>.awaitResult(): T =

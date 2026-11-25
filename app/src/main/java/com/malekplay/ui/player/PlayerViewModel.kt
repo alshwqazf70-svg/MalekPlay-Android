@@ -1225,10 +1225,25 @@ class PlayerViewModel @Inject constructor(
         if (existingConfig != null) {
             val existingMatchId = existingConfig.id ?: subtitleId
             pendingExternalSubtitleId = existingMatchId
-            player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            val matchedGroup = lastGroups.firstOrNull { group ->
+                group.type == C.TRACK_TYPE_TEXT &&
+                    (0 until group.length).any { idx ->
+                        val fid = group.getTrackFormat(idx).id
+                        fid == existingMatchId || fid?.endsWith(":$existingMatchId") == true
+                    }
+            }
+            val builder = player.trackSelectionParameters.buildUpon()
                 .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
-                .clearOverridesOfType(C.TRACK_TYPE_TEXT)
-                .build()
+            if (matchedGroup != null) {
+                val trackIndex = (0 until matchedGroup.length).first { idx ->
+                    val fid = matchedGroup.getTrackFormat(idx).id
+                    fid == existingMatchId || fid?.endsWith(":$existingMatchId") == true
+                }
+                builder.setOverrideForType(TrackSelectionOverride(matchedGroup.mediaTrackGroup, trackIndex))
+            } else {
+                builder.clearOverridesOfType(C.TRACK_TYPE_TEXT)
+            }
+            player.trackSelectionParameters = builder.build()
             _textTrackDisabled.value = false
             refreshTracks()
             _playerError.value = null
@@ -1551,6 +1566,7 @@ class PlayerViewModel @Inject constructor(
                 isSubtitleEnabled = subtitlesEnabled ?: existing?.isSubtitleEnabled ?: !_textTrackDisabled.value,
                 externalSubtitleUri = existing?.externalSubtitleUri
             )
+            trackPreferencesByMediaId[mediaId] = preference
             runCatchingCancellable { mediaRepository.saveTrackPreference(preference) }
         }
     }

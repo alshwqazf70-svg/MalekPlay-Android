@@ -191,11 +191,18 @@ internal fun decodeSubtitleBytes(bytes: ByteArray, preferArabicLegacy: Boolean =
         val aligned = ((bytes.size - 4) and 3.inv()).coerceAtLeast(0)
         return String(bytes, 4, aligned, java.nio.charset.Charset.forName("UTF-32BE"))
     }
-    val hasExplicitBom =
-        (bytes.size >= 3 && bytes[0] == 0xEF.toByte() && bytes[1] == 0xBB.toByte() && bytes[2] == 0xBF.toByte()) ||
-            (bytes.size >= 2 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xFE.toByte()) ||
+    val hasUtf16Bom =
+        (bytes.size >= 2 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xFE.toByte()) ||
             (bytes.size >= 2 && bytes[0] == 0xFE.toByte() && bytes[1] == 0xFF.toByte())
-    if (hasExplicitBom) {
+    if (hasUtf16Bom) {
+        val safeBytes = if (bytes.size > 3 && (bytes.size - 2) % 2 != 0) {
+            bytes.copyOf(bytes.size - 1)
+        } else bytes
+        return SrtSubtitleParser.decode(safeBytes)
+    }
+    val hasUtf8Bom =
+        bytes.size >= 3 && bytes[0] == 0xEF.toByte() && bytes[1] == 0xBB.toByte() && bytes[2] == 0xBF.toByte()
+    if (hasUtf8Bom) {
         return SrtSubtitleParser.decode(bytes)
     }
 
