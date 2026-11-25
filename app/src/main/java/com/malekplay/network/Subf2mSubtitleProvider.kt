@@ -324,8 +324,15 @@ internal class Subf2mSubtitleProvider {
         Html.fromHtml(value).toString().replace(Regex("\\s+"), " ").trim()
 
     private fun looksLikeHtml(bytes: ByteArray): Boolean {
-        val head = bytes.take(256).toByteArray().toString(Charsets.UTF_8).trimStart()
-        return head.startsWith("<!DOCTYPE", true) || head.startsWith("<html", true)
+        val head = bytes.take(1024).toByteArray().toString(Charsets.UTF_8)
+            .trimStart('\uFEFF', ' ', '\t', '\n', '\r')
+            .lowercase(Locale.ROOT)
+        return head.startsWith("<!doctype") ||
+            head.startsWith("<html") ||
+            head.startsWith("<head") ||
+            head.startsWith("<body") ||
+            head.contains("just a moment...") ||
+            head.contains("cf-browser-verification")
     }
 
     companion object {

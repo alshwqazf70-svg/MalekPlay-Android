@@ -1206,11 +1206,16 @@ class PlayerViewModel @Inject constructor(
         // display name or generic MIME type do not attach the wrong Media3 decoder.
         val prefix = runCatching {
             app.contentResolver.openInputStream(uri)?.use { input ->
-                val bytes = ByteArray(8192)
-                val count = input.read(bytes)
-                if (count > 0) {
-                    runCatching { SrtSubtitleParser.decode(bytes.copyOf(count)) }
-                        .getOrElse { String(bytes, 0, count, Charsets.UTF_8) }
+                val bytes = ByteArray(32_768)
+                var offset = 0
+                while (offset < bytes.size) {
+                    val read = input.read(bytes, offset, bytes.size - offset)
+                    if (read <= 0) break
+                    offset += read
+                }
+                if (offset > 0) {
+                    runCatching { SrtSubtitleParser.decode(bytes.copyOf(offset)) }
+                        .getOrElse { String(bytes, 0, offset, Charsets.UTF_8) }
                 } else ""
             }
         }.getOrNull().orEmpty()

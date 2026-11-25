@@ -587,9 +587,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         }
         val dir = File(app.cacheDir, "online-subtitles").apply { mkdirs() }
         val cachePrefix = "subtitle-public-${subtitleCacheToken(subtitle.sourceId)}"
-        dir.listFiles()?.firstOrNull {
-            it.name.startsWith("$cachePrefix.") && isValidCachedSubtitle(it)
-        }?.let { return Uri.fromFile(it) }
+        findReusableCachedSubtitle(dir, cachePrefix)?.let { return Uri.fromFile(it) }
 
         val endpoint = "$PUBLIC_API/search/download/${subtitle.sourceId}"
         val request = Request.Builder().url(endpoint)
@@ -674,14 +672,15 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         val detailUrl = subtitle.downloadUrl ?: error("رابط صفحة SubF2M غير متوفر؛ أعد البحث")
         val directory = File(app.cacheDir, "online-subtitles").apply { mkdirs() }
         val prefix = "subtitle-subf2m-${subtitleCacheToken(subtitle.sourceId)}"
-        directory.listFiles()?.firstOrNull {
-            it.name.startsWith("$prefix.") && isValidCachedSubtitle(it)
-        }?.let { return Uri.fromFile(it) }
+        findReusableCachedSubtitle(directory, prefix)?.let { return Uri.fromFile(it) }
         val rawBytes = subf2mProvider.download(detailUrl)
         val bytes = unwrapGzipIfNeeded(rawBytes)
         val preferArabic = subtitle.language.equals("ar", ignoreCase = true)
         val target = if (bytes.isZip()) {
-            extract(bytes, directory, 0L, prefix, subtitle.format, preferArabic)
+            extract(
+                bytes, directory, 0L, prefix, subtitle.format, preferArabic,
+                subtitle.seasonNumber, subtitle.episodeNumber
+            )
         } else {
             val extension = detect(bytes, preferArabic)
                 ?: error("محتوى ملف الترجمة غير صالح: لا يحتوي على أسطر توقيت صالحة")
@@ -859,9 +858,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         }
         val directory = File(app.cacheDir, "online-subtitles").apply { mkdirs() }
         val prefix = "subtitle-subdl-${subtitleCacheToken(subtitle.sourceId)}"
-        directory.listFiles()?.firstOrNull {
-            it.name.startsWith("$prefix.") && isValidCachedSubtitle(it)
-        }?.let { return Uri.fromFile(it) }
+        findReusableCachedSubtitle(directory, prefix)?.let { return Uri.fromFile(it) }
 
         val downloadRequest = Request.Builder().url(downloadUri.toString())
             .header("User-Agent", AGENT)
@@ -886,7 +883,10 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
             validateSubtitleDownloadResponse(contentType, bytes, "SubDL")
             val preferArabic = subtitle.language.equals("ar", ignoreCase = true)
             val target = if (bytes.isZip()) {
-                extract(bytes, directory, 0L, prefix, subtitle.format, preferArabic)
+                extract(
+                    bytes, directory, 0L, prefix, subtitle.format, preferArabic,
+                    subtitle.seasonNumber, subtitle.episodeNumber
+                )
             } else {
                 val ext = detect(bytes, preferArabic)
                     ?: error("محتوى ملف الترجمة غير صالح: لا يحتوي على أسطر توقيت صالحة")
@@ -961,9 +961,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
     private suspend fun downloadOpenSubtitles(fileId: Long): Uri {
         require(fileId > 0)
         val dir = File(app.cacheDir, "online-subtitles").apply { mkdirs() }
-        dir.listFiles()?.firstOrNull {
-            it.name.startsWith("subtitle-$fileId.") && isValidCachedSubtitle(it)
-        }?.let { return Uri.fromFile(it) }
+        findReusableCachedSubtitle(dir, "subtitle-$fileId")?.let { return Uri.fromFile(it) }
         val (key, account) = credentials()
         suspend fun downloadLink(token: String): String {
             val body = JSONObject().put("file_id", fileId).toString().toRequestBody(JSON)
@@ -989,11 +987,13 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                 response.request.url.password.isNotEmpty()
             ) error("حوّل OpenSubtitles التنزيل إلى رابط غير آمن")
             if (!response.isSuccessful) error("تعذر تنزيل الترجمة (HTTP ${response.code})")
-            val bytes = response.body?.byteStream()?.use(::readBounded) ?: error("ملف الترجمة فارغ")
+            val rawBytes = response.body?.byteStream()?.use(::readBounded) ?: error("ملف الترجمة فارغ")
+            val bytes = unwrapGzipIfNeeded(rawBytes)
             require(bytes.isNotEmpty() && bytes.size <= MAX_BYTES) { "حجم ملف الترجمة غير صالح" }
             val target = if (bytes.isZip()) extract(bytes, dir, fileId) else {
-                val ext = detect(bytes) ?: error("صيغة ملف الترجمة غير مدعومة")
-                writeSubtitleAtomically(dir, "subtitle-$fileId.$ext", bytes)
+                val ext = detect(bytes) ?: error("محتوى ملف الترجمة غير صالح: لا يحتوي على أسطر توقيت صالحة")
+                val normalized = normalizeSubtitleForStorage(bytes, ext)
+                writeSubtitleAtomically(dir, "subtitle-$fileId.$ext", normalized)
             }
             require(target.length() in 1..MAX_BYTES.toLong())
             Uri.fromFile(target)
@@ -1006,10 +1006,15 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         id: Long,
         outputPrefix: String = "subtitle-$id",
         preferredFormat: String? = null,
-        preferArabicLegacy: Boolean = false
+        preferArabicLegacy: Boolean = false,
+        seasonNumber: Int? = null,
+        episodeNumber: Int? = null
     ): File {
-        var bestCandidate: Pair<String, ByteArray>? = null
+        var bestCandidate: Triple<String, ByteArray, Int>? = null
         var sawSupportedExtensionEntry = false
+        val episodeMatchRegex = if (seasonNumber != null && episodeNumber != null) {
+            Regex("(?i)(?:\\bs0*${seasonNumber}\\s*e0*${episodeNumber}\\b|\\b0*${seasonNumber}x0*${episodeNumber}\\b)")
+        } else null
         ZipInputStream(bytes.inputStream()).use { zip ->
             var entry = zip.nextEntry
             while (entry != null) {
@@ -1042,17 +1047,21 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                                     detectedExt,
                                     preferArabicLegacy
                                 )
+                                var score = 0
+                                if (episodeMatchRegex != null && episodeMatchRegex.containsMatchIn(entryName)) {
+                                    score += 100
+                                }
+                                if (preferredFormat != null && detectedExt.equals(preferredFormat, ignoreCase = true)) {
+                                    score += 20
+                                } else if (detectedExt == "srt") {
+                                    score += 10
+                                }
                                 val currentBest = bestCandidate
-                                val matchesPreferred = preferredFormat != null &&
-                                    detectedExt.equals(preferredFormat, ignoreCase = true)
-                                val currentMatchesPreferred = currentBest != null &&
-                                    preferredFormat != null &&
-                                    currentBest.first.equals(preferredFormat, ignoreCase = true)
                                 if (currentBest == null ||
-                                    (matchesPreferred && !currentMatchesPreferred) ||
-                                    (matchesPreferred == currentMatchesPreferred && normalizedPayload.size > currentBest.second.size)
+                                    score > currentBest.third ||
+                                    (score == currentBest.third && normalizedPayload.size > currentBest.second.size)
                                 ) {
-                                    bestCandidate = detectedExt to normalizedPayload
+                                    bestCandidate = Triple(detectedExt, normalizedPayload, score)
                                 }
                             }
                         }
@@ -1264,6 +1273,19 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
             output.write(buffer, 0, count)
         }
         return output.toByteArray()
+    }
+
+    private fun findReusableCachedSubtitle(dir: File, prefix: String): File? {
+        val candidates = dir.listFiles()?.filter { it.name.startsWith("$prefix.") }.orEmpty()
+        var valid: File? = null
+        for (file in candidates) {
+            if (valid == null && isValidCachedSubtitle(file)) {
+                valid = file
+            } else if (file.isFile) {
+                runCatching { file.delete() }
+            }
+        }
+        return valid
     }
 
     private fun isValidCachedSubtitle(file: File): Boolean {

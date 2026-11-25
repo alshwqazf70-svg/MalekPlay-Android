@@ -1,6 +1,8 @@
 package com.malekplay.network
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -105,5 +107,17 @@ class OnlineSubtitlePayloadValidationTest {
         val normalizedFromWin1252 = normalizeSubtitleForStorage(win1252Bytes, "srt", preferArabicLegacy = false)
         val decoded1252 = String(normalizedFromWin1252, 3, normalizedFromWin1252.size - 3, Charsets.UTF_8)
         assertTrue(decoded1252.contains("Café — résumé"))
+    }
+
+    @Test
+    fun `accepts srt timings without spaces around arrow and rejects html fragment`() {
+        val compactArrowSrt = "1\n00:00:01,000-->00:00:04,000\nمرحباً بكم\n".toByteArray(Charsets.UTF_8)
+        assertEquals("srt", detectSubtitleFormat(compactArrowSrt, preferArabicLegacy = true))
+        assertTrue(isValidSubtitlePayload(compactArrowSrt, "srt"))
+
+        val htmlHeadFragment = "<head><title>Just a moment...</title></head><body><!-- 00:00:01,000 --> 00:00:02,000 --></body>"
+            .toByteArray(Charsets.UTF_8)
+        assertNull(detectSubtitleFormat(htmlHeadFragment, preferArabicLegacy = true))
+        assertFalse(isValidSubtitlePayload(htmlHeadFragment, "srt"))
     }
 }

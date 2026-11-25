@@ -192,7 +192,8 @@ class SubtitleTranslationEngine @Inject constructor(
                 TranslatedSubtitleCache.pruneExpired(context.cacheDir)
                 val temporary = File.createTempFile("malekplay-ar-", ".part", context.cacheDir)
                 try {
-                    temporary.writeText(translated, StandardCharsets.UTF_8)
+                    val utf8Bom = byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte())
+                    temporary.writeBytes(utf8Bom + translated.toByteArray(StandardCharsets.UTF_8))
                     // Same-directory rename is atomic on the app filesystem. Do not
                     // delete an existing cache entry first: another playback job may
                     // have completed the identical translation concurrently.
@@ -253,7 +254,7 @@ class SubtitleTranslationEngine @Inject constructor(
             normalized.startsWith("WEBVTT", ignoreCase = true) -> "vtt"
             normalized.contains("[Events]", ignoreCase = true) &&
                 normalized.lineSequence().any { it.trimStart().startsWith("Dialogue:", ignoreCase = true) } -> "ass"
-            normalized.contains("-->") -> "srt"
+            normalized.lineSequence().any { SrtSubtitleParser.timingLineIndex(listOf(it)) == 0 } -> "srt"
             else -> null
         }
     }
