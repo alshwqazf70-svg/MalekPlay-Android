@@ -12,14 +12,9 @@ import java.util.concurrent.TimeUnit
  * Direct SubF2M HTML provider. The site has no public JSON API, so parsing is deliberately
  * bounded and accepts only the site's known page paths and supported subtitle rows.
  */
-internal class Subf2mSubtitleProvider {
-    private val client = OkHttpClient.Builder()
-        .followRedirects(false)
-        .followSslRedirects(false)
-        .connectTimeout(12, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
-        .callTimeout(35, TimeUnit.SECONDS)
-        .build()
+internal class Subf2mSubtitleProvider(
+    private val client: OkHttpClient = defaultClient()
+) {
 
     fun search(
         title: String,
@@ -339,6 +334,13 @@ internal class Subf2mSubtitleProvider {
 
     companion object {
         const val PROVIDER = "subf2m"
+        private fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
+            .followRedirects(false)
+            .followSslRedirects(false)
+            .connectTimeout(12, TimeUnit.SECONDS)
+            .readTimeout(20, TimeUnit.SECONDS)
+            .callTimeout(35, TimeUnit.SECONDS)
+            .build()
         private const val HOST = "subf2m.co"
         private const val CDN_HOST = "isubcdn.com"
         private const val BASE = "https://subf2m.co"

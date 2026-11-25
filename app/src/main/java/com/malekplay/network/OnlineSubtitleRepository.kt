@@ -79,22 +79,16 @@ internal fun subtitleCacheToken(sourceId: String): String {
     }
 }
 
-private val INVISIBLE_BIDI_MARKS_REGEX = Regex("""[\u200E\u200F\u202A-\u202E\u2066-\u2069\uFEFF\u00A0]""")
-private val SUBTITLE_TIMESTAMP_REGEX = Regex(
-    """^(?:\d{1,3}:)?\d{1,2}:\d{2}(?:[,.]\d{1,4}|:\d{2})?\s*-->\s*(?:\d{1,3}:)?\d{1,2}:\d{2}(?:[,.]\d{1,4}|:\d{2})?(?:\s+.*)?$"""
-)
 private val MICRODVD_LINE_REGEX = Regex("""^\s*\{(\d+)\}\{(\d+)\}(.+)$""")
 private val SUBVIEWER_TIMING_REGEX = Regex("""^\s*(\d{1,2}:\d{2}:\d{2}[.,]\d{2}),(\d{1,2}:\d{2}:\d{2}[.,]\d{2})\s*$""")
 
 private val UTF8_BOM = byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte())
 
 private fun cleanTimestampLine(line: String): String =
-    INVISIBLE_BIDI_MARKS_REGEX.replace(line, " ").trim()
+    SrtSubtitleParser.cleanTimingLine(line)
 
 private fun hasSubtitleTimestampLine(text: String): Boolean =
-    text.lineSequence().any { line ->
-        line.contains("-->") && SUBTITLE_TIMESTAMP_REGEX.matches(cleanTimestampLine(line))
-    }
+    SrtSubtitleParser.hasTimingLine(text)
 
 private fun isAssDialogueText(text: String): Boolean =
     text.contains("[Events]", ignoreCase = true) &&
@@ -269,9 +263,8 @@ internal fun normalizeSubtitleForStorage(
         convertLegacySubToSrtIfApplicable(decoded) ?: decoded
     } else decoded
     val normalized = converted.lines().joinToString("\n") { line ->
-        if (line.contains("-->")) {
-            val cleaned = cleanTimestampLine(line)
-            if (SUBTITLE_TIMESTAMP_REGEX.matches(cleaned)) cleaned else line
+        if (SrtSubtitleParser.isTimingLine(line)) {
+            cleanTimestampLine(line)
         } else {
             line
         }
@@ -384,20 +377,52 @@ internal fun isValidSubtitlePayload(
     return if (extension == "ssa") detected == "ass" else detected == extension
 }
 
-class OnlineSubtitleRepository(context: Context, private val vault: NetworkCredentialVault) {
+/**
+ * Extracts timestamped cue lines for preview; blocks lacking a valid timing line
+ * (such as headers, notes, or stray text) are strictly excluded.
+ */
+internal fun extractPreviewLines(
+    bytes: ByteArray,
+    extension: String,
+    maxCues: Int = 5,
+    preferArabicLegacy: Boolean = false
+): List<String> {
+    val decoded = decodeSubtitleBytes(bytes, preferArabicLegacy)
+    val blocks = SrtSubtitleParser.splitBlocks(decoded, extension)
+    val markup = Regex("""<[^>]+>|\{\\[^}]*}""")
+    return blocks.asSequence()
+        .mapNotNull { block ->
+            val lines = block.lines().map { it.trim() }.filter { it.isNotEmpty() }
+            val timingIdx = SrtSubtitleParser.timingLineIndex(lines)
+            if (timingIdx < 0) return@mapNotNull null
+            val timing = SrtSubtitleParser.cleanTimingLine(lines[timingIdx])
+                .substringBefore("-->")
+                .trim()
+            val text = lines.drop(timingIdx + 1)
+                .joinToString(" ") { markup.replace(it, "").trim() }
+                .trim()
+            if (text.isBlank()) null else "[$timing] $text"
+        }
+        .take(maxCues.coerceIn(1, 12))
+        .toList()
+}
+
+class OnlineSubtitleRepository internal constructor(
+    context: Context,
+    private val vault: NetworkCredentialVault,
+    private val client: OkHttpClient,
+    private val subf2mProvider: Subf2mSubtitleProvider
+) {
+    constructor(context: Context, vault: NetworkCredentialVault) : this(
+        context = context,
+        vault = vault,
+        client = defaultHttpClient(),
+        subf2mProvider = Subf2mSubtitleProvider()
+    )
+
     private val app = context.applicationContext
-    private val client = OkHttpClient.Builder()
-        // Provider API calls carry API keys/tokens; never follow redirects that
-        // could forward custom credential headers to another origin.
-        .followRedirects(false)
-        .followSslRedirects(false)
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .callTimeout(45, TimeUnit.SECONDS)
-        .build()
     // Download redirects are followed manually so every hop is checked before
     // connecting and credentials are never forwarded to a different host.
-    private val subf2mProvider = Subf2mSubtitleProvider()
     private val tvMazeEpisodeGuideProvider = TvMazeEpisodeGuideProvider()
     private val downloadClient = client.newBuilder()
         .followRedirects(false)
@@ -454,24 +479,17 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
             val uri = download(subtitle)
             val path = uri.path ?: error("تعذر الوصول إلى ملف المعاينة")
             val file = File(path)
-            val decoded = SrtSubtitleParser.decode(file.readBytes())
-            val blocks = SrtSubtitleParser.splitBlocks(decoded, file.extension)
-            val markup = Regex("""<[^>]+>|\{\\[^}]*}""")
-            blocks.asSequence()
-                .mapNotNull { block ->
-                    val lines = block.lines().map { it.trim() }.filter { it.isNotEmpty() }
-                    val timingIdx = SrtSubtitleParser.timingLineIndex(lines)
-                    val timing = if (timingIdx >= 0) lines[timingIdx].substringBefore("-->").trim() else null
-                    val bodyStart = if (timingIdx >= 0) timingIdx + 1 else 0
-                    val text = lines.drop(bodyStart)
-                        .joinToString(" ") { markup.replace(it, "").trim() }
-                        .trim()
-                    if (text.isBlank()) null
-                    else if (timing != null) "[$timing] $text"
-                    else text
-                }
-                .take(maxCues.coerceIn(1, 12))
-                .toList()
+            val preferArabic = subtitle.language.equals("ar", ignoreCase = true)
+            val lines = extractPreviewLines(
+                bytes = file.readBytes(),
+                extension = file.extension,
+                maxCues = maxCues,
+                preferArabicLegacy = preferArabic
+            )
+            if (lines.isEmpty()) {
+                error("تعذرت معاينة الترجمة: الملف لا يحتوي على مقاطع حوار بتوقيت صالح")
+            }
+            lines
         }
 
     /**
@@ -1116,7 +1134,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         }
     }
 
-    private fun extract(
+    internal fun extract(
         bytes: ByteArray,
         dir: File,
         id: Long,
@@ -1171,6 +1189,20 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                                     var score = 0
                                     if (episodeMatchRegex != null && episodeMatchRegex.containsMatchIn(entryName)) {
                                         score += 100
+                                    }
+                                    val decodedSample = runCatching {
+                                        String(normalizedPayload, 0, minOf(normalizedPayload.size, 8192), Charsets.UTF_8)
+                                    }.getOrDefault("")
+                                    val arabicCharCount = decodedSample.count { it in '\u0600'..'\u06FF' }
+                                    val lowerName = entryName.lowercase(Locale.ROOT)
+                                    val looksArabicName = Regex("""(?:^|[._\-\s/])(?:ar|ara|arabic)(?:[._\-\s/]|$)|عرب""").containsMatchIn(lowerName)
+                                    val looksEnglishName = Regex("""(?:^|[._\-\s/])(?:en|eng|english)(?:[._\-\s/]|$)""").containsMatchIn(lowerName)
+                                    if (preferArabicLegacy) {
+                                        if (looksArabicName || arabicCharCount >= 8) score += 50
+                                        else if (looksEnglishName) score -= 20
+                                    } else {
+                                        if (looksEnglishName || (arabicCharCount == 0 && !looksArabicName)) score += 30
+                                        else if (looksArabicName || arabicCharCount >= 8) score -= 20
                                     }
                                     if (preferredFormat != null && detectedExt.equals(preferredFormat, ignoreCase = true)) {
                                         score += 20
@@ -1466,6 +1498,16 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         detectSubtitleFormat(bytes, preferArabicLegacy)
 
     private companion object {
+        fun defaultHttpClient(): OkHttpClient = OkHttpClient.Builder()
+            // Provider API calls carry API keys/tokens; never follow redirects that
+            // could forward custom credential headers to another origin.
+            .followRedirects(false)
+            .followSslRedirects(false)
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .callTimeout(45, TimeUnit.SECONDS)
+            .build()
+
         const val BASE = "https://api.opensubtitles.com/api/v1"
         const val PUBLIC_HOST = "subtitles.website"
         const val PUBLIC_BASE = "https://subtitles.website/strapi"

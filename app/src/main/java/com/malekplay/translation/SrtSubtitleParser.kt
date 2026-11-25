@@ -7,12 +7,21 @@ import java.nio.charset.StandardCharsets
 
 /** Small, deterministic SRT parser helpers kept independent from ML Kit for unit testing. */
 internal object SrtSubtitleParser {
-    private val timingPattern = Regex("""^\s*(?:\d{1,}:)?\d{1,2}:\d{2}(?:[,.]\d{1,4}|:\d{2})?\s*-->\s*(?:\d{1,}:)?\d{1,2}:\d{2}(?:[,.]\d{1,4}|:\d{2})?(?:\s+.*)?\s*$""")
+    private val timingPattern = Regex("""^\s*(?:\d{1,3}:)?\d{1,2}:\d{2}(?:[,.]\d{1,4}|:\d{2})?\s*-->\s*(?:\d{1,3}:)?\d{1,2}:\d{2}(?:[,.]\d{1,4}|:\d{2})?(?:\s+.*)?\s*$""")
     private val invisibleDirectionMarks = Regex("""[\u200E\u200F\u202A-\u202E\u2066-\u2069\uFEFF\u00A0]""")
     private val vttTimestampPattern = Regex("""((?:\d{1,}:)?\d{2}:\d{2})\.(\d{3})""")
     private val markupPattern = Regex("""<[^>]+>""")
     private val assOverridePattern = Regex("""\{\\[^}]*}""")
     private val assTimestampPattern = Regex("""^(\d+):(\d{2}):(\d{2})[.](\d{1,2})$""")
+
+    fun cleanTimingLine(line: String): String =
+        invisibleDirectionMarks.replace(line, " ").trim()
+
+    fun isTimingLine(line: String): Boolean =
+        line.contains("-->") && timingPattern.matches(cleanTimingLine(line))
+
+    fun hasTimingLine(text: String): Boolean =
+        text.lineSequence().any(::isTimingLine)
 
     fun decode(bytes: ByteArray): String {
         require(bytes.isNotEmpty()) { "ملف الترجمة فارغ" }
@@ -75,14 +84,13 @@ internal object SrtSubtitleParser {
     /** Detects a clear content signature before trusting a provider's filename or MIME hint. */
     fun detectFormat(text: String): String? {
         val normalized = text.removePrefix("\uFEFF").trimStart()
-        if (normalized.startsWith("WEBVTT", ignoreCase = true)) return "vtt"
         if (normalized.contains("[Events]", ignoreCase = true) &&
             normalized.lineSequence().any { it.trimStart().startsWith("Dialogue:", ignoreCase = true) }
         ) return "ass"
-        val hasArrow = normalized.contains("-->")
-        if (!hasArrow) return null
-        val vttTiming = Regex("""(?m)^\s*(?:\d{1,2}:)?\d{1,2}:\d{2}\.\d{3}\s+-->""")
-        return if (vttTiming.containsMatchIn(normalized)) "vtt" else "srt"
+        if (!hasTimingLine(normalized)) return null
+        if (normalized.startsWith("WEBVTT", ignoreCase = true)) return "vtt"
+        val vttDotTiming = Regex("""(?m)^\s*(?:\d{1,2}:)?\d{1,2}:\d{2}\.\d{3}\s*-->""")
+        return if (vttDotTiming.containsMatchIn(normalized)) "vtt" else "srt"
     }
 
     fun splitBlocks(text: String, formatHint: String? = null): List<String> {
@@ -122,7 +130,7 @@ internal object SrtSubtitleParser {
             }.toList()
 
             val timingIndices = normalizedLines.indices.filter { idx ->
-                timingPattern.matches(invisibleDirectionMarks.replace(normalizedLines[idx], " ").trim())
+                isTimingLine(normalizedLines[idx])
             }
             if (timingIndices.size <= 1) {
                 resultBlocks += normalizedLines.joinToString("\n")
@@ -232,10 +240,7 @@ internal object SrtSubtitleParser {
     }
 
     fun timingLineIndex(lines: List<String>): Int =
-        lines.indexOfFirst { line ->
-            val cleaned = invisibleDirectionMarks.replace(line, " ").trim()
-            timingPattern.matches(cleaned)
-        }
+        lines.indexOfFirst(::isTimingLine)
 
     fun maskMarkup(text: String): Pair<String, List<String>> {
         val tags = mutableListOf<String>()
