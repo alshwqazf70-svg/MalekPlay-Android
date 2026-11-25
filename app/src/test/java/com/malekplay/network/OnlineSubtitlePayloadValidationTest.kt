@@ -63,4 +63,47 @@ class OnlineSubtitlePayloadValidationTest {
         assertTrue(isValidSubtitlePayload(text.toByteArray(Charsets.UTF_16LE), "srt"))
         assertTrue(isValidSubtitlePayload(text.toByteArray(Charsets.UTF_16BE), "srt"))
     }
+
+    @Test
+    fun rejectsCloudflareHtmlEvenWhenContainingHtmlCommentsAndDetectsContentType() {
+        val cloudflareHtml = "<!DOCTYPE html><html><!-- comment --><body>Just a moment...</body></html>"
+            .toByteArray(Charsets.UTF_8)
+        assertFalse(isValidSubtitlePayload(cloudflareHtml, "srt"))
+        assertTrue(detectSubtitleFormat(cloudflareHtml) == null)
+        assertTrue(isHtmlOrCloudflarePayload(cloudflareHtml, "text/html; charset=utf-8"))
+
+        val error = runCatching {
+            validateSubtitleDownloadResponse("text/html; charset=utf-8", cloudflareHtml, "SubDL")
+        }.exceptionOrNull()
+        assertTrue(error?.message?.contains("Cloudflare") == true)
+
+        // Valid SubRip / text/plain / ZIP responses should pass response validation.
+        val validSrt = "1\n00:00:01,000 --> 00:00:04,000\nHello".toByteArray(Charsets.UTF_8)
+        validateSubtitleDownloadResponse("application/x-subrip", validSrt, "SubDL")
+        validateSubtitleDownloadResponse("text/plain; charset=utf-8", validSrt, "SubDL")
+    }
+
+    @Test
+    fun normalizesUtf16AndWindows1252ToUtf8WithBomForPlayback() {
+        val rawText = "1\r\n00:00:01,000 --> 00:00:04,000\r\nCafé — مرحبا"
+        val utf16LeWithBom = byteArrayOf(0xFF.toByte(), 0xFE.toByte()) +
+            rawText.toByteArray(Charsets.UTF_16LE)
+        val normalizedFromUtf16 = normalizeSubtitleForStorage(utf16LeWithBom, "srt")
+        assertTrue(
+            normalizedFromUtf16.size > 3 &&
+                normalizedFromUtf16[0] == 0xEF.toByte() &&
+                normalizedFromUtf16[1] == 0xBB.toByte() &&
+                normalizedFromUtf16[2] == 0xBF.toByte()
+        )
+        assertTrue(isValidSubtitlePayload(normalizedFromUtf16, "srt"))
+        val decoded = String(normalizedFromUtf16, 3, normalizedFromUtf16.size - 3, Charsets.UTF_8)
+        assertTrue(decoded.contains("00:00:01,000 --> 00:00:04,000"))
+        assertTrue(decoded.contains("Café — مرحبا"))
+
+        val win1252Text = "1\n00:00:01,000 --> 00:00:04,000\nCafé — résumé"
+        val win1252Bytes = win1252Text.toByteArray(java.nio.charset.Charset.forName("windows-1252"))
+        val normalizedFromWin1252 = normalizeSubtitleForStorage(win1252Bytes, "srt", preferArabicLegacy = false)
+        val decoded1252 = String(normalizedFromWin1252, 3, normalizedFromWin1252.size - 3, Charsets.UTF_8)
+        assertTrue(decoded1252.contains("Café — résumé"))
+    }
 }
