@@ -103,7 +103,7 @@ private class VideoEnhancementPipelineProgram(
         // strictly isolate each pass so detail never runs pre-upscale or denoise post-upscale.
         val standaloneAiOnly = settings.aiBoostEnabled && !settings.denoiseEnabled && !settings.detailEnabled
         val runDenoise = !settings.bypassed && (settings.denoiseEnabled || standaloneAiOnly)
-        val runDetail = !settings.bypassed && (settings.detailEnabled || standaloneAiOnly || settings.vibranceStrength > 0f)
+        val runDetail = !settings.bypassed && (settings.detailEnabled || standaloneAiOnly)
         val vibrance = if (settings.bypassed) 0f else settings.vibranceStrength
         try {
             program.use()

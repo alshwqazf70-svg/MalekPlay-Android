@@ -82,16 +82,16 @@ fun VideoEnhancementSheet(
 ) {
     val anyEnabled = upscalingEnabled || noiseReductionEnabled || vibranceEnabled || smartAiEnabled
     var showFineTuning by remember(customMode) { mutableStateOf(customMode) }
-    var detailDraft by remember(diagnostics.detailStrength) {
+    var detailDraft by remember(customMode, requestedProfile, anyEnabled) {
         mutableFloatStateOf(diagnostics.detailStrength.coerceIn(0f, 1.20f))
     }
-    var denoiseDraft by remember(diagnostics.denoiseStrength) {
+    var denoiseDraft by remember(customMode, requestedProfile, anyEnabled) {
         mutableFloatStateOf(diagnostics.denoiseStrength.coerceIn(0f, 0.60f))
     }
-    var contrastDraft by remember(diagnostics.contrastBoost) {
+    var contrastDraft by remember(customMode, requestedProfile, anyEnabled) {
         mutableFloatStateOf(diagnostics.contrastBoost.coerceIn(0f, 0.22f))
     }
-    var vibranceDraft by remember(diagnostics.vibranceStrength) {
+    var vibranceDraft by remember(customMode, requestedProfile, anyEnabled) {
         mutableFloatStateOf(diagnostics.vibranceStrength.coerceIn(0f, 0.35f))
     }
 

@@ -751,6 +751,11 @@ fun VideoPlayerScreen(
 
     LaunchedEffect(currentVideoId, controller, settings.rememberVideoEnhancement) {
         if (controller != null && settings.rememberVideoEnhancement) {
+            val alreadyConfiguredOnPlayer = videoUpscalingEnabled ||
+                videoNoiseReductionEnabled ||
+                videoVibranceEnabled ||
+                googleAiEnabled
+            if (alreadyConfiguredOnPlayer) return@LaunchedEffect
             if (settings.videoEnhancementSmartAi) {
                 googleAiRequestVersion++
                 googleAiEnabled = true

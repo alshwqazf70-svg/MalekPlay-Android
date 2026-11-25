@@ -759,7 +759,13 @@ class PlaybackService : MediaSessionService() {
         customDetailStrength = detailStrength.coerceIn(0f, 1.20f)
         customContrastBoost = contrastBoost.coerceIn(0f, 0.22f)
         customVibranceStrength = vibranceStrength.coerceIn(0f, 0.35f)
-        if (!hasAnyVideoEnhancementEnabled()) {
+        if (customMode) {
+            videoNoiseReductionEnabled = customDenoiseStrength > 0.01f
+            videoVibranceEnabled = customVibranceStrength > 0.005f
+            if (customDetailStrength > 0.01f || customContrastBoost > 0.005f) {
+                videoUpscalingEnabled = true
+            }
+        } else if (!hasAnyVideoEnhancementEnabled()) {
             videoUpscalingEnabled = true
             videoNoiseReductionEnabled = customDenoiseStrength > 0.01f
             videoVibranceEnabled = customVibranceStrength > 0.005f
@@ -892,11 +898,13 @@ class PlaybackService : MediaSessionService() {
                 bypassed = videoEnhancementBypassed
             )
         )
+        val detailStageActive = videoUpscalingEnabled ||
+            (videoCustomTuning && (customDetailStrength > 0.01f || customContrastBoost > 0.005f))
         videoEnhancementPipeline?.update(
             VideoEnhancementPipelineConfig(
                 denoiseEnabled = false,
-                detailEnabled = videoUpscalingEnabled || videoNoiseReductionEnabled || videoVibranceEnabled,
-                aiBoostEnabled = videoAiBoostEnabled,
+                detailEnabled = detailStageActive,
+                aiBoostEnabled = videoAiBoostEnabled && detailStageActive,
                 detailStrength = activeDetailStrength,
                 contrastBoost = activeContrastBoost,
                 clarityStrength = activeClarityStrength,
@@ -993,6 +1001,10 @@ class PlaybackService : MediaSessionService() {
             videoSize.height,
             videoUpscalingEnabled,
             videoNoiseReductionEnabled,
+            videoVibranceEnabled,
+            videoAiBoostEnabled,
+            videoCustomTuning,
+            videoEnhancementBypassed,
             profile.wireValue,
             tuning.downgradeReason.orEmpty(),
             lanczosTarget?.longEdge ?: 0,
