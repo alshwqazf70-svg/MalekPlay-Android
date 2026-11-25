@@ -147,7 +147,7 @@ fun UltraShareExperienceScreen(
     fun handleQr(raw: String) {
         runCatching { UltraShareQrCode.parsePayload(raw) }
             .onSuccess { pairing ->
-                if (state.requestingConnection) {
+                if (state.requestingConnection || pendingQrPairing != null) {
                     viewModel.cancelPendingPairingAttempt()
                 }
                 host = pairing.host
@@ -237,7 +237,7 @@ fun UltraShareExperienceScreen(
                         )
                     }
                 }.onSuccess { pairing ->
-                    if (state.requestingConnection) {
+                    if (state.requestingConnection || pendingQrPairing != null) {
                         viewModel.cancelPendingPairingAttempt()
                     }
                     host = pairing.host
@@ -245,6 +245,7 @@ fun UltraShareExperienceScreen(
                     qrAutoSendArmed = selectedUris.isNotEmpty()
                     pendingQrPairing = pairing
                     page = UltraSharePage.SEND
+                    Toast.makeText(context, "تمت قراءة الدعوة؛ جارٍ الاقتران التلقائي الفوري...", Toast.LENGTH_SHORT).show()
                 }.onFailure {
                     Toast.makeText(context, "تعذر قراءة رمز QR من الصورة.", Toast.LENGTH_LONG).show()
                 }
@@ -297,6 +298,8 @@ fun UltraShareExperienceScreen(
             pendingQrPairing = null
             pendingInvitationAdvertisement = false
             if (pairing != null) {
+                val hasWifiCredentials = !pairing.hotspotSsid.isNullOrBlank() &&
+                    !pairing.hotspotPassword.isNullOrBlank()
                 val lanFallbacks = UltraShareNetworkRouting.findNonP2pLanFallbackHosts(context, pairing.hosts)
                     .ifEmpty {
                         pairing.hosts.filter {
@@ -305,7 +308,17 @@ fun UltraShareExperienceScreen(
                                 !UltraShareNetworkRouting.isLocalAddress(context, it)
                         }
                     }
-                if (lanFallbacks.isNotEmpty()) {
+                val preferHotspotDirect = hasWifiCredentials &&
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+                    (UltraShareNetworkRouting.hasCaptivePortalWifi(context) || lanFallbacks.isEmpty())
+                if (preferHotspotDirect) {
+                    Toast.makeText(
+                        context,
+                        "لم يُمنح إذن Wi-Fi Direct؛ سيتم الانضمام مباشرةً عبر شبكة MalekPlay.",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    viewModel.connectHotspotInvitation(pairing, allowWifiDirectFallback = false)
+                } else if (lanFallbacks.isNotEmpty()) {
                     Toast.makeText(
                         context,
                         "لم يُمنح إذن Wi-Fi Direct؛ سيتم الاتصال تلقائياً عبر الشبكة المحلية (LAN).",
@@ -315,9 +328,16 @@ fun UltraShareExperienceScreen(
                         lanFallbacks.first(),
                         pairing.pairingSecret,
                         alternateHosts = lanFallbacks.drop(1),
-                        port = pairing.port
+                        port = pairing.port,
+                        onConnectionFailed = { rejected, _ ->
+                            if (!rejected && hasWifiCredentials && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                viewModel.connectHotspotInvitation(pairing, allowWifiDirectFallback = false)
+                            }
+                        }
                     )
-                } else if (!pairing.hotspotSsid.isNullOrBlank()) {
+                } else if (hasWifiCredentials && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    viewModel.connectHotspotInvitation(pairing, allowWifiDirectFallback = false)
+                } else if (hasWifiCredentials) {
                     Toast.makeText(
                         context,
                         "يلزم إذن الأجهزة القريبة للانضمام تلقائياً إلى شبكة MalekPlayer. امنح الإذن ثم أعد مسح QR.",
@@ -571,13 +591,13 @@ fun UltraShareExperienceScreen(
 
         val hasWifiCredentials = !pairing.hotspotSsid.isNullOrBlank() &&
             !pairing.hotspotPassword.isNullOrBlank()
-        // Wi-Fi Direct discovery requires the runtime permission on API 23–32,
-        // even when a P2P room also carries SSID/PSK credentials for fallback.
-        // WifiNetworkSpecifier additionally requires the nearby-Wi-Fi permission
-        // on API 29+ when joining a hotspot invitation.
+        // Wi-Fi Direct discovery requires the runtime permission on API 23+,
+        // while legacy WifiManager.addNetwork needs it on API < 29.
+        // Android 10+ WifiNetworkSpecifier uses a system consent sheet and does
+        // not require NEARBY_WIFI_DEVICES when joining a hotspot-only QR.
         val needsRuntimePermission =
             !pairing.invitationId.isNullOrBlank() ||
-                (hasWifiCredentials && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
+                (hasWifiCredentials && Build.VERSION.SDK_INT < Build.VERSION_CODES.Q)
         if (needsRuntimePermission) {
             val required = UltraSharePlatformCompatibility.wifiDirectRuntimePermissions(Build.VERSION.SDK_INT)
             val missing = required.filter {
@@ -626,93 +646,9 @@ fun UltraShareExperienceScreen(
         }
     }
 
-    val currentWifiDirectFallbackHosts = remember(context, state.localAddresses) {
-        UltraShareNetworkRouting.nonP2pLocalIpv4Addresses(context, state.localAddresses)
-    }
-    val wifiDirectFallbackHosts = viewModel.stableWifiDirectQrHosts(
-        state.invitationId, currentWifiDirectFallbackHosts
-    )
-    val wifiDirectQrPayload = state.invitationId
-        .takeIf {
-            !state.hotspotSsid.isNullOrBlank() &&
-                !state.hotspotPassword.isNullOrBlank() &&
-                com.malekplay.network.UltraSharePairingReadiness.canShowWifiDirectQr(
-                    receiving = state.receiving,
-                    controlChannelReady = state.controlChannelReady,
-                    dataChannelReady = state.dataChannelReady,
-                    activePeerCount = state.activePeers.size,
-                    pairingSecret = state.pairingSecret,
-                    invitationId = state.invitationId
-                )
-        }
-        ?.let {
-            // v5 advertises the P2P group as a normal WPA2 SoftAP as well as
-            // any live WLAN routes, so Android 6–16 can join without DNS-SD.
-            val hosts = (
-                wifiDirectFallbackHosts + listOfNotNull(state.wifiDirectLocalAddress)
-                ).distinct().take(8)
-            hosts.takeIf { it.isNotEmpty() }?.let { safeHosts ->
-                UltraShareQrCode.createUnifiedReceiverPayload(
-                    hosts = safeHosts,
-                    pairingSecret = state.pairingSecret,
-                    ssid = state.hotspotSsid,
-                    wifiPassword = state.hotspotPassword,
-                    invitationId = it,
-                    wifiSecurity = state.hotspotSecurity
-                )
-            }
-        }
-    val hotspotQrPayload = state.localAddresses
-        // Hotspot QR is published only after both listeners and hotspot credentials are ready.
-        .takeIf {
-            com.malekplay.network.UltraSharePairingReadiness.canShowHotspotQr(
-                receiving = state.receiving,
-                controlChannelReady = state.controlChannelReady,
-                dataChannelReady = state.dataChannelReady,
-                hotspotActive = state.hotspotActive,
-                activePeerCount = state.activePeers.size,
-                pairingSecret = state.pairingSecret,
-                hotspotSsid = state.hotspotSsid,
-                hotspotPassword = state.hotspotPassword,
-                localAddresses = it
-            )
-        }
-        ?.let {
-            UltraShareQrCode.createUnifiedReceiverPayload(
-                hosts = it,
-                pairingSecret = state.pairingSecret,
-                ssid = state.hotspotSsid,
-                wifiPassword = state.hotspotPassword,
-                invitationId = state.invitationId.takeIf { id -> id.isNotBlank() },
-                wifiSecurity = state.hotspotSecurity
-            )
-        }
-    val liveLanFallbackHosts = remember(context, state.localAddresses) {
-        UltraShareNetworkRouting.nonP2pLocalIpv4Addresses(context, state.localAddresses)
-    }
-    val lanQrPayload = liveLanFallbackHosts
-        .takeIf {
-            com.malekplay.network.UltraSharePairingReadiness.canShowLanQr(
-                receiving = state.receiving,
-                controlChannelReady = state.controlChannelReady,
-                dataChannelReady = state.dataChannelReady,
-                lanFallbackReady = state.lanFallbackReady,
-                activePeerCount = state.activePeers.size,
-                pairingSecret = state.pairingSecret,
-                localAddresses = it
-            )
-        }
-        ?.let { UltraShareQrCode.createReceiverPayload(it, state.pairingSecret) }
-    val candidateQrPayload = wifiDirectQrPayload ?: hotspotQrPayload ?: lanQrPayload
-    LaunchedEffect(candidateQrPayload, state.receiverQrPayload) {
-        if (!candidateQrPayload.isNullOrBlank() &&
-            candidateQrPayload != state.receiverQrPayload
-        ) {
-            viewModel.latchReceiverQrPayload(candidateQrPayload)
-        }
-    }
-    // Keep the room invitation visible after the first peer joins so more
-    // devices can join the same group using the same one-session secret.
+    // UltraShareViewModel is the single source of truth for receiverQrPayload:
+    // it withholds P2P QR codes until DNS-SD advertisement succeeds and keeps v6
+    // mode/host priority consistent across Wi-Fi Direct, Hotspot, and LAN fallbacks.
     val qrPayload = state.receiverQrPayload.takeIf { state.receiving }
     val qrBitmap = remember(qrPayload) {
         qrPayload?.let { runCatching { UltraShareQrCode.createBitmap(it) }.getOrNull() }

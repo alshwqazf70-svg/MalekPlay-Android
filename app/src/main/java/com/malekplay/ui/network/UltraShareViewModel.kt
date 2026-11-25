@@ -1598,6 +1598,19 @@ private fun forgetApprovedSenderTarget(host: String) {
         pairing: com.malekplay.network.UltraShareQrCode.PairingDetails,
         allowWifiDirectFallback: Boolean = true
     ) {
+        if (hotspotNetworkCallback != null && !hotspotNetworkPaired &&
+            UltraShareForegroundService.approvedSendTargets().isEmpty()
+        ) {
+            val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE)
+                as? android.net.ConnectivityManager
+            hotspotNetworkCallback?.let { old -> runCatching { connectivity?.unregisterNetworkCallback(old) } }
+            if (retainedHotspotNetworkCallback === hotspotNetworkCallback) {
+                retainedHotspotNetworkCallback = null
+                retainedHotspotNetworkPaired = false
+            }
+            hotspotNetworkCallback = null
+            hotspotNetworkPaired = false
+        }
         if (hotspotNetworkCallback != null || controlPairingInProgress || pendingQrPairing != null) {
             _state.value = _state.value.copy(
                 error = "هناك محاولة اقتران أو جلسة شبكة قائمة بالفعل. أنهِ الجلسة الحالية قبل مسح رمز آخر."
@@ -1762,13 +1775,30 @@ private fun forgetApprovedSenderTarget(host: String) {
                     viewModel.hotspotNetworkCallback = null
                     viewModel.hotspotNetworkPaired = false
                     val message = "لم يكتمل الانضمام إلى شبكة MalekPlay. وافق على طلب Wi-Fi الذي عرضه Android وأبقِ نقطة الاتصال مفتوحة."
-                    if (!allowWifiDirectFallback ||
-                        !viewModel.fallbackToWifiDirectInvitation(pairing, message)
-                    ) {
-                        viewModel._state.value = viewModel._state.value.copy(
-                            requestingConnection = false,
-                            error = message
+                    val switchedToP2p = allowWifiDirectFallback &&
+                        viewModel.fallbackToWifiDirectInvitation(pairing, message)
+                    if (!switchedToP2p) {
+                        val lanFallbacks = viewModel.resolveLanFallbackCandidates(
+                            (pairing.hosts + pairing.host).distinct()
                         )
+                        if (lanFallbacks.isNotEmpty() && !UltraShareNetworkRouting.hasCaptivePortalWifi(viewModel.context)) {
+                            viewModel._state.value = viewModel._state.value.copy(
+                                requestingConnection = true,
+                                error = null,
+                                status = "تعذر الانضمام التلقائي لنقطة الاتصال؛ جارٍ محاولة الاتصال عبر الشبكة المحلية (LAN)..."
+                            )
+                            viewModel.requestConnection(
+                                host = lanFallbacks.first(),
+                                secret = pairing.pairingSecret,
+                                alternateHosts = lanFallbacks.drop(1),
+                                port = pairing.port
+                            )
+                        } else {
+                            viewModel._state.value = viewModel._state.value.copy(
+                                requestingConnection = false,
+                                error = message
+                            )
+                        }
                     }
                 }
                 runCatching { connectivity.unregisterNetworkCallback(this) }
@@ -1970,6 +2000,9 @@ private fun forgetApprovedSenderTarget(host: String) {
                         wifiDirectGroupSecurity = "wpa2"
                         wifiDirectCredentialsFromJoinedInvitation = false
                         UltraShareDiagnostics.event("PAIRING", "P2P_INVITATION_ROLE_REVERSED")
+                        // Prevent serviceState.collect from starting another createGroup()
+                        // on top of this already-reversed group-owner role.
+                        wifiDirectPrimaryAttempt = true
                         pendingQrPairing = null
                         qrP2pConnectStarted = false
                         val localGroupOwnerAddress = remoteHost
@@ -2031,7 +2064,18 @@ private fun forgetApprovedSenderTarget(host: String) {
                         requestConnection(
                             host = remoteHost,
                             secret = pending.secret,
-                            alternateHosts = safeFallbacks
+                            alternateHosts = safeFallbacks,
+                            onConnectionFailed = { rejected, failReason ->
+                                if (!rejected) {
+                                    fallbackAfterWifiDirectScanFailure(
+                                        secret = pending.secret,
+                                        hosts = pending.hosts,
+                                        pairing = pending.details,
+                                        invitationId = pending.details?.invitationId.orEmpty(),
+                                        reason = failReason ?: "p2p_control_connect_failed"
+                                    )
+                                }
+                            }
                         )
                     } else if (serviceState.receiving &&
                         UltraShareCore.isValidPairingSecret(serviceState.pairingSecret)
@@ -2325,7 +2369,7 @@ private fun forgetApprovedSenderTarget(host: String) {
             .distinct()
             .take(8)
         val hosts = candidateHosts
-        if (hosts.isEmpty()) {
+        if (hosts.isEmpty() && invitationId == null) {
             UltraShareDiagnostics.event(
                 "PAIRING_QR", "QR_WITHHELD_NO_ACTIVE_ROUTE",
                 mapOf(
@@ -2335,12 +2379,6 @@ private fun forgetApprovedSenderTarget(host: String) {
                 )
             )
             return
-        }
-        if (hosts.size < candidateHosts.size) {
-            UltraShareDiagnostics.event(
-                "PAIRING_QR", "STALE_ROUTE_HINTS_EXCLUDED",
-                mapOf("candidateCount" to candidateHosts.size, "publishedCount" to hosts.size)
-            )
         }
         val payload = runCatching {
             UltraShareQrCode.createRoomPayload(
@@ -2356,7 +2394,8 @@ private fun forgetApprovedSenderTarget(host: String) {
                 },
                 ssid = ssid,
                 psk = password,
-                invitationId = invitationId
+                invitationId = invitationId,
+                wifiSecurity = if (ssid != null) wifiDirectGroupSecurity else "wpa2"
             )
         }.getOrElse { failure ->
             UltraShareDiagnostics.failure("ROOM_V6_QR_CREATE", failure)
