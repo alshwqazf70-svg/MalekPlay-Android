@@ -1602,6 +1602,7 @@ object UltraShareWifiDirect {
 
                     override fun onFailure(reason: Int) {
                         if (!callbackCompleted.compareAndSet(false, true)) return
+                        if (!isCurrentWifiDirectConnectionAttempt(closed, connectionInProgress, connectionAttemptToken, token)) return
                         connectionTimeout?.let(mainHandler::removeCallbacks)
                         connectionTimeout = null
                         UltraShareDiagnostics.event(
@@ -1634,7 +1635,9 @@ object UltraShareWifiDirect {
                     }
                 })
             } catch (failure: SecurityException) {
-                if (!callbackCompleted.compareAndSet(false, true)) return
+                if (!callbackCompleted.compareAndSet(false, true) ||
+                    !isCurrentWifiDirectConnectionAttempt(closed, connectionInProgress, connectionAttemptToken, token)
+                ) return
                 connectionInProgress = false
                 connectionTimeout?.let(mainHandler::removeCallbacks)
                 connectionTimeout = null
@@ -1643,7 +1646,9 @@ object UltraShareWifiDirect {
                 connectionAttemptToken++
                 reportError("يلزم إذن الأجهزة القريبة للاتصال عبر Wi-Fi Direct.")
             } catch (failure: RuntimeException) {
-                if (!callbackCompleted.compareAndSet(false, true)) return
+                if (!callbackCompleted.compareAndSet(false, true) ||
+                    !isCurrentWifiDirectConnectionAttempt(closed, connectionInProgress, connectionAttemptToken, token)
+                ) return
                 connectionInProgress = false
                 connectionTimeout?.let(mainHandler::removeCallbacks)
                 connectionTimeout = null
