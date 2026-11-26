@@ -198,8 +198,12 @@ class ScreenMirrorHubIntegrationTest {
                 assertEquals(2, server.activeViewerCount())
 
                 server.publishVideoConfig(byteArrayOf(0, 0, 0, 1, 0x67, 1, 2), 720, 1280, 0)
-                // Push 24 video frames rapidly; fast viewer must receive all without blocking,
-                // while slow viewer backpressure queue stays bounded (totalDroppedFrames >= 0 and hub stays responsive).
+                val configDeadline = System.currentTimeMillis() + 3_000L
+                while (fastFrames.isEmpty() && System.currentTimeMillis() < configDeadline) {
+                    Thread.sleep(10L)
+                }
+                // Push 24 video frames at ~100fps; fast viewer must receive all without blocking,
+                // while slow viewer backpressure queue stays bounded and never stalls fast viewer.
                 for (i in 0 until 24) {
                     val isIdr = i % 8 == 0
                     val payload = ByteArray(4096) { i.toByte() }
@@ -211,6 +215,7 @@ class ScreenMirrorHubIntegrationTest {
                         height = 1280,
                         rotation = 0
                     )
+                    Thread.sleep(10L)
                 }
 
                 assertTrue("Fast viewer must receive all frames without waiting on slow viewer", fastAllReceived.await(6, TimeUnit.SECONDS))

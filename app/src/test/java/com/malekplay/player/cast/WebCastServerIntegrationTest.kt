@@ -255,8 +255,6 @@ class WebCastServerIntegrationTest {
 
         // Production peer check strictly rejects loopback unless test opt-in is passed.
         listOf(
-            "127.0.0.1",
-            "::1",
             "8.8.8.8",
             "1.1.1.1",
             "2001:4860:4860::8888",
@@ -266,6 +264,16 @@ class WebCastServerIntegrationTest {
             "0.0.0.0"
         ).forEach { ip ->
             assertFalse("Expected rejected IP: $ip", LanNetworkSupport.isAllowedLanPeerAddress(InetAddress.getByName(ip)))
+        }
+        listOf("127.0.0.1", "::1").forEach { loopbackIp ->
+            assertFalse(
+                "Expected production check to reject loopback IP: $loopbackIp",
+                LanNetworkSupport.isPeerOnActiveLocalLan(
+                    remoteAddr = InetAddress.getByName(loopbackIp),
+                    localAddr = InetAddress.getByName(loopbackIp),
+                    allowLoopback = false
+                )
+            )
         }
 
         assertTrue(
