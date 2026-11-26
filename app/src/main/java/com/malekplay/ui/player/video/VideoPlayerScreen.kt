@@ -956,9 +956,9 @@ fun VideoPlayerScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("ترجمة الترجمة إلى العربية", color = Color.White)
+                        Text(stringResource(R.string.subtitle_translate_progress_title), color = Color.White)
                         TextButton(onClick = viewModel::cancelSubtitleTranslation) {
-                            Text("إلغاء")
+                            Text(stringResource(R.string.common_cancel))
                         }
                     }
                     val total = subtitleTranslationTotalCues
@@ -969,8 +969,11 @@ fun VideoPlayerScreen(
                         modifier = Modifier.fillMaxWidth()
                     )
                     Text(
-                        text = if (total > 0) "$completed / $total مقطع" else
-                            "جارٍ تجهيز نموذج اللغة أو تحليل ملف الترجمة…",
+                        text = if (total > 0) {
+                            stringResource(R.string.subtitle_translation_cues_progress, completed, total)
+                        } else {
+                            stringResource(R.string.subtitle_translate_preparing_status)
+                        },
                         color = Color.White.copy(alpha = 0.78f),
                         style = MaterialTheme.typography.labelSmall
                     )
@@ -1648,7 +1651,7 @@ fun VideoPlayerScreen(
             }
             AlertDialog(
                 onDismissRequest = { showTranslationLanguages = false },
-                title = { Text("اختر لغة الترجمة الأصلية") },
+                title = { Text(stringResource(R.string.subtitle_choose_source_language)) },
                 text = {
                     LazyColumn(
                         modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp)
@@ -1664,7 +1667,7 @@ fun VideoPlayerScreen(
                             ) {
                                 Text(
                                     text = java.util.Locale.forLanguageTag(languageCode)
-                                        .getDisplayLanguage(java.util.Locale("ar"))
+                                        .getDisplayLanguage(java.util.Locale.getDefault())
                                         .ifBlank { languageCode } + "  ·  " + languageCode,
                                     modifier = Modifier.fillMaxWidth()
                                 )
@@ -1705,6 +1708,7 @@ fun VideoPlayerScreen(
                 translationLoading = subtitleTranslationLoading,
                 translationCompletedCues = subtitleTranslationCompletedCues,
                 translationTotalCues = subtitleTranslationTotalCues,
+                translationError = subtitleTranslationError,
                 onSearch = {
                     viewModel.searchOnlineSubtitles(
                         onlineQuery, onlineLanguage,

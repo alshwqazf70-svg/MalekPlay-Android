@@ -1185,25 +1185,30 @@ class PlayerViewModel @Inject constructor(
             else -> null
         }
         if (mimeType == null) {
-            _playerError.value = "صيغة الترجمة غير مدعومة. استخدم ASS أو SSA أو SRT أو VTT"
+            _playerError.value =
+                app.getString(com.malekplay.R.string.subtitle_unsupported_format)
             return false
         }
         val player = _controller.value ?: run {
-            _playerError.value = "مشغل الفيديو غير جاهز"
+            _playerError.value =
+                app.getString(com.malekplay.R.string.subtitle_player_not_ready)
             return false
         }
         if (targetMediaId == null) {
-            _playerError.value = "لا يوجد فيديو نشط لإضافة الترجمة"
+            _playerError.value =
+                app.getString(com.malekplay.R.string.subtitle_no_active_video)
             return false
         }
         if (targetMediaId != currentMediaId) {
-            _playerError.value = "تغير الفيديو قبل إرفاق الترجمة؛ أعد المحاولة على الفيديو الحالي"
+            _playerError.value =
+                app.getString(com.malekplay.R.string.subtitle_video_changed_attach)
             return false
         }
         val index = player.currentMediaItemIndex
         val current = player.currentMediaItem
         if (current == null || index !in 0 until player.mediaItemCount) {
-            _playerError.value = "لا يوجد فيديو نشط لإضافة الترجمة"
+            _playerError.value =
+                app.getString(com.malekplay.R.string.subtitle_no_active_video)
             return false
         }
         if (rememberAsTranslationSource) {
@@ -1349,12 +1354,14 @@ class PlayerViewModel @Inject constructor(
     /** Translates the currently added external subtitle to Arabic on-device. */
     fun translateCurrentSubtitleToArabic(sourceLanguageCode: String = "en") {
         val source = translationSourceSubtitleUri ?: run {
-            _subtitleTranslationError.value = "أضف ملف ترجمة خارجي أولاً"
+            _subtitleTranslationError.value =
+                app.getString(com.malekplay.R.string.subtitle_add_external_first)
             return
         }
         if (_subtitleTranslationLoading.value) return
         val targetMediaId = currentMediaId ?: run {
-            _subtitleTranslationError.value = "لا يوجد ملف نشط لإضافة الترجمة"
+            _subtitleTranslationError.value =
+                app.getString(com.malekplay.R.string.subtitle_no_active_file)
             return
         }
         val generation = ++subtitleTranslationGeneration
@@ -1376,7 +1383,8 @@ class PlayerViewModel @Inject constructor(
                 // Translation can take several seconds. Never attach its result
                 // to a different item if the viewer changed the queue meanwhile.
                 if (currentMediaId != targetMediaId) {
-                    _subtitleTranslationError.value = "تغير الملف أثناء الترجمة؛ أعد المحاولة على الملف الحالي"
+                    _subtitleTranslationError.value =
+                        app.getString(com.malekplay.R.string.subtitle_file_changed_translate)
                     return@launch
                 }
                 if (!addExternalSubtitleForMedia(
@@ -1384,16 +1392,18 @@ class PlayerViewModel @Inject constructor(
                         targetMediaId = targetMediaId,
                         rememberAsTranslationSource = false,
                         subtitleLanguage = "ar",
-                        subtitleLabel = "ترجمة عربية"
+                        subtitleLabel = app.getString(com.malekplay.R.string.subtitle_translated_arabic_label)
                     )) {
-                    _subtitleTranslationError.value = _playerError.value ?: "تعذر إرفاق الترجمة بالفيديو الحالي"
+                    _subtitleTranslationError.value = _playerError.value
+                        ?: app.getString(com.malekplay.R.string.subtitle_attach_failed)
                     return@launch
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
                 currentCoroutineContext().ensureActive()
-                _subtitleTranslationError.value = error.message ?: "تعذرت ترجمة ملف الترجمة"
+                _subtitleTranslationError.value = error.message
+                    ?: app.getString(com.malekplay.R.string.subtitle_translate_failed)
             } finally {
                 if (generation == subtitleTranslationGeneration) {
                     _subtitleTranslationLoading.value = false
@@ -1820,9 +1830,16 @@ class PlayerViewModel @Inject constructor(
                 _onlineSubtitleKeyStatus.value =
                     onlineSubtitleRepository.hasSubdlKey() to onlineSubtitleRepository.hasWebsiteKey()
                 _onlineSubtitleError.value = null
-                android.widget.Toast.makeText(app, "تم حفظ مفاتيح مزودي الترجمة بأمان", android.widget.Toast.LENGTH_SHORT).show()
+                android.widget.Toast.makeText(
+                    app,
+                    app.getString(com.malekplay.R.string.subtitle_provider_keys_saved),
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
             }
-            .onFailure { _onlineSubtitleError.value = it.message ?: "تعذر حفظ مفاتيح مزودي الترجمة" }
+            .onFailure {
+                _onlineSubtitleError.value = it.message
+                    ?: app.getString(com.malekplay.R.string.subtitle_provider_keys_save_failed)
+            }
     }
 
     fun clearOnlineSubtitlePreview() {
@@ -1851,14 +1868,16 @@ class PlayerViewModel @Inject constructor(
                 if (currentMediaId == targetMediaId && _onlineSubtitlePreviewKey.value == key) {
                     _onlineSubtitlePreviewLines.value = lines
                     if (lines.isEmpty()) {
-                        _onlineSubtitlePreviewError.value = "لم نعثر على أسطر نصية قابلة للمعاينة."
+                        _onlineSubtitlePreviewError.value =
+                            app.getString(com.malekplay.R.string.subtitle_preview_empty)
                     }
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
                 if (currentMediaId == targetMediaId && _onlineSubtitlePreviewKey.value == key) {
-                    _onlineSubtitlePreviewError.value = error.message ?: "تعذر تحميل المعاينة"
+                    _onlineSubtitlePreviewError.value = error.message
+                        ?: app.getString(com.malekplay.R.string.subtitle_preview_failed)
                 }
             } finally {
                 if (_onlineSubtitlePreviewKey.value == key) {
@@ -1891,7 +1910,7 @@ class PlayerViewModel @Inject constructor(
                 _onlineSubtitleEpisodeGuide.value = guide
                 if (guide == null) {
                     _onlineSubtitleGuideError.value =
-                        "لم نعثر على مسلسل مطابق بالاسم والسنة. تحقق من العنوان أو أدخل الموسم والحلقة يدويًا."
+                        app.getString(com.malekplay.R.string.subtitle_guide_not_found)
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -1900,9 +1919,9 @@ class PlayerViewModel @Inject constructor(
                     _onlineSubtitleGuideError.value = if (
                         forceRefresh && _onlineSubtitleEpisodeGuide.value != null
                     ) {
-                        "تعذر تحديث دليل الحلقات الآن؛ نعرض النسخة السابقة المحفوظة."
+                        app.getString(com.malekplay.R.string.subtitle_guide_refresh_failed_cached)
                     } else {
-                        "تعذر تحميل دليل الحلقات الآن. يمكنك متابعة البحث وإدخال الموسم والحلقة يدويًا."
+                        app.getString(com.malekplay.R.string.subtitle_guide_load_failed)
                     }
                 }
             } finally {
@@ -1920,6 +1939,7 @@ class PlayerViewModel @Inject constructor(
         onlineSubtitleSearchJob = viewModelScope.launch {
             _onlineSubtitleLoading.value = true
             _onlineSubtitleError.value = null
+            _subtitleTranslationError.value = null
             _onlineSubtitleResults.value = emptyList()
             try {
                 // The database media id is not necessarily a URI. Prefer the actual
@@ -1936,17 +1956,20 @@ class PlayerViewModel @Inject constructor(
                 // A slow provider response must never populate the sheet for a different video.
                 if (generation != onlineSubtitleSearchGeneration || currentMediaId != targetMediaId) return@launch
                 _onlineSubtitleResults.value = results
-                if (results.isEmpty()) _onlineSubtitleError.value = "لم نعثر على ترجمة مطابقة. جرّب تعديل اسم العنوان أو اللغة."
+                if (results.isEmpty()) {
+                    _onlineSubtitleError.value =
+                        app.getString(com.malekplay.R.string.subtitle_search_empty)
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
                 if (generation == onlineSubtitleSearchGeneration && currentMediaId == targetMediaId) {
                     _onlineSubtitleError.value = when (error) {
                         is com.malekplay.network.SubtitleHttpException ->
-                            error.message ?: "رفض مزود الترجمة طلب البحث"
+                            error.message ?: app.getString(com.malekplay.R.string.subtitle_search_provider_rejected)
                         is java.io.IOException ->
-                            "تعذر الاتصال بخدمات الترجمة. تحقق من الإنترنت ثم أعد المحاولة."
-                        else -> error.message ?: "تعذر البحث عن الترجمة"
+                            app.getString(com.malekplay.R.string.subtitle_search_network_error)
+                        else -> error.message ?: app.getString(com.malekplay.R.string.subtitle_search_failed)
                     }
                 }
             } finally {
@@ -1961,18 +1984,21 @@ class PlayerViewModel @Inject constructor(
     fun downloadOnlineSubtitle(subtitle: OnlineSubtitle) {
         if (_onlineSubtitleLoading.value) return
         val targetMediaId = currentMediaId ?: run {
-            _onlineSubtitleError.value = "لا يوجد فيديو نشط لإضافة الترجمة"
+            _onlineSubtitleError.value =
+                app.getString(com.malekplay.R.string.subtitle_no_active_video)
             return
         }
         viewModelScope.launch {
             _onlineSubtitleLoading.value = true
             _onlineSubtitleError.value = null
+            _subtitleTranslationError.value = null
             try {
                 val uri = withContext(Dispatchers.IO) { onlineSubtitleRepository.download(subtitle) }
                 // A subtitle download may finish after an automatic/manual
                 // queue transition. Keep it scoped to the item it was requested for.
                 if (currentMediaId != targetMediaId) {
-                    _onlineSubtitleError.value = "تغير الفيديو أثناء تنزيل الترجمة؛ أعد المحاولة على الفيديو الحالي"
+                    _onlineSubtitleError.value =
+                        app.getString(com.malekplay.R.string.subtitle_video_changed_download)
                     return@launch
                 }
                 val normalizedLang = SubtitleQueryCleaner.normalizeLanguage(subtitle.language)
@@ -1984,17 +2010,24 @@ class PlayerViewModel @Inject constructor(
                         subtitleLanguage = normalizedLang,
                         subtitleLabel = subtitle.release.take(80)
                     )) {
-                    _onlineSubtitleError.value = _playerError.value ?: "تغير الفيديو قبل إرفاق الترجمة"
+                    _onlineSubtitleError.value = _playerError.value
+                        ?: app.getString(com.malekplay.R.string.subtitle_video_changed_attach)
                     return@launch
                 }
-                android.widget.Toast.makeText(app, "تم تنزيل الترجمة وتطبيقها بنجاح", android.widget.Toast.LENGTH_SHORT).show()
+                android.widget.Toast.makeText(
+                    app,
+                    app.getString(com.malekplay.R.string.subtitle_download_apply_success),
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
                 currentCoroutineContext().ensureActive()
                 _onlineSubtitleError.value = if (error is java.io.IOException) {
-                    "تعذر الاتصال بخدمة تنزيل الترجمة. تحقق من الإنترنت ثم أعد المحاولة."
-                } else error.message ?: "تعذر تنزيل الترجمة"
+                    app.getString(com.malekplay.R.string.subtitle_download_network_error)
+                } else {
+                    error.message ?: app.getString(com.malekplay.R.string.subtitle_download_failed)
+                }
             } finally {
                 _onlineSubtitleLoading.value = false
             }
@@ -2006,11 +2039,13 @@ class PlayerViewModel @Inject constructor(
         if (_onlineSubtitleLoading.value || _subtitleTranslationLoading.value) return
         val sourceLanguage = com.malekplay.network.SubtitleQueryCleaner.normalizeLanguage(subtitle.language)
         if (sourceLanguage == "ar") {
-            _onlineSubtitleError.value = "هذه الترجمة عربية بالفعل"
+            _onlineSubtitleError.value =
+                app.getString(com.malekplay.R.string.subtitle_already_arabic)
             return
         }
         val targetMediaId = currentMediaId ?: run {
-            _onlineSubtitleError.value = "لا يوجد فيديو نشط لإضافة الترجمة"
+            _onlineSubtitleError.value =
+                app.getString(com.malekplay.R.string.subtitle_no_active_video)
             return
         }
         val generation = ++subtitleTranslationGeneration
@@ -2026,7 +2061,8 @@ class PlayerViewModel @Inject constructor(
                     onlineSubtitleRepository.download(subtitle)
                 }
                 if (currentMediaId != targetMediaId) {
-                    _onlineSubtitleError.value = "تغير الفيديو أثناء تنزيل الترجمة؛ أعد المحاولة على الفيديو الحالي"
+                    _onlineSubtitleError.value =
+                        app.getString(com.malekplay.R.string.subtitle_video_changed_download)
                     return@launch
                 }
                 val translated = withContext(Dispatchers.IO) {
@@ -2039,7 +2075,8 @@ class PlayerViewModel @Inject constructor(
                     }
                 }
                 if (currentMediaId != targetMediaId) {
-                    _subtitleTranslationError.value = "تغير الفيديو أثناء الترجمة؛ لم نطبق النتيجة على الفيديو الجديد"
+                    _subtitleTranslationError.value =
+                        app.getString(com.malekplay.R.string.subtitle_video_changed_translate)
                     return@launch
                 }
                 if (!addExternalSubtitleForMedia(
@@ -2047,10 +2084,10 @@ class PlayerViewModel @Inject constructor(
                         targetMediaId = targetMediaId,
                         rememberAsTranslationSource = false,
                         subtitleLanguage = "ar",
-                        subtitleLabel = "ترجمة عربية"
+                        subtitleLabel = app.getString(com.malekplay.R.string.subtitle_translated_arabic_label)
                     )) {
                     _subtitleTranslationError.value = _playerError.value
-                        ?: "تغير الفيديو قبل إرفاق الترجمة المترجمة"
+                        ?: app.getString(com.malekplay.R.string.subtitle_video_changed_attach_translated)
                     return@launch
                 }
                 // Keep the downloaded foreign subtitle as the source for a later
@@ -2059,14 +2096,15 @@ class PlayerViewModel @Inject constructor(
                 _subtitleTranslationAvailable.value = true
                 android.widget.Toast.makeText(
                     app,
-                    "تم تنزيل الترجمة الأجنبية وترجمتها إلى العربية",
+                    app.getString(com.malekplay.R.string.subtitle_download_translate_success),
                     android.widget.Toast.LENGTH_SHORT
                 ).show()
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
                 currentCoroutineContext().ensureActive()
-                _subtitleTranslationError.value = error.message ?: "تعذر تنزيل الترجمة وترجمتها"
+                _subtitleTranslationError.value = error.message
+                    ?: app.getString(com.malekplay.R.string.subtitle_download_translate_failed)
             } finally {
                 if (generation == subtitleTranslationGeneration) {
                     _onlineSubtitleLoading.value = false

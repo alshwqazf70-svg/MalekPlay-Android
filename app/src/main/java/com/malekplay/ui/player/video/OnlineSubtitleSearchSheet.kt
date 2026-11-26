@@ -1,5 +1,6 @@
 package com.malekplay.ui.player.video
 
+import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -9,7 +10,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -43,7 +43,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -52,21 +51,123 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import com.malekplay.R
 import com.malekplay.core.ui.theme.contrastingOnColor
 import com.malekplay.network.OnlineSubtitle
 import com.malekplay.network.SubtitleQueryCleaner
 import com.malekplay.network.SubtitleResultPolicy
 import com.malekplay.network.TvEpisodeGuide
 
-private enum class ResultFilter { ALL, AR, EN, SRT }
-private enum class ResultSort { BEST_MATCH, MOST_DOWNLOADED }
+internal enum class SubtitleResultFilter { ALL, AR, EN, SRT }
+internal enum class SubtitleResultSort { BEST_MATCH, MOST_DOWNLOADED }
+
+internal data class SubtitleCardActionState(
+    val key: String,
+    val normalizedLanguage: String,
+    val isArabic: Boolean,
+    val isDownloadingAndApplying: Boolean,
+    val isAiTranslating: Boolean,
+    val isPreviewingThis: Boolean,
+    val isPreviewLoading: Boolean,
+    val hasPreviewLines: Boolean,
+    val buttonsEnabled: Boolean,
+    val previewEnabled: Boolean,
+    @StringRes val primaryLabelRes: Int,
+    @StringRes val previewLabelRes: Int,
+    @StringRes val aiLabelRes: Int?
+)
+
+internal fun filterAndSortOnlineSubtitles(
+    results: List<OnlineSubtitle>,
+    filter: SubtitleResultFilter,
+    sort: SubtitleResultSort
+): List<OnlineSubtitle> {
+    val base = when (filter) {
+        SubtitleResultFilter.ALL -> results
+        SubtitleResultFilter.AR -> results.filter {
+            SubtitleQueryCleaner.normalizeLanguage(it.language) == "ar"
+        }
+        SubtitleResultFilter.EN -> results.filter {
+            SubtitleQueryCleaner.normalizeLanguage(it.language) == "en"
+        }
+        SubtitleResultFilter.SRT -> results.filter { it.format.equals("srt", ignoreCase = true) }
+    }
+    return when (sort) {
+        SubtitleResultSort.BEST_MATCH -> base
+        SubtitleResultSort.MOST_DOWNLOADED -> base.sortedByDescending { it.downloads }
+    }
+}
+
+internal fun resolveSubtitleCardActionState(
+    subtitle: OnlineSubtitle,
+    loading: Boolean,
+    downloadingKey: String?,
+    previewKey: String?,
+    previewLoading: Boolean,
+    previewLines: List<String>
+): SubtitleCardActionState {
+    val key = subtitle.provider + ":" + subtitle.sourceId
+    val normalizedLang = SubtitleQueryCleaner.normalizeLanguage(subtitle.language)
+    val isArabic = normalizedLang == "ar"
+    val isDownloadingAndApplying = loading && downloadingKey == key
+    val isAiTranslating = loading && downloadingKey == "$key:ai"
+    val isPreviewingThis = previewKey == key
+    val isPreviewLoading = previewLoading && isPreviewingThis
+    val hasPreviewLines = isPreviewingThis && previewLines.isNotEmpty()
+    val primaryLabelRes = if (isDownloadingAndApplying) {
+        R.string.subtitle_downloading_and_applying
+    } else {
+        R.string.subtitle_download_and_apply
+    }
+    val previewLabelRes = when {
+        isPreviewLoading -> R.string.subtitle_preview_loading_button
+        hasPreviewLines -> R.string.subtitle_hide_preview_button
+        else -> R.string.subtitle_preview_button
+    }
+    val aiLabelRes = if (isArabic) {
+        null
+    } else if (isAiTranslating) {
+        R.string.subtitle_downloading_and_translating
+    } else {
+        R.string.subtitle_download_and_translate_ai
+    }
+    return SubtitleCardActionState(
+        key = key,
+        normalizedLanguage = normalizedLang,
+        isArabic = isArabic,
+        isDownloadingAndApplying = isDownloadingAndApplying,
+        isAiTranslating = isAiTranslating,
+        isPreviewingThis = isPreviewingThis,
+        isPreviewLoading = isPreviewLoading,
+        hasPreviewLines = hasPreviewLines,
+        buttonsEnabled = !loading,
+        previewEnabled = !loading && !isPreviewLoading,
+        primaryLabelRes = primaryLabelRes,
+        previewLabelRes = previewLabelRes,
+        aiLabelRes = aiLabelRes
+    )
+}
+
+@StringRes
+internal fun resolveSubtitleFooterStatusRes(
+    loading: Boolean,
+    downloadingKey: String?,
+    translationLoading: Boolean
+): Int? {
+    if (!loading || downloadingKey == null) return null
+    return if (translationLoading || downloadingKey.endsWith(":ai")) {
+        R.string.subtitle_downloading_and_translating
+    } else {
+        R.string.subtitle_downloading_and_applying_status
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -89,6 +190,7 @@ fun OnlineSubtitleSearchSheet(
     translationLoading: Boolean,
     translationCompletedCues: Int,
     translationTotalCues: Int,
+    translationError: String? = null,
     onSearch: () -> Unit,
     onDownload: (OnlineSubtitle) -> Unit,
     onDownloadAndTranslate: (OnlineSubtitle) -> Unit,
@@ -111,8 +213,8 @@ fun OnlineSubtitleSearchSheet(
     var websiteKey by remember { mutableStateOf("") }
     var downloadingKey by remember { mutableStateOf<String?>(null) }
     var autoSearched by remember { mutableStateOf(false) }
-    var resultFilter by remember { mutableStateOf(ResultFilter.ALL) }
-    var resultSort by remember { mutableStateOf(ResultSort.BEST_MATCH) }
+    var resultFilter by remember { mutableStateOf(SubtitleResultFilter.ALL) }
+    var resultSort by remember { mutableStateOf(SubtitleResultSort.BEST_MATCH) }
     val availableSeasons = SubtitleResultPolicy.availableSeasons(results)
     val selectedSeasonNumber = season.toIntOrNull()
     val availableEpisodes = selectedSeasonNumber?.let {
@@ -120,19 +222,12 @@ fun OnlineSubtitleSearchSheet(
     }.orEmpty()
 
     val filteredResults = remember(results, resultFilter, resultSort) {
-        val base = when (resultFilter) {
-            ResultFilter.ALL -> results
-            ResultFilter.AR -> results.filter { SubtitleQueryCleaner.normalizeLanguage(it.language) == "ar" }
-            ResultFilter.EN -> results.filter { SubtitleQueryCleaner.normalizeLanguage(it.language) == "en" }
-            ResultFilter.SRT -> results.filter { it.format.equals("srt", ignoreCase = true) }
-        }
-        when (resultSort) {
-            ResultSort.BEST_MATCH -> base
-            ResultSort.MOST_DOWNLOADED -> base.sortedByDescending { it.downloads }
-        }
+        filterAndSortOnlineSubtitles(results, resultFilter, resultSort)
     }
 
-    LaunchedEffect(loading) { if (!loading) downloadingKey = null }
+    LaunchedEffect(loading, translationLoading) {
+        if (!loading && !translationLoading) downloadingKey = null
+    }
     LaunchedEffect(Unit) {
         if (!autoSearched && query.isNotBlank() && results.isEmpty() && !loading && error == null) {
             autoSearched = true
@@ -147,681 +242,761 @@ fun OnlineSubtitleSearchSheet(
         selectedLeadingIconColor = selectedChipInk,
         selectedTrailingIconColor = selectedChipInk
     )
+    val activeError = error ?: translationError
 
-    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-        ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp)
-                    .padding(bottom = 28.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        stringResource(R.string.player_search_subtitle_online),
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Surface(shape = CircleShape, color = colors.secondaryContainer) {
                         Text(
-                            "البحث عن ترجمة عبر الإنترنت",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold
+                            stringResource(R.string.subtitle_sheet_highlights),
+                            Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            color = colors.onSecondaryContainer,
+                            style = MaterialTheme.typography.labelSmall
                         )
-                        Surface(shape = CircleShape, color = colors.secondaryContainer) {
-                            Text(
-                                "بحث ذكي · معاينة فورية · ترجمة بالذكاء الاصطناعي",
-                                Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                color = colors.onSecondaryContainer,
-                                style = MaterialTheme.typography.labelSmall
+                    }
+                }
+                IconButton(onClick = onDismiss) {
+                    Icon(
+                        Icons.Default.Close,
+                        contentDescription = stringResource(R.string.subtitle_close_search)
+                    )
+                }
+            }
+
+            OutlinedTextField(
+                value = query,
+                onValueChange = onQueryChange,
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                shape = RoundedCornerShape(16.dp),
+                label = { Text(stringResource(R.string.subtitle_search_title)) },
+                placeholder = { Text(stringResource(R.string.subtitle_search_placeholder)) },
+                trailingIcon = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (query.isNotEmpty()) {
+                            TextButton(onClick = { onQueryChange("") }) {
+                                Text(stringResource(R.string.subtitle_clear_query))
+                            }
+                        }
+                        IconButton(onClick = onSearch, enabled = query.isNotBlank() && !loading) {
+                            Icon(
+                                Icons.Default.Search,
+                                contentDescription = stringResource(R.string.subtitle_search)
                             )
                         }
                     }
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Close, contentDescription = "إغلاق البحث")
-                    }
                 }
+            )
 
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(
-                    value = query,
-                    onValueChange = onQueryChange,
-                    modifier = Modifier.fillMaxWidth(),
+                    season,
+                    { onSeasonChange(SubtitleQueryCleaner.normalizeDigits(it.filter(Char::isDigit).take(2))) },
+                    Modifier.weight(1f),
                     singleLine = true,
-                    shape = RoundedCornerShape(16.dp),
-                    label = { Text("اسم الفيلم أو المسلسل") },
-                    placeholder = { Text("اكتب اسم العمل") },
-                    trailingIcon = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            if (query.isNotEmpty()) {
-                                TextButton(onClick = { onQueryChange("") }) { Text("مسح") }
-                            }
-                            IconButton(onClick = onSearch, enabled = query.isNotBlank() && !loading) {
-                                Icon(Icons.Default.Search, contentDescription = "بحث")
-                            }
-                        }
-                    }
+                    shape = RoundedCornerShape(50),
+                    label = { Text(stringResource(R.string.subtitle_season)) }
                 )
+                OutlinedTextField(
+                    episode,
+                    { onEpisodeChange(SubtitleQueryCleaner.normalizeDigits(it.filter(Char::isDigit).take(3))) },
+                    Modifier.weight(1f),
+                    singleLine = true,
+                    shape = RoundedCornerShape(50),
+                    label = { Text(stringResource(R.string.subtitle_episode)) }
+                )
+            }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedTextField(
-                        season,
-                        { onSeasonChange(SubtitleQueryCleaner.normalizeDigits(it.filter(Char::isDigit).take(2))) },
-                        Modifier.weight(1f),
-                        singleLine = true,
-                        shape = RoundedCornerShape(50),
-                        label = { Text("الموسم") }
-                    )
-                    OutlinedTextField(
-                        episode,
-                        { onEpisodeChange(SubtitleQueryCleaner.normalizeDigits(it.filter(Char::isDigit).take(3))) },
-                        Modifier.weight(1f),
-                        singleLine = true,
-                        shape = RoundedCornerShape(50),
-                        label = { Text("الحلقة") }
-                    )
+            Button(
+                onClick = onLoadEpisodeGuide,
+                enabled = query.isNotBlank() && !episodeGuideLoading,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                if (episodeGuideLoading) {
+                    CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.size(8.dp))
                 }
+                Text(
+                    stringResource(
+                        if (episodeGuide == null) R.string.subtitle_episode_guide_load
+                        else R.string.subtitle_episode_guide_refresh
+                    )
+                )
+            }
 
-                Button(
-                    onClick = onLoadEpisodeGuide,
-                    enabled = query.isNotBlank() && !episodeGuideLoading,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp)
-                ) {
-                    if (episodeGuideLoading) {
-                        CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
-                        Spacer(Modifier.size(8.dp))
-                    }
-                    Text(if (episodeGuide == null) "استعراض مواسم وحلقات المسلسل" else "تحديث دليل الحلقات")
-                }
-
-                if (episodeGuide != null) {
-                    Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            if (episodeGuide != null) {
+                Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    val showLabel = episodeGuide.showName +
+                        (episodeGuide.showYear?.let { " ($it)" } ?: "")
+                    Text(
+                        stringResource(R.string.subtitle_episode_guide_title, showLabel),
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    if (episodeGuideError != null) {
                         Text(
-                            "دليل الحلقات: ${episodeGuide.showName}" +
-                                (episodeGuide.showYear?.let { " ($it)" } ?: ""),
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.SemiBold
+                            episodeGuideError,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = colors.error
                         )
-                        if (episodeGuideError != null) {
-                            Text(
-                                episodeGuideError,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = colors.error
-                            )
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(
-                                "مصدر البيانات: TVmaze",
-                                modifier = Modifier.clickable { uriHandler.openUri("https://www.tvmaze.com") },
-                                style = MaterialTheme.typography.labelSmall,
-                                color = colors.primary
-                            )
-                            Text(
-                                "الرخصة: CC BY-SA",
-                                modifier = Modifier.clickable {
-                                    uriHandler.openUri("https://www.tvmaze.com/api")
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            stringResource(R.string.subtitle_episode_guide_source),
+                            modifier = Modifier.clickable { uriHandler.openUri("https://www.tvmaze.com") },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = colors.primary
+                        )
+                        Text(
+                            stringResource(R.string.subtitle_episode_guide_license),
+                            modifier = Modifier.clickable {
+                                uriHandler.openUri("https://www.tvmaze.com/api")
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = colors.primary
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        episodeGuide.seasons.forEach { guideSeason ->
+                            FilterChip(
+                                selected = season == guideSeason.number.toString(),
+                                onClick = {
+                                    onSeasonChange(guideSeason.number.toString())
+                                    onEpisodeChange("")
                                 },
-                                style = MaterialTheme.typography.labelSmall,
-                                color = colors.primary
+                                label = { Text(stringResource(R.string.subtitle_season_chip, guideSeason.number)) },
+                                colors = chipColors
                             )
                         }
+                    }
+                    if (selectedSeasonNumber != null) {
+                        val guideSeason = episodeGuide.seasons.firstOrNull {
+                            it.number == selectedSeasonNumber
+                        }
+                        if (guideSeason != null) {
+                            Text(
+                                stringResource(R.string.subtitle_season_episodes_title, guideSeason.number),
+                                style = MaterialTheme.typography.labelLarge
+                            )
+                            Row(
+                                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                guideSeason.episodes.forEach { guideEpisode ->
+                                    FilterChip(
+                                        selected = episode == guideEpisode.toString(),
+                                        onClick = { onEpisodeChange(guideEpisode.toString()) },
+                                        label = { Text(stringResource(R.string.subtitle_episode_chip, guideEpisode)) },
+                                        colors = chipColors
+                                    )
+                                }
+                            }
+                        } else {
+                            Text(
+                                stringResource(R.string.subtitle_guide_season_missing),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = colors.onSurfaceVariant
+                            )
+                        }
+                    } else {
+                        Text(
+                            stringResource(R.string.subtitle_guide_select_season_hint),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = colors.onSurfaceVariant
+                        )
+                    }
+                }
+            } else {
+                if (episodeGuideError != null) {
+                    Text(
+                        episodeGuideError,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.onSurfaceVariant
+                    )
+                }
+                if (availableSeasons.isNotEmpty()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            stringResource(R.string.subtitle_detected_seasons_title),
+                            style = MaterialTheme.typography.labelLarge
+                        )
                         Row(
                             modifier = Modifier.horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            episodeGuide.seasons.forEach { guideSeason ->
+                            availableSeasons.forEach { availableSeason ->
                                 FilterChip(
-                                    selected = season == guideSeason.number.toString(),
+                                    selected = season == availableSeason.toString(),
                                     onClick = {
-                                        onSeasonChange(guideSeason.number.toString())
+                                        onSeasonChange(availableSeason.toString())
                                         onEpisodeChange("")
                                     },
-                                    label = { Text("الموسم ${guideSeason.number}") },
+                                    label = { Text(stringResource(R.string.subtitle_season_chip, availableSeason)) },
                                     colors = chipColors
                                 )
                             }
                         }
                         if (selectedSeasonNumber != null) {
-                            val guideSeason = episodeGuide.seasons.firstOrNull {
-                                it.number == selectedSeasonNumber
-                            }
-                            if (guideSeason != null) {
-                                Text("حلقات الموسم ${guideSeason.number}", style = MaterialTheme.typography.labelLarge)
+                            if (availableEpisodes.isNotEmpty()) {
+                                Text(
+                                    stringResource(R.string.subtitle_detected_episodes_title),
+                                    style = MaterialTheme.typography.labelLarge
+                                )
                                 Row(
                                     modifier = Modifier.horizontalScroll(rememberScrollState()),
                                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
-                                    guideSeason.episodes.forEach { guideEpisode ->
+                                    availableEpisodes.forEach { availableEpisode ->
                                         FilterChip(
-                                            selected = episode == guideEpisode.toString(),
-                                            onClick = { onEpisodeChange(guideEpisode.toString()) },
-                                            label = { Text("الحلقة $guideEpisode") },
+                                            selected = episode == availableEpisode.toString(),
+                                            onClick = { onEpisodeChange(availableEpisode.toString()) },
+                                            label = { Text(stringResource(R.string.subtitle_episode_chip, availableEpisode)) },
                                             colors = chipColors
                                         )
                                     }
                                 }
                             } else {
                                 Text(
-                                    "هذا الموسم غير موجود في دليل المسلسل. يمكنك إدخال رقمه وحلقته يدويًا.",
+                                    stringResource(R.string.subtitle_detected_episodes_missing),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = colors.onSurfaceVariant
                                 )
                             }
                         } else {
                             Text(
-                                "اختر موسمًا لعرض جميع الحلقات المسجلة له في الدليل.",
+                                stringResource(R.string.subtitle_detected_select_season_hint),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = colors.onSurfaceVariant
                             )
                         }
                     }
+                } else if (results.isNotEmpty()) {
+                    Text(
+                        stringResource(R.string.subtitle_no_season_episode_tags_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.onSurfaceVariant
+                    )
+                }
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text(stringResource(R.string.subtitle_language_label), style = MaterialTheme.typography.labelLarge)
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    FilterChip(
+                        selected = language == "ar,en",
+                        onClick = { onLanguageChange("ar,en") },
+                        label = { Text(stringResource(R.string.subtitle_language_ar_en)) },
+                        colors = chipColors
+                    )
+                    FilterChip(
+                        selected = language == "ar",
+                        onClick = { onLanguageChange("ar") },
+                        label = { Text(stringResource(R.string.subtitle_language_ar_only)) },
+                        colors = chipColors
+                    )
+                    FilterChip(
+                        selected = language == "en",
+                        onClick = { onLanguageChange("en") },
+                        label = { Text(stringResource(R.string.subtitle_language_en_only)) },
+                        colors = chipColors
+                    )
+                }
+            }
+
+            Button(
+                onClick = onSearch,
+                enabled = query.isNotBlank() && !loading,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                if (loading && downloadingKey == null) {
+                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = selectedChipInk)
+                    Spacer(Modifier.size(8.dp))
+                    Text(stringResource(R.string.subtitle_searching_progress))
                 } else {
-                    if (episodeGuideError != null) {
-                        Text(
-                            episodeGuideError,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = colors.onSurfaceVariant
+                    Icon(Icons.Default.Search, null, Modifier.size(18.dp))
+                    Spacer(Modifier.size(8.dp))
+                    Text(stringResource(R.string.subtitle_search_button))
+                }
+            }
+
+            TextButton(onClick = { credentialsExpanded = !credentialsExpanded }) {
+                Text(
+                    stringResource(
+                        if (credentialsExpanded) R.string.subtitle_keys_hide
+                        else R.string.subtitle_keys_show
+                    )
+                )
+            }
+
+            if (credentialsExpanded) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    TextButton(onClick = { uriHandler.openUri("https://subdl.com/developers") }) {
+                        Text(stringResource(R.string.subtitle_get_subdl_key))
+                    }
+                    TextButton(onClick = { uriHandler.openUri("https://subtitles.website") }) {
+                        Text(stringResource(R.string.subtitle_public_fallback_source))
+                    }
+                }
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (hasSubdlKey) {
+                        ResultBadge(
+                            stringResource(R.string.subtitle_subdl_saved_badge),
+                            colors.primaryContainer,
+                            colors.onPrimaryContainer
                         )
                     }
-                    if (availableSeasons.isNotEmpty()) {
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("المواسم التي ظهرت في نتائج الترجمات", style = MaterialTheme.typography.labelLarge)
-                            Row(
-                                modifier = Modifier.horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                availableSeasons.forEach { availableSeason ->
-                                    FilterChip(
-                                        selected = season == availableSeason.toString(),
-                                        onClick = {
-                                            onSeasonChange(availableSeason.toString())
-                                            onEpisodeChange("")
-                                        },
-                                        label = { Text("الموسم $availableSeason") },
-                                        colors = chipColors
-                                    )
-                                }
-                            }
-                            if (selectedSeasonNumber != null) {
-                                if (availableEpisodes.isNotEmpty()) {
-                                    Text("الحلقات التي حددتها المصادر للترجمات", style = MaterialTheme.typography.labelLarge)
-                                    Row(
-                                        modifier = Modifier.horizontalScroll(rememberScrollState()),
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                    ) {
-                                        availableEpisodes.forEach { availableEpisode ->
-                                            FilterChip(
-                                                selected = episode == availableEpisode.toString(),
-                                                onClick = { onEpisodeChange(availableEpisode.toString()) },
-                                                label = { Text("الحلقة $availableEpisode") },
-                                                colors = chipColors
-                                            )
-                                        }
-                                    }
-                                } else {
-                                    Text(
-                                        "لا توجد أرقام حلقات مؤكدة في نتائج الترجمات لهذا الموسم. استخدم دليل الحلقات أو أدخل الرقم يدويًا.",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = colors.onSurfaceVariant
-                                    )
-                                }
-                            } else {
-                                Text(
-                                    "يمكنك تحميل دليل المسلسل لعرض الحلقات حتى إن لم تتوفر لها ترجمات بعد.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = colors.onSurfaceVariant
-                                )
+                    if (hasWebsiteKey) {
+                        ResultBadge(
+                            stringResource(R.string.subtitle_website_saved_badge),
+                            colors.secondaryContainer,
+                            colors.onSecondaryContainer
+                        )
+                    }
+                }
+                OutlinedTextField(
+                    subdlKey,
+                    { subdlKey = it },
+                    Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    label = { Text(stringResource(R.string.subtitle_subdl_key_label)) }
+                )
+                OutlinedTextField(
+                    websiteKey,
+                    { websiteKey = it },
+                    Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    label = { Text(stringResource(R.string.subtitle_website_key_label)) }
+                )
+                Button(
+                    onClick = {
+                        onSaveProviderKeys(subdlKey.trim(), websiteKey.trim())
+                        subdlKey = ""
+                        websiteKey = ""
+                    },
+                    enabled = subdlKey.isNotBlank() || websiteKey.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(stringResource(R.string.subtitle_save_provider_keys))
+                }
+            }
+
+            if (translationLoading) {
+                Card(
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = colors.secondaryContainer)
+                ) {
+                    Column(
+                        Modifier.fillMaxWidth().padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                stringResource(R.string.subtitle_ai_progress_title),
+                                modifier = Modifier.weight(1f),
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            TextButton(onClick = {
+                                downloadingKey = null
+                                onCancelTranslation()
+                            }) {
+                                Text(stringResource(R.string.common_cancel))
                             }
                         }
-                    } else if (results.isNotEmpty()) {
+                        val fraction = if (translationTotalCues > 0) {
+                            translationCompletedCues.toFloat() / translationTotalCues
+                        } else 0f
+                        LinearProgressIndicator(
+                            progress = { fraction.coerceIn(0f, 1f) },
+                            modifier = Modifier.fillMaxWidth()
+                        )
                         Text(
-                            "لم توفر النتائج أرقام مواسم أو حلقات مؤكدة. يمكنك تحميل دليل المسلسل أو إدخالها يدويًا دون تخمين.",
+                            if (translationTotalCues > 0) {
+                                stringResource(
+                                    R.string.subtitle_translation_cues_progress,
+                                    translationCompletedCues,
+                                    translationTotalCues
+                                )
+                            } else {
+                                stringResource(R.string.subtitle_ai_preparing_status)
+                            },
                             style = MaterialTheme.typography.bodySmall,
-                            color = colors.onSurfaceVariant
+                            color = colors.onSecondaryContainer
                         )
                     }
                 }
+            }
 
-                Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Text("لغة الترجمة", style = MaterialTheme.typography.labelLarge)
-                    Row(
-                        modifier = Modifier.horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        FilterChip(
-                            selected = language == "ar,en",
-                            onClick = { onLanguageChange("ar,en") },
-                            label = { Text("العربية + English") },
-                            colors = chipColors
-                        )
-                        FilterChip(
-                            selected = language == "ar",
-                            onClick = { onLanguageChange("ar") },
-                            label = { Text("العربية فقط") },
-                            colors = chipColors
-                        )
-                        FilterChip(
-                            selected = language == "en",
-                            onClick = { onLanguageChange("en") },
-                            label = { Text("English") },
-                            colors = chipColors
-                        )
-                    }
-                }
-
-                Button(
-                    onClick = onSearch,
-                    enabled = query.isNotBlank() && !loading,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp)
+            if (activeError != null) {
+                Card(
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = colors.errorContainer)
                 ) {
-                    if (loading && downloadingKey == null) {
-                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = selectedChipInk)
-                        Spacer(Modifier.size(8.dp))
-                        Text("جارٍ البحث عن أفضل الترجمات…")
-                    } else {
-                        Icon(Icons.Default.Search, null, Modifier.size(18.dp))
-                        Spacer(Modifier.size(8.dp))
-                        Text("بحث عن الترجمات")
+                    Column(Modifier.fillMaxWidth().padding(14.dp)) {
+                        Text(
+                            activeError,
+                            color = colors.onErrorContainer,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        TextButton(onClick = onSearch, enabled = query.isNotBlank() && !loading) {
+                            Text(stringResource(R.string.subtitle_retry))
+                        }
                     }
                 }
+            } else if (!loading && results.isEmpty()) {
+                Text(
+                    stringResource(R.string.subtitle_search_prompt_hint),
+                    color = colors.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
 
-                TextButton(onClick = { credentialsExpanded = !credentialsExpanded }) {
+            if (results.isNotEmpty()) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        if (credentialsExpanded) "إخفاء إعدادات المفاتيح الاختيارية"
-                        else "إعدادات API الاختيارية ومفاتيح المزودين"
+                        stringResource(R.string.subtitle_results_title),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(Modifier.weight(1f))
+                    Text(
+                        stringResource(R.string.subtitle_results_count, filteredResults.size, results.size),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colors.onSurfaceVariant
                     )
                 }
 
-                if (credentialsExpanded) {
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    FilterChip(
+                        selected = resultFilter == SubtitleResultFilter.ALL,
+                        onClick = { resultFilter = SubtitleResultFilter.ALL },
+                        label = { Text(stringResource(R.string.subtitle_filter_all)) },
+                        colors = chipColors
+                    )
+                    FilterChip(
+                        selected = resultFilter == SubtitleResultFilter.AR,
+                        onClick = { resultFilter = SubtitleResultFilter.AR },
+                        label = { Text(stringResource(R.string.subtitle_filter_arabic)) },
+                        colors = chipColors
+                    )
+                    FilterChip(
+                        selected = resultFilter == SubtitleResultFilter.EN,
+                        onClick = { resultFilter = SubtitleResultFilter.EN },
+                        label = { Text(stringResource(R.string.subtitle_filter_english)) },
+                        colors = chipColors
+                    )
+                    FilterChip(
+                        selected = resultFilter == SubtitleResultFilter.SRT,
+                        onClick = { resultFilter = SubtitleResultFilter.SRT },
+                        label = { Text(stringResource(R.string.subtitle_filter_srt)) },
+                        colors = chipColors
+                    )
+                    FilterChip(
+                        selected = resultSort == SubtitleResultSort.MOST_DOWNLOADED,
+                        onClick = {
+                            resultSort = if (resultSort == SubtitleResultSort.BEST_MATCH) {
+                                SubtitleResultSort.MOST_DOWNLOADED
+                            } else {
+                                SubtitleResultSort.BEST_MATCH
+                            }
+                        },
+                        leadingIcon = if (resultSort == SubtitleResultSort.MOST_DOWNLOADED) {
+                            { Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                        } else null,
+                        label = { Text(stringResource(R.string.subtitle_sort_most_downloaded)) },
+                        colors = chipColors
+                    )
+                }
+
+                if (filteredResults.isEmpty()) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        TextButton(onClick = { uriHandler.openUri("https://subdl.com/developers") }) {
-                            Text("الحصول على مفتاح SubDL")
-                        }
-                        TextButton(onClick = { uriHandler.openUri("https://subtitles.website") }) {
-                            Text("المصدر العام الاحتياطي")
+                        Text(
+                            stringResource(R.string.subtitle_filter_no_matches),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = colors.onSurfaceVariant
+                        )
+                        TextButton(onClick = { resultFilter = SubtitleResultFilter.ALL }) {
+                            Text(stringResource(R.string.subtitle_filter_show_all))
                         }
                     }
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        if (hasSubdlKey) {
-                            ResultBadge("SubDL محفوظ ✓", colors.primaryContainer, colors.onPrimaryContainer)
-                        }
-                        if (hasWebsiteKey) {
-                            ResultBadge("Website محفوظ ✓", colors.secondaryContainer, colors.onSecondaryContainer)
-                        }
-                    }
-                    OutlinedTextField(
-                        subdlKey,
-                        { subdlKey = it },
-                        Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        visualTransformation = PasswordVisualTransformation(),
-                        label = { Text("مفتاح SubDL") }
-                    )
-                    OutlinedTextField(
-                        websiteKey,
-                        { websiteKey = it },
-                        Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        visualTransformation = PasswordVisualTransformation(),
-                        label = { Text("مفتاح subtitles.website (Bearer)") }
-                    )
-                    Button(
-                        onClick = {
-                            onSaveProviderKeys(subdlKey.trim(), websiteKey.trim())
-                            subdlKey = ""
-                            websiteKey = ""
-                        },
-                        enabled = subdlKey.isNotBlank() || websiteKey.isNotBlank(),
-                        modifier = Modifier.fillMaxWidth()
-                    ) { Text("حفظ مفاتيح المزودين") }
                 }
+            }
 
-                if (translationLoading) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                filteredResults.forEachIndexed { index, subtitle ->
+                    val cardState = resolveSubtitleCardActionState(
+                        subtitle = subtitle,
+                        loading = loading,
+                        downloadingKey = downloadingKey,
+                        previewKey = previewKey,
+                        previewLoading = previewLoading,
+                        previewLines = previewLines
+                    )
+                    val key = cardState.key
+                    val isDownloading = cardState.isDownloadingAndApplying
+                    val isAiTranslating = cardState.isAiTranslating
+                    val isBestMatch = index == 0 && resultSort == SubtitleResultSort.BEST_MATCH
+                    val isPreviewingThis = cardState.isPreviewingThis
+                    val isPreviewLoading = cardState.isPreviewLoading
+
                     Card(
-                        shape = RoundedCornerShape(14.dp),
-                        colors = CardDefaults.cardColors(containerColor = colors.secondaryContainer)
+                        shape = RoundedCornerShape(18.dp),
+                        border = BorderStroke(
+                            1.dp,
+                            if (isBestMatch) colors.primary.copy(alpha = 0.55f)
+                            else colors.outlineVariant.copy(alpha = 0.45f)
+                        ),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isBestMatch) colors.surfaceContainerHigh else colors.surfaceContainer
+                        ),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(
                             Modifier.fillMaxWidth().padding(14.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    "تنزيل الترجمة وتحويلها إلى العربية",
-                                    modifier = Modifier.weight(1f),
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                TextButton(onClick = onCancelTranslation) { Text("إلغاء") }
-                            }
-                            val fraction = if (translationTotalCues > 0) {
-                                translationCompletedCues.toFloat() / translationTotalCues
-                            } else 0f
-                            LinearProgressIndicator(
-                                progress = { fraction.coerceIn(0f, 1f) },
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                            Text(
-                                if (translationTotalCues > 0) {
-                                    "$translationCompletedCues / $translationTotalCues مقطع"
-                                } else {
-                                    "جارٍ تنزيل الملف أو تجهيز نموذج اللغة…"
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = colors.onSecondaryContainer
-                            )
-                        }
-                    }
-                }
-
-                if (error != null) {
-                    Card(
-                        shape = RoundedCornerShape(14.dp),
-                        colors = CardDefaults.cardColors(containerColor = colors.errorContainer)
-                    ) {
-                        Column(Modifier.fillMaxWidth().padding(14.dp)) {
-                            Text(
-                                error,
-                                color = colors.onErrorContainer,
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                            TextButton(onClick = onSearch, enabled = query.isNotBlank() && !loading) {
-                                Text("إعادة المحاولة")
-                            }
-                        }
-                    }
-                } else if (!loading && results.isEmpty()) {
-                    Text(
-                        "أدخل اسم العمل واضغط بحث لعرض الترجمات المتاحة من المزودين.",
-                        color = colors.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-
-                if (results.isNotEmpty()) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            "النتائج",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Spacer(Modifier.weight(1f))
-                        Text(
-                            "${filteredResults.size} / ${results.size} ترجمة",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = colors.onSurfaceVariant
-                        )
-                    }
-
-                    Row(
-                        modifier = Modifier.horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        FilterChip(
-                            selected = resultFilter == ResultFilter.ALL,
-                            onClick = { resultFilter = ResultFilter.ALL },
-                            label = { Text("الكل") },
-                            colors = chipColors
-                        )
-                        FilterChip(
-                            selected = resultFilter == ResultFilter.AR,
-                            onClick = { resultFilter = ResultFilter.AR },
-                            label = { Text("العربية") },
-                            colors = chipColors
-                        )
-                        FilterChip(
-                            selected = resultFilter == ResultFilter.EN,
-                            onClick = { resultFilter = ResultFilter.EN },
-                            label = { Text("English") },
-                            colors = chipColors
-                        )
-                        FilterChip(
-                            selected = resultFilter == ResultFilter.SRT,
-                            onClick = { resultFilter = ResultFilter.SRT },
-                            label = { Text("SRT") },
-                            colors = chipColors
-                        )
-                        FilterChip(
-                            selected = resultSort == ResultSort.MOST_DOWNLOADED,
-                            onClick = {
-                                resultSort = if (resultSort == ResultSort.BEST_MATCH) {
-                                    ResultSort.MOST_DOWNLOADED
-                                } else {
-                                    ResultSort.BEST_MATCH
-                                }
-                            },
-                            leadingIcon = if (resultSort == ResultSort.MOST_DOWNLOADED) {
-                                { Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
-                            } else null,
-                            label = { Text("الأكثر تحميلاً") },
-                            colors = chipColors
-                        )
-                    }
-                }
-
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    filteredResults.forEachIndexed { index, subtitle ->
-                        val key = subtitle.provider + ":" + subtitle.sourceId
-                        val isDownloading = loading && downloadingKey == key
-                        val isAiTranslating = loading && downloadingKey == "$key:ai"
-                        val isArabic = SubtitleQueryCleaner.normalizeLanguage(subtitle.language) == "ar"
-                        val isBestMatch = index == 0 && resultSort == ResultSort.BEST_MATCH
-                        val isPreviewingThis = previewKey == key
-
-                        Card(
-                            shape = RoundedCornerShape(18.dp),
-                            border = BorderStroke(
-                                1.dp,
-                                if (isBestMatch) colors.primary.copy(alpha = 0.55f)
-                                else colors.outlineVariant.copy(alpha = 0.45f)
-                            ),
-                            colors = CardDefaults.cardColors(
-                                containerColor = if (isBestMatch) colors.surfaceContainerHigh else colors.surfaceContainer
-                            ),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(
-                                Modifier.fillMaxWidth().padding(14.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    if (isBestMatch) {
-                                        Surface(
-                                            shape = CircleShape,
-                                            color = colors.primary
-                                        ) {
-                                            Row(
-                                                Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(3.dp)
-                                            ) {
-                                                Icon(
-                                                    Icons.Filled.Star,
-                                                    contentDescription = null,
-                                                    tint = selectedChipInk,
-                                                    modifier = Modifier.size(12.dp)
-                                                )
-                                                Text(
-                                                    "أفضل تطابق",
-                                                    color = selectedChipInk,
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                            }
-                                        }
-                                    }
-                                    ResultBadge(
-                                        if (isArabic) "AR" else "EN",
-                                        colors.primaryContainer,
-                                        colors.onPrimaryContainer
-                                    )
-                                    ResultBadge(
-                                        subtitle.format.uppercase(),
-                                        colors.tertiaryContainer,
-                                        colors.onTertiaryContainer
-                                    )
-                                    Spacer(Modifier.weight(1f))
-                                    Text(
-                                        providerLabel(subtitle.provider),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = colors.onSurfaceVariant
-                                    )
-                                }
-
-                                val cleanRelease = SubtitleQueryCleaner.clean(subtitle.release).title
-                                    .ifBlank { subtitle.release }
-                                Text(
-                                    cleanRelease,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis,
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-
-                                val episodeContext = buildList {
-                                    subtitle.seasonNumber?.let { add("الموسم $it") }
-                                    subtitle.episodeNumber?.let { add("الحلقة $it") }
-                                }.joinToString("  •  ")
-                                if (episodeContext.isNotBlank()) {
-                                    Text(
-                                        "نطاق البحث: $episodeContext",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = colors.onSurfaceVariant,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                }
-
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Text(
-                                        "${subtitle.downloads} تنزيلات",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = colors.onSurfaceVariant
-                                    )
-                                    Spacer(Modifier.weight(1f))
-                                    OutlinedButton(
-                                        onClick = { onPreviewSubtitle(subtitle) },
-                                        enabled = !loading && !(previewLoading && isPreviewingThis),
-                                        shape = RoundedCornerShape(12.dp)
-                                    ) {
-                                        if (previewLoading && isPreviewingThis) {
-                                            CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
-                                            Spacer(Modifier.size(6.dp))
-                                        } else {
-                                            Icon(Icons.Filled.Visibility, null, Modifier.size(15.dp))
-                                            Spacer(Modifier.size(5.dp))
-                                        }
-                                        Text(
-                                            if (isPreviewingThis && previewLines.isNotEmpty()) "إخفاء" else "معاينة"
-                                        )
-                                    }
-                                    Button(
-                                        onClick = { downloadingKey = key; onDownload(subtitle) },
-                                        enabled = !loading,
-                                        shape = RoundedCornerShape(12.dp)
-                                    ) {
-                                        if (isDownloading) {
-                                            CircularProgressIndicator(
-                                                Modifier.size(15.dp),
-                                                strokeWidth = 2.dp,
-                                                color = selectedChipInk
-                                            )
-                                            Spacer(Modifier.size(6.dp))
-                                        } else {
-                                            Icon(Icons.Filled.Download, null, Modifier.size(15.dp))
-                                            Spacer(Modifier.size(5.dp))
-                                        }
-                                        Text(if (isDownloading) "جارٍ التطبيق…" else "تطبيق")
-                                    }
-                                }
-
-                                AnimatedVisibility(visible = isPreviewingThis && (previewLoading || previewError != null || previewLines.isNotEmpty())) {
+                                if (isBestMatch) {
                                     Surface(
-                                        shape = RoundedCornerShape(12.dp),
-                                        color = colors.surface.copy(alpha = 0.88f),
-                                        border = BorderStroke(1.dp, colors.primary.copy(alpha = 0.25f)),
-                                        modifier = Modifier.fillMaxWidth()
+                                        shape = CircleShape,
+                                        color = colors.primary
                                     ) {
-                                        Column(
-                                            Modifier.fillMaxWidth().padding(10.dp),
-                                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                                        Row(
+                                            Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(3.dp)
                                         ) {
+                                            Icon(
+                                                Icons.Filled.Star,
+                                                contentDescription = null,
+                                                tint = selectedChipInk,
+                                                modifier = Modifier.size(12.dp)
+                                            )
                                             Text(
-                                                "معاينة النص",
+                                                stringResource(R.string.subtitle_best_match),
+                                                color = selectedChipInk,
                                                 style = MaterialTheme.typography.labelSmall,
-                                                color = colors.primary,
                                                 fontWeight = FontWeight.Bold
                                             )
-                                            when {
-                                                previewLoading -> Text(
-                                                    "جارٍ جلب أول الأسطر…",
+                                        }
+                                    }
+                                }
+                                ResultBadge(
+                                    when (cardState.normalizedLanguage) {
+                                        "ar" -> stringResource(R.string.subtitle_lang_badge_ar)
+                                        "en" -> stringResource(R.string.subtitle_lang_badge_en)
+                                        "" -> stringResource(R.string.subtitle_lang_badge_en)
+                                        else -> cardState.normalizedLanguage.uppercase()
+                                    },
+                                    colors.primaryContainer,
+                                    colors.onPrimaryContainer
+                                )
+                                ResultBadge(
+                                    subtitle.format.uppercase(),
+                                    colors.tertiaryContainer,
+                                    colors.onTertiaryContainer
+                                )
+                                Spacer(Modifier.weight(1f))
+                                Text(
+                                    providerLabel(subtitle.provider),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = colors.onSurfaceVariant
+                                )
+                            }
+
+                            val cleanRelease = SubtitleQueryCleaner.clean(subtitle.release).title
+                                .ifBlank { subtitle.release }
+                            Text(
+                                cleanRelease,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold
+                            )
+
+                            val episodeContext = buildList {
+                                subtitle.seasonNumber?.let {
+                                    add(stringResource(R.string.subtitle_season_chip, it))
+                                }
+                                subtitle.episodeNumber?.let {
+                                    add(stringResource(R.string.subtitle_episode_chip, it))
+                                }
+                            }.joinToString("  •  ")
+                            if (episodeContext.isNotBlank()) {
+                                Text(
+                                    stringResource(R.string.subtitle_search_scope, episodeContext),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = colors.onSurfaceVariant,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    pluralStringResource(
+                                        R.plurals.subtitle_downloads_count,
+                                        subtitle.downloads,
+                                        subtitle.downloads
+                                    ),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = colors.onSurfaceVariant
+                                )
+                                Spacer(Modifier.weight(1f))
+                                OutlinedButton(
+                                    onClick = { onPreviewSubtitle(subtitle) },
+                                    enabled = cardState.previewEnabled,
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    if (isPreviewLoading) {
+                                        CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+                                        Spacer(Modifier.size(6.dp))
+                                    } else {
+                                        Icon(Icons.Filled.Visibility, null, Modifier.size(15.dp))
+                                        Spacer(Modifier.size(5.dp))
+                                    }
+                                    Text(stringResource(cardState.previewLabelRes))
+                                }
+                                Button(
+                                    onClick = { downloadingKey = key; onDownload(subtitle) },
+                                    enabled = cardState.buttonsEnabled,
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    if (isDownloading) {
+                                        CircularProgressIndicator(
+                                            Modifier.size(15.dp),
+                                            strokeWidth = 2.dp,
+                                            color = selectedChipInk
+                                        )
+                                        Spacer(Modifier.size(6.dp))
+                                    } else {
+                                        Icon(Icons.Filled.Download, null, Modifier.size(15.dp))
+                                        Spacer(Modifier.size(5.dp))
+                                    }
+                                    Text(stringResource(cardState.primaryLabelRes))
+                                }
+                            }
+
+                            AnimatedVisibility(visible = isPreviewingThis && (previewLoading || previewError != null || previewLines.isNotEmpty())) {
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = colors.surface.copy(alpha = 0.88f),
+                                    border = BorderStroke(1.dp, colors.primary.copy(alpha = 0.25f)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(
+                                        Modifier.fillMaxWidth().padding(10.dp),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Text(
+                                            stringResource(R.string.subtitle_preview_header),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = colors.primary,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        when {
+                                            previewLoading -> Text(
+                                                stringResource(R.string.subtitle_preview_fetching_lines),
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = colors.onSurfaceVariant
+                                            )
+                                            previewError != null -> Text(
+                                                previewError,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = colors.error
+                                            )
+                                            else -> previewLines.forEach { line ->
+                                                Text(
+                                                    line,
                                                     style = MaterialTheme.typography.bodySmall,
-                                                    color = colors.onSurfaceVariant
+                                                    color = colors.onSurface,
+                                                    maxLines = 2,
+                                                    overflow = TextOverflow.Ellipsis
                                                 )
-                                                previewError != null -> Text(
-                                                    previewError,
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = colors.error
-                                                )
-                                                else -> previewLines.forEach { line ->
-                                                    Text(
-                                                        line,
-                                                        style = MaterialTheme.typography.bodySmall,
-                                                        color = colors.onSurface,
-                                                        maxLines = 2,
-                                                        overflow = TextOverflow.Ellipsis
-                                                    )
-                                                }
                                             }
                                         }
                                     }
                                 }
+                            }
 
-                                if (!isArabic) {
-                                    TextButton(
-                                        onClick = {
-                                            downloadingKey = "$key:ai"
-                                            onDownloadAndTranslate(subtitle)
-                                        },
-                                        enabled = !loading,
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        if (isAiTranslating) {
-                                            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                                            Spacer(Modifier.size(7.dp))
-                                        } else {
-                                            Icon(Icons.Filled.AutoAwesome, null, Modifier.size(16.dp))
-                                            Spacer(Modifier.size(6.dp))
-                                        }
-                                        Text(
-                                            if (isAiTranslating) "جارٍ التنزيل والترجمة…"
-                                            else "تنزيل وترجمة للعربية (AI)"
-                                        )
+                            cardState.aiLabelRes?.let { aiLabelRes ->
+                                TextButton(
+                                    onClick = {
+                                        downloadingKey = "$key:ai"
+                                        onDownloadAndTranslate(subtitle)
+                                    },
+                                    enabled = cardState.buttonsEnabled,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    if (isAiTranslating) {
+                                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                                        Spacer(Modifier.size(7.dp))
+                                    } else {
+                                        Icon(Icons.Filled.AutoAwesome, null, Modifier.size(16.dp))
+                                        Spacer(Modifier.size(6.dp))
                                     }
+                                    Text(stringResource(aiLabelRes))
                                 }
                             }
                         }
                     }
                 }
-
-                if (loading && downloadingKey != null) {
-                    Text(
-                        "جارٍ تنزيل ملف الترجمة وتطبيقه على الفيديو…",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = colors.onSurfaceVariant
-                    )
-                }
-                Spacer(Modifier.height(2.dp))
             }
+
+            resolveSubtitleFooterStatusRes(
+                loading = loading,
+                downloadingKey = downloadingKey,
+                translationLoading = translationLoading
+            )?.let { footerRes ->
+                Text(
+                    stringResource(footerRes),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.onSurfaceVariant
+                )
+            }
+            Spacer(Modifier.height(2.dp))
         }
     }
 }
@@ -843,10 +1018,11 @@ private fun ResultBadge(
     }
 }
 
+@Composable
 private fun providerLabel(provider: String): String = when (provider) {
-    "subtitleSearchEngine" -> "subtitles.website"
-    "subdl" -> "SubDL"
-    "opensubtitles" -> "OpenSubtitles (قديم)"
-    "subf2m" -> "Subf2m"
+    "subtitleSearchEngine" -> stringResource(R.string.subtitle_provider_website)
+    "subdl" -> stringResource(R.string.subtitle_provider_subdl)
+    "opensubtitles" -> stringResource(R.string.subtitle_provider_opensubtitles_legacy)
+    "subf2m" -> stringResource(R.string.subtitle_provider_subf2m)
     else -> provider
 }
