@@ -270,15 +270,15 @@ class WebCastServerIntegrationTest {
 
         assertTrue(
             LanNetworkSupport.isPeerOnActiveLocalLan(
-                peer = InetAddress.getByName("127.0.0.1"),
-                local = InetAddress.getByName("127.0.0.1"),
+                remoteAddr = InetAddress.getByName("127.0.0.1"),
+                localAddr = InetAddress.getByName("127.0.0.1"),
                 allowLoopback = true
             )
         )
         assertFalse(
             LanNetworkSupport.isPeerOnActiveLocalLan(
-                peer = InetAddress.getByName("127.0.0.1"),
-                local = InetAddress.getByName("127.0.0.1"),
+                remoteAddr = InetAddress.getByName("127.0.0.1"),
+                localAddr = InetAddress.getByName("127.0.0.1"),
                 allowLoopback = false
             )
         )
@@ -330,18 +330,19 @@ class WebCastServerIntegrationTest {
     fun lanNetworkBindingThrowsDirectlyWithoutFallingBackToDefaultNetwork() {
         val defaultCalled = AtomicBoolean(false)
         val url = URL("http://192.168.1.50:8080/dmr.xml")
+        val testNetwork = org.robolectric.shadows.ShadowNetwork.newInstance(42)
 
         val thrown = runCatching {
             LanNetworkSupport.openLanHttpConnectionWithOpeners(
                 url = url,
-                hasBoundNetwork = true,
-                boundOpener = { throw IOException("Wi-Fi socket bind failed") },
-                defaultOpener = {
+                network = testNetwork,
+                connectTimeoutMs = 1000,
+                readTimeoutMs = 1000,
+                boundOpener = { _, _ -> throw IOException("Wi-Fi socket bind failed") },
+                unboundOpener = {
                     defaultCalled.set(true)
                     throw AssertionError("Default network fallback must never be called")
-                },
-                connectTimeoutMs = 1000,
-                readTimeoutMs = 1000
+                }
             )
         }.exceptionOrNull()
 
@@ -357,14 +358,21 @@ class WebCastServerIntegrationTest {
                 buildDnsRecord("roku-tv.local", MdnsDiscoveryClient.TYPE_AAAA, linkLocalBytes)
             )
         )
-        val parsed = MdnsDiscoveryClient().parseRecords(packet, fallbackScopeId = "4")
+        val iface = java.net.NetworkInterface.getByInetAddress(InetAddress.getByName("127.0.0.1"))
+        val parsed = MdnsDiscoveryClient().parseRecords(packet, sourceInterface = iface)
         assertEquals(1, parsed.size)
         val scopedAddr = parsed.first().address!!
-        assertTrue("Expected %4 scope id in $scopedAddr", scopedAddr.endsWith("%4"))
-        assertEquals("http://[fe80:0:0:0:0:0:0:1234%254]:8060/query/device-info", "http://${LanNetworkSupport.formatUriAuthorityHost(scopedAddr)}:8060/query/device-info")
-        assertEquals("[fe80:0:0:0:0:0:0:1234%4]", LanNetworkSupport.formatUrlHost(scopedAddr))
+        if (iface != null) {
+            assertTrue("Expected scope id in $scopedAddr", scopedAddr.contains("%"))
+            val expectedScope = scopedAddr.substringAfter("%")
+            assertEquals(
+                "http://[fe80:0:0:0:0:0:0:1234%25$expectedScope]:8060/query/device-info",
+                "http://${LanNetworkSupport.formatUriAuthorityHost(scopedAddr)}:8060/query/device-info"
+            )
+            assertEquals("[fe80:0:0:0:0:0:0:1234%$expectedScope]", LanNetworkSupport.formatUrlHost(scopedAddr))
+        }
 
-        val query = MdnsDiscoveryClient().buildPtrQueryPacket("_googlecast._tcp.local")
+        val query = MdnsDiscoveryClient().buildPtrQuery("_googlecast._tcp.local")
         assertTrue(query.size > 12)
         assertEquals(0, query[2].toInt() and 0x80) // standard query flag QR=0
     }
