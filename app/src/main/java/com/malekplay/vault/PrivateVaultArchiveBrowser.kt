@@ -688,8 +688,10 @@ class PrivateVaultArchiveBrowser(
                                 zipOut.closeEntry()
                             }
                         }
+                        zipOut.finish()
+                        rawOut.flush()
+                        rawOut.fd.sync()
                     }
-                    rawOut.fd.sync()
                 }
             }
 

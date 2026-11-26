@@ -9,6 +9,7 @@ import android.provider.MediaStore
 import android.provider.OpenableColumns
 import java.io.File
 import java.io.FileInputStream
+import java.io.FileNotFoundException
 import java.io.FileOutputStream
 import java.io.IOException
 import java.io.OutputStream
@@ -763,6 +764,8 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
     private fun documentStillExists(uri: Uri): Boolean {
         fun hasRows(projection: Array<String>): Boolean? = try {
             resolver.query(uri, projection, null, null, null)?.use { it.moveToFirst() }
+        } catch (_: FileNotFoundException) {
+            false
         } catch (_: Exception) {
             null
         }

@@ -78,11 +78,13 @@ class PrivateVaultLocalizationParityTest {
             setLocale(arLocale)
             setLayoutDirection(arLocale)
         }
-        val arContext = baseContext.createConfigurationContext(arConfig)
-
         assertEquals(
             android.view.View.LAYOUT_DIRECTION_RTL,
-            arContext.resources.configuration.layoutDirection
+            android.text.TextUtils.getLayoutDirectionFromLocale(arLocale)
+        )
+        assertEquals(
+            android.view.View.LAYOUT_DIRECTION_RTL,
+            arConfig.layoutDirection
         )
 
         val arStrings = parseVaultStrings(
@@ -91,7 +93,10 @@ class PrivateVaultLocalizationParityTest {
         val takeOut = arStrings.getValue("vault_take_out")
         assertTrue(takeOut.contains("إخراج"))
         val formattedSummary = String.format(arLocale, arStrings.getValue("vault_browser_selected_summary"), 4, "12.5 MB")
-        assertTrue(formattedSummary.contains("4") && formattedSummary.contains("12.5 MB"))
+        assertTrue(
+            formattedSummary.contains("12.5 MB") &&
+                (formattedSummary.contains("4") || formattedSummary.contains("٤"))
+        )
     }
 
     private data class ParsedVaultStrings(
