@@ -15,7 +15,13 @@ internal object SrtSubtitleParser {
     private val assTimestampPattern = Regex("""^(\d+):(\d{2}):(\d{2})[.](\d{1,2})$""")
 
     fun cleanTimingLine(line: String): String =
-        invisibleDirectionMarks.replace(line, " ").trim()
+        invisibleDirectionMarks.replace(line, " ").map { char ->
+            when (char) {
+                in '\u0660'..'\u0669' -> ('0'.code + char.code - '\u0660'.code).toChar()
+                in '\u06F0'..'\u06F9' -> ('0'.code + char.code - '\u06F0'.code).toChar()
+                else -> char
+            }
+        }.joinToString("").trim()
 
     fun isTimingLine(line: String): Boolean =
         line.contains("-->") && timingPattern.matches(cleanTimingLine(line))
