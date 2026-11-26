@@ -12,14 +12,9 @@ import java.util.concurrent.TimeUnit
  * Direct SubF2M HTML provider. The site has no public JSON API, so parsing is deliberately
  * bounded and accepts only the site's known page paths and supported subtitle rows.
  */
-internal class Subf2mSubtitleProvider {
-    private val client = OkHttpClient.Builder()
-        .followRedirects(false)
-        .followSslRedirects(false)
-        .connectTimeout(12, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
-        .callTimeout(35, TimeUnit.SECONDS)
-        .build()
+internal class Subf2mSubtitleProvider(
+    private val client: OkHttpClient = defaultClient()
+) {
 
     fun search(
         title: String,
@@ -310,9 +305,9 @@ internal class Subf2mSubtitleProvider {
 
     internal fun isExactEpisode(release: String, season: Int, episode: Int): Boolean {
         val patterns = listOf(
-            Regex("(?i)\\bs0*\\$season\\s*e0*\\$episode\\b"),
-            Regex("(?i)\\b0*\\$season\\s*x\\s*0*\\$episode\\b"),
-            Regex("(?i)\\bseason\\s*0*\\$season\\s*[- ]\\s*0*\\$episode\\b")
+            Regex("(?i)\\bs0*$season\\s*e0*$episode\\b"),
+            Regex("(?i)\\b0*$season\\s*x\\s*0*$episode\\b"),
+            Regex("(?i)\\bseason\\s*0*$season\\s*[- ]\\s*0*$episode\\b")
         )
         return patterns.any { it.containsMatchIn(release) } &&
             !SubtitleResultPolicy.isMultiEpisodeRange(release, season)
@@ -324,12 +319,28 @@ internal class Subf2mSubtitleProvider {
         Html.fromHtml(value).toString().replace(Regex("\\s+"), " ").trim()
 
     private fun looksLikeHtml(bytes: ByteArray): Boolean {
-        val head = bytes.take(256).toByteArray().toString(Charsets.UTF_8).trimStart()
-        return head.startsWith("<!DOCTYPE", true) || head.startsWith("<html", true)
+        val head = bytes.take(2048).toByteArray().toString(Charsets.UTF_8)
+            .trimStart('\uFEFF', ' ', '\t', '\n', '\r')
+            .lowercase(Locale.ROOT)
+        if (head.startsWith("<!doctype") ||
+            head.startsWith("<html") ||
+            head.startsWith("<head") ||
+            head.startsWith("<body")
+        ) return true
+        val looksChallenge = head.contains("just a moment...") ||
+            head.contains("cf-browser-verification")
+        return looksChallenge && !head.contains("-->") && !head.contains("dialogue:")
     }
 
     companion object {
         const val PROVIDER = "subf2m"
+        private fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
+            .followRedirects(false)
+            .followSslRedirects(false)
+            .connectTimeout(12, TimeUnit.SECONDS)
+            .readTimeout(20, TimeUnit.SECONDS)
+            .callTimeout(35, TimeUnit.SECONDS)
+            .build()
         private const val HOST = "subf2m.co"
         private const val CDN_HOST = "isubcdn.com"
         private const val BASE = "https://subf2m.co"

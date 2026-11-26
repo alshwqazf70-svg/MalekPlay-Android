@@ -66,6 +66,7 @@ data class UltraShareServiceState(
     val hotspotPassword: String? = null,
     val hotspotStarting: Boolean = false,
     val hotspotActive: Boolean = false,
+    val hotspotFailed: Boolean = false,
     val receivedFile: UltraShareCore.ReceivedFile? = null,
     val status: String? = null,
     val error: String? = null,
@@ -1002,13 +1003,14 @@ class UltraShareForegroundService : Service() {
     @SuppressLint("MissingPermission")
     private fun startLocalHotspot() {
         if (hotspotController.isActive || hotspotController.isStarting || currentState().hotspotStarting) return
-        updateState { it.copy(hotspotStarting = true, error = null, status = "جارٍ إنشاء شبكة MalekPlayer المحلية...") }
+        updateState { it.copy(hotspotStarting = true, hotspotFailed = false, error = null, status = "جارٍ إنشاء شبكة MalekPlayer المحلية...") }
         hotspotController.start(
             onStarted = { ssid, password, addresses ->
                 updateState { current ->
                     current.copy(
                         hotspotStarting = false,
                         hotspotActive = true,
+                        hotspotFailed = false,
                         hotspotSsid = ssid.takeIf { it.isNotBlank() },
                         hotspotPassword = password,
                         localAddresses = addresses,
@@ -1023,6 +1025,7 @@ class UltraShareForegroundService : Service() {
                     current.copy(
                         hotspotStarting = false,
                         hotspotActive = false,
+                        hotspotFailed = false,
                         hotspotSsid = null,
                         hotspotPassword = null,
                         status = "أوقِفت نقطة اتصال MalekPlayer."
@@ -1031,7 +1034,18 @@ class UltraShareForegroundService : Service() {
                 finishService()
             },
             onFailure = { message ->
-                updateState { it.copy(hotspotStarting = false, hotspotActive = false, hotspotSsid = null, hotspotPassword = null, error = message) }
+                val liveLan = UltraShareDeviceNetworkInfo.findLocalIpv4Addresses(this)
+                updateState {
+                    it.copy(
+                        hotspotStarting = false,
+                        hotspotActive = false,
+                        hotspotFailed = true,
+                        hotspotSsid = null,
+                        hotspotPassword = null,
+                        localAddresses = liveLan.ifEmpty { it.localAddresses },
+                        error = message
+                    )
+                }
                 finishService()
             }
         )
@@ -1039,7 +1053,7 @@ class UltraShareForegroundService : Service() {
 
     private fun stopLocalHotspot() {
         hotspotController.stop()
-        updateState { it.copy(hotspotStarting = false, hotspotActive = false, hotspotSsid = null, hotspotPassword = null) }
+        updateState { it.copy(hotspotStarting = false, hotspotActive = false, hotspotFailed = false, hotspotSsid = null, hotspotPassword = null) }
         finishService()
     }
 

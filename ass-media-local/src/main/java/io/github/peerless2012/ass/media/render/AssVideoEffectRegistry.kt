@@ -38,8 +38,12 @@ object AssVideoEffectRegistry {
      * ExoPlayer application looper, or Media3 rejects the effect list.
      */
     @Synchronized
-    fun setAdditionalEffects(player: ExoPlayer, effects: List<Effect>): Boolean {
+    fun setAdditionalEffects(
+        player: ExoPlayer,
+        effects: List<Effect>,
+        allowRebind: Boolean = true
+    ): Boolean {
         val manager = managers[player] ?: return false
-        return manager.setAdditionalEffects(effects)
+        return manager.setAdditionalEffects(effects, allowRebind)
     }
 }

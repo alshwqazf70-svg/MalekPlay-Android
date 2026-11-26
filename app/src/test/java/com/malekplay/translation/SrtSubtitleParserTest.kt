@@ -172,4 +172,18 @@ Dialogue: 0,0:00:04.00,0:00:05.25,Default,,0,0,0,,Another cue
         )
     }
 
+    @Test
+    fun splitsCompactSrtCuesWithoutBlankLinesAndRestoresDollarTagsSafely() {
+        val compact = "1\n00:00:01,000 --> 00:00:02,000\nFirst line\n2\n00:00:03,000 --> 00:00:04,000\nSecond line"
+        val cues = SrtSubtitleParser.splitBlocks(compact)
+        assertEquals(2, cues.size)
+        assertTrue(cues[0].contains("First line"))
+        assertTrue(cues[1].contains("Second line"))
+
+        val (masked, tags) = SrtSubtitleParser.maskMarkup("""<font color="$100\">Hello</font>""")
+        assertEquals("""<font color="$100\">مرحبا</font>""", SrtSubtitleParser.restoreMarkup(
+            masked.replace("Hello", "مرحبا"), tags
+        ))
+    }
+
 }

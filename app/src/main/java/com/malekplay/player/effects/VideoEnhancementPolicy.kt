@@ -15,13 +15,15 @@ enum class VideoEnhancementProfile(
     /** Maximum intermediate texture area, limiting GPU memory and fragment workload. */
     val upscaleMaxPixels: Int,
     /** Frame interpolation remains disabled for every preset; no synthetic frames are generated. */
-    val previousFrameWeight: Float = 0f
+    val previousFrameWeight: Float = 0f,
+    /** Gentle skin-protected color vibrance boost for SDR/compressed footage. */
+    val vibranceStrength: Float = 0f
 ) {
     // Presets have deliberately separated spatial-detail strengths while keeping
     // denoise and texture budgets conservative on mobile GPUs.
-    ECONOMY("economy", 0.22f, 0.62f, 0.09f, 0.10f, 1920, 1_500_000),
-    BALANCED("balanced", 0.34f, 0.90f, 0.14f, 0.19f, 2560, 2_500_000),
-    ULTRA("ultra", 0.44f, 1.12f, 0.19f, 0.27f, 2960, 3_500_000);
+    ECONOMY("economy", 0.22f, 0.62f, 0.09f, 0.10f, 1920, 1_500_000, vibranceStrength = 0.04f),
+    BALANCED("balanced", 0.34f, 0.90f, 0.14f, 0.19f, 2560, 2_500_000, vibranceStrength = 0.08f),
+    ULTRA("ultra", 0.44f, 1.12f, 0.19f, 0.27f, 2960, 3_500_000, vibranceStrength = 0.12f);
 
     companion object {
         fun fromWireValue(value: String?): VideoEnhancementProfile =

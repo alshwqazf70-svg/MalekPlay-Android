@@ -25,4 +25,8 @@ class SettingsViewModel @Inject constructor(
     fun update(transform: (PlayerSettings) -> PlayerSettings) {
         viewModelScope.launch { repository.update(transform) }
     }
+
+    fun resetToDefaults() {
+        viewModelScope.launch { repository.update { PlayerSettings() } }
+    }
 }

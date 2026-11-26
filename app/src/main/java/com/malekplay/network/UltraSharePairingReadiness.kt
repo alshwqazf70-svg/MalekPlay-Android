@@ -6,6 +6,8 @@ package com.malekplay.network
  * its delay or failure must not block pairing.
  */
 internal object UltraSharePairingReadiness {
+    enum class QrJoinTransport { WIFI_DIRECT, LAN, HOTSPOT }
+
     /** P2P recovery is allowed only after LAN probing and any hotspot transition are complete. */
     fun shouldStartWifiDirectFallback(
         receiving: Boolean,
@@ -25,6 +27,27 @@ internal object UltraSharePairingReadiness {
             !wifiDirectAlreadyAttempted &&
             !hasActivePeers &&
             !hasActiveLanRoute
+
+    /**
+     * Primary receiver policy: always prefer Wi-Fi Direct first regardless of
+     * whether a LAN route is also active; LAN is used automatically only if
+     * Wi-Fi Direct fails or is unavailable.
+     */
+    fun shouldStartPrimaryWifiDirect(
+        receiving: Boolean,
+        hotspotActive: Boolean,
+        hotspotFallbackStarted: Boolean,
+        invitationIdBlank: Boolean,
+        wifiDirectAlreadyAttempted: Boolean,
+        hasActivePeers: Boolean
+    ): Boolean =
+        receiving &&
+            !hotspotActive &&
+            !hotspotFallbackStarted &&
+            invitationIdBlank &&
+            !wifiDirectAlreadyAttempted &&
+            !hasActivePeers
+
     /**
      * Legacy unified-v5 invitations carry a DNS-SD peer ID but no explicit mode.
      * Treat that identity as a P2P invitation before considering optional SSID/PSK
@@ -32,6 +55,43 @@ internal object UltraSharePairingReadiness {
      */
     fun shouldUseWifiDirectInvitation(mode: String?, invitationId: String?): Boolean =
         !invitationId.isNullOrBlank() && (mode.isNullOrBlank() || mode == "p2p")
+
+    /**
+     * Orders QR join transports so Wi-Fi Direct is primary whenever the invitation
+     * carries a P2P identity. On captive-portal ("voucher"/public) Wi-Fi networks,
+     * Hotspot takes priority over LAN fallback to bypass client isolation like Zapya.
+     */
+    fun resolveQrJoinRoutePlan(
+        mode: String?,
+        invitationId: String?,
+        hasWifiCredentials: Boolean,
+        hasLanHosts: Boolean,
+        preferHotspotOverLan: Boolean = false
+    ): List<QrJoinTransport> = buildList {
+        val hasInvitation = !invitationId.isNullOrBlank()
+        when (mode?.lowercase()) {
+            "lan" -> {
+                if (hasLanHosts) add(QrJoinTransport.LAN)
+                if (hasInvitation) add(QrJoinTransport.WIFI_DIRECT)
+                if (hasWifiCredentials) add(QrJoinTransport.HOTSPOT)
+            }
+            "hotspot" -> {
+                if (hasWifiCredentials) add(QrJoinTransport.HOTSPOT)
+                if (hasInvitation) add(QrJoinTransport.WIFI_DIRECT)
+                if (hasLanHosts) add(QrJoinTransport.LAN)
+            }
+            else -> {
+                if (hasInvitation) add(QrJoinTransport.WIFI_DIRECT)
+                if (preferHotspotOverLan) {
+                    if (hasWifiCredentials) add(QrJoinTransport.HOTSPOT)
+                    if (hasLanHosts) add(QrJoinTransport.LAN)
+                } else {
+                    if (hasLanHosts) add(QrJoinTransport.LAN)
+                    if (hasWifiCredentials) add(QrJoinTransport.HOTSPOT)
+                }
+            }
+        }
+    }
 
     /** Keep a receiver's QR advertisement alive while its room can accept additional peers. */
     fun shouldRetainReceiverInvitationAdvertisement(receiving: Boolean): Boolean = receiving
@@ -62,8 +122,14 @@ internal object UltraSharePairingReadiness {
             password.length in 8..63 &&
             hosts.any(UltraShareCore::isValidPrivateLanHost)
 
-    /** Allow slow OEM DNS-SD setup and discovery, but bound a scan that never finds its peer. */
+    /** Allow slow OEM DNS-SD setup and discovery, but bound a scan that never finds its peer before falling back to LAN. */
     const val WIFI_DIRECT_INVITATION_DISCOVERY_TIMEOUT_MS = 25_000L
+
+    /** Bound Wi-Fi Direct peer connection negotiation before falling back to LAN automatically. */
+    const val WIFI_DIRECT_CONNECT_FALLBACK_TIMEOUT_MS = 18_000L
+
+    /** Bound receiver-side Wi-Fi Direct group/advertisement startup before falling back to LAN automatically. */
+    const val WIFI_DIRECT_RECEIVER_STARTUP_FALLBACK_TIMEOUT_MS = 12_000L
 
     /** A delayed callback may mutate state only while its exact invitation attempt is current. */
     fun isCurrentInvitationAttempt(current: Any?, expected: Any): Boolean = current === expected

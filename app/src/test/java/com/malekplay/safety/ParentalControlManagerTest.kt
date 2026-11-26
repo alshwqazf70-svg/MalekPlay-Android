@@ -75,6 +75,7 @@ class ParentalControlManagerTest {
         }
 
         assertFalse(manager.verifyPin("4826"))
+        assertTrue(manager.remainingLockoutSeconds() > 0)
     }
 
     @Test
@@ -84,6 +85,33 @@ class ParentalControlManagerTest {
         assertTrue(manager.verifyPin("٤٨٢٦"))
         assertTrue(manager.verifyPin("4826"))
         assertFalse(manager.verifyPin("٤٨٢٧"))
+    }
+
+    @Test
+    fun changePinRequiresCurrentPinAndUpdatesSecret() {
+        manager.setPin("4826")
+
+        assertFalse(manager.changePin("1111", "9517"))
+        assertTrue(manager.verifyPin("4826"))
+
+        assertTrue(manager.changePin("4826", "9517"))
+        assertFalse(manager.verifyPin("4826"))
+        assertTrue(manager.verifyPin("9517"))
+    }
+
+    @Test
+    fun sessionLimitTracksRemainingTimeAndExtendsAfterPin() {
+        manager.setPin("4826")
+        manager.setSessionLimitMinutes(30)
+        assertTrue(manager.enableAfterPin("4826"))
+
+        assertFalse(manager.isSessionExpired())
+        assertTrue(manager.remainingSessionSeconds() in 1..1800)
+
+        assertFalse(manager.extendSessionAfterPin("1111", 15))
+        assertTrue(manager.extendSessionAfterPin("4826", 15))
+        assertEquals(15, manager.sessionLimitMinutes)
+        assertFalse(manager.isSessionExpired())
     }
 
 }

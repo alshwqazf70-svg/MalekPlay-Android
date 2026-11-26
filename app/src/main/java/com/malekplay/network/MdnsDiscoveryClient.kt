@@ -12,34 +12,54 @@ import java.util.Locale
 
 internal fun classifyMdnsService(service: String): NetworkDeviceKind = when {
     service.contains("_smb._tcp", true) -> NetworkDeviceKind.NETWORK_DEVICE
+    service.contains("_workstation._tcp", true) ||
+        service.contains("_afpovertcp._tcp", true) ||
+        service.contains("_sftp-ssh._tcp", true) -> NetworkDeviceKind.WINDOWS_COMPUTER
     service.contains("_googlecast._tcp", true) ||
         service.contains("_androidtvremote2._tcp", true) ||
         service.contains("_mediaremotetv._tcp", true) ||
         service.contains("_airplay._tcp", true) ||
-        service.contains("_raop._tcp", true) -> NetworkDeviceKind.MEDIA_RENDERER
+        service.contains("_raop._tcp", true) ||
+        service.contains("_samsungmsf._tcp", true) ||
+        service.contains("_lge-smarttv._tcp", true) ||
+        service.contains("_roku._tcp", true) ||
+        service.contains("_dlna._tcp", true) -> NetworkDeviceKind.MEDIA_RENDERER
     else -> NetworkDeviceKind.NETWORK_DEVICE
+}
+
+internal fun protocolsForMdnsService(service: String): Set<TvCastProtocol> = when {
+    service.contains("_googlecast._tcp", true) ||
+        service.contains("_androidtvremote2._tcp", true) -> setOf(TvCastProtocol.CHROMECAST)
+    service.contains("_airplay._tcp", true) ||
+        service.contains("_raop._tcp", true) -> setOf(TvCastProtocol.AIRPLAY)
+    service.contains("_roku._tcp", true) -> setOf(TvCastProtocol.ROKU_ECP)
+    service.contains("_dlna._tcp", true) ||
+        service.contains("_samsungmsf._tcp", true) ||
+        service.contains("_lge-smarttv._tcp", true) -> setOf(TvCastProtocol.DLNA)
+    else -> emptySet()
 }
 
 /** Discovers devices advertising common TV, phone and file-sharing services over mDNS/DNS-SD. */
 internal class MdnsDiscoveryClient {
-    suspend fun discover(network: Network): List<DiscoveredNetworkDevice> = withContext(Dispatchers.IO) {
+    suspend fun discover(network: Network?): List<DiscoveredNetworkDevice> = withContext(Dispatchers.IO) {
         val instances = LinkedHashMap<String, String>()
         val servers = LinkedHashMap<String, Pair<String, Int>>()
         val addresses = LinkedHashMap<String, String>()
         val fallbackHosts = LinkedHashMap<String, String>()
         val friendlyNames = LinkedHashMap<String, String>()
+        val modelNames = LinkedHashMap<String, String>()
         val supportedServices = SERVICE_TYPES.toSet()
         MulticastSocket(null).use { socket ->
-            network.bindSocket(socket)
+            if (network != null) runCatching { network.bindSocket(socket) }
             socket.reuseAddress = true
             socket.bind(InetSocketAddress(MDNS_PORT))
             socket.soTimeout = RECEIVE_TIMEOUT_MS
             socket.timeToLive = 1
             val group = InetAddress.getByName(MDNS_GROUP)
-            socket.joinGroup(group)
+            runCatching { socket.joinGroup(group) }
             SERVICE_TYPES.forEach { service ->
                 val query = buildPtrQuery(service)
-                socket.send(DatagramPacket(query, query.size, group, MDNS_PORT))
+                runCatching { socket.send(DatagramPacket(query, query.size, group, MDNS_PORT)) }
             }
             val deadline = System.nanoTime() + DISCOVERY_WINDOW_MS * 1_000_000L
             val buffer = ByteArray(MAX_PACKET_BYTES)
@@ -68,7 +88,10 @@ internal class MdnsDiscoveryClient {
                             fallbackHosts[record.name.lowercase(Locale.ROOT)] = sourceHost
                         }
                         TYPE_A -> record.address?.let { addresses[record.name.lowercase(Locale.ROOT)] = it }
-                        TYPE_TXT -> record.text?.let { friendlyNames[record.name.lowercase(Locale.ROOT)] = it }
+                        TYPE_TXT -> {
+                            record.text?.let { friendlyNames[record.name.lowercase(Locale.ROOT)] = it }
+                            record.model?.let { modelNames[record.name.lowercase(Locale.ROOT)] = it }
+                        }
                     }
                 }
             }
@@ -84,6 +107,7 @@ internal class MdnsDiscoveryClient {
                 ?: instance.substringBefore("." + service.removeSuffix(".local"))
                     .replace("\\032", " ")
             val label = rawLabel.filterNot { it.isISOControl() }.trim().take(70).ifBlank { "جهاز شبكة" }
+            val model = modelNames[instance]?.filterNot { it.isISOControl() }?.trim()?.take(60)
             DiscoveredNetworkDevice(
                 id = "$host:MDNS:$serviceLabel",
                 name = label,
@@ -93,7 +117,9 @@ internal class MdnsDiscoveryClient {
                     "mDNS/DNS-SD",
                     serviceLabel,
                     server?.second?.takeIf { it in 1..65535 }?.let { "Port " + it }
-                ).toSet()
+                ).toSet(),
+                modelName = model,
+                castProtocols = protocolsForMdnsService(service)
             )
         }.distinctBy { it.host + ":" + it.services.elementAtOrNull(1) }
     }
@@ -143,6 +169,7 @@ internal class MdnsDiscoveryClient {
             var address: String? = null
             var port = 0
             var text: String? = null
+            var model: String? = null
             when (type) {
                 TYPE_PTR -> {
                     val decoded = decodeName(data, rdata)
@@ -165,15 +192,17 @@ internal class MdnsDiscoveryClient {
                         val partLength = data[cursor++].toInt() and 0xFF
                         if (cursor + partLength > end) break
                         val part = String(data, cursor, partLength, Charsets.UTF_8)
-                        if (part.startsWith("fn=") || part.startsWith("name=")) {
-                            text = part.substringAfter('=').take(70)
-                            break
+                        when {
+                            (part.startsWith("fn=") || part.startsWith("name=") || part.startsWith("n=")) && text == null ->
+                                text = part.substringAfter('=').take(70)
+                            (part.startsWith("md=") || part.startsWith("model=")) && model == null ->
+                                model = part.substringAfter('=').take(60)
                         }
                         cursor += partLength
                     }
                 }
             }
-            result += DnsRecord(name.lowercase(Locale.ROOT), type, target, address, port, text)
+            result += DnsRecord(name.lowercase(Locale.ROOT), type, target, address, port, text, model)
             offset = rdata + length
         }
         return result
@@ -213,7 +242,8 @@ internal class MdnsDiscoveryClient {
         val target: String? = null,
         val address: String? = null,
         val port: Int = 0,
-        val text: String? = null
+        val text: String? = null,
+        val model: String? = null
     )
 
     private companion object {
@@ -235,10 +265,17 @@ internal class MdnsDiscoveryClient {
             "_mediaremotetv._tcp.local",
             "_airplay._tcp.local",
             "_raop._tcp.local",
+            "_roku._tcp.local",
+            "_dlna._tcp.local",
+            "_samsungmsf._tcp.local",
+            "_lge-smarttv._tcp.local",
             "_companion-link._tcp.local",
             "_http._tcp.local",
             "_webdav._tcp.local",
-            "_smb._tcp.local"
+            "_smb._tcp.local",
+            "_workstation._tcp.local",
+            "_sftp-ssh._tcp.local",
+            "_afpovertcp._tcp.local"
         )
     }
 }

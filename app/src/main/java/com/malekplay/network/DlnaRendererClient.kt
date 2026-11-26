@@ -10,8 +10,9 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URL
-import java.util.concurrent.ConcurrentHashMap
+import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Validate renderer-pulled media URLs before embedding them in SOAP/DIDL.
@@ -56,54 +57,200 @@ internal fun validateDlnaRendererEndpointUrl(raw: String, deviceHost: String): U
 }
 
 /**
- * UPnP AVTransport control point for discovered DLNA renderers.
+ * Universal UPnP/DLNA AVTransport + RenderingControl + Roku ECP control point.
  *
- * The renderer pulls media from a URL reachable on the same LAN; this class
- * never uploads media bytes to the television.
+ * Designed for maximum smart TV compatibility (Samsung Tizen, LG webOS, Sony Bravia,
+ * Hisense, TCL, Philips, Panasonic, Android TV DLNA apps, Kodi, Xbox, PlayStation,
+ * and Roku TVs) with automatic DIDL-Lite metadata fallbacks and REL_TIME/ABS_TIME seek.
  */
 class DlnaRendererClient(
     private val connectTimeoutMs: Int = 5_000,
     private val readTimeoutMs: Int = 8_000
 ) {
-    private val endpointCache = ConcurrentHashMap<String, AvTransportEndpoint>()
+    private val endpointCache = ConcurrentHashMap<String, RendererEndpoints>()
 
-    data class PlaybackPosition(val positionMs: Long, val durationMs: Long)
+    data class PlaybackPosition(
+        val positionMs: Long,
+        val durationMs: Long,
+        val transportState: String? = null
+    )
 
-    suspend fun play(device: DiscoveredNetworkDevice, mediaUrl: String, title: String, mimeType: String) =
-        withContext(Dispatchers.IO) {
-            validateDlnaRendererMediaUrl(mediaUrl)
-            val endpoint = resolveAvTransportEndpoint(device)
-            soap(endpoint, "SetAVTransportURI", """
-                <InstanceID>0</InstanceID>
-                <CurrentURI>${escapeDlnaXml(mediaUrl)}</CurrentURI>
-                <CurrentURIMetaData>${escapeDlnaXml(buildDlnaDidlMetadata(title, mediaUrl, mimeType))}</CurrentURIMetaData>
-            """.trimIndent())
-            try {
-                soap(endpoint, "Play", "<InstanceID>0</InstanceID><Speed>1</Speed>")
-            } catch (failure: Exception) {
-                // Best-effort rollback: retain the original Play failure even if Stop also fails.
-                if (failure is CancellationException) throw failure
-                runCatching {
-                    soap(endpoint, "Stop", "<InstanceID>0</InstanceID>")
-                }
-                throw failure
-            }
+    private data class ServiceEndpoint(val controlUrl: URL, val serviceType: String)
+    private data class RendererEndpoints(
+        val avTransport: ServiceEndpoint,
+        val renderingControl: ServiceEndpoint?
+    )
+
+    suspend fun play(
+        device: DiscoveredNetworkDevice,
+        mediaUrl: String,
+        title: String,
+        mimeType: String,
+        subtitleUrl: String? = null,
+        sizeBytes: Long = -1L
+    ) = withContext(Dispatchers.IO) {
+        validateDlnaRendererMediaUrl(mediaUrl)
+        subtitleUrl?.let { validateDlnaRendererMediaUrl(it) }
+
+        val isRokuOnly = TvCastProtocol.ROKU_ECP in device.castProtocols &&
+            device.descriptionUrl == null &&
+            TvCastProtocol.DLNA !in device.castProtocols
+        if (isRokuOnly) {
+            playViaRokuEcp(device, mediaUrl, title, mimeType)
+            return@withContext
         }
 
-    suspend fun pause(device: DiscoveredNetworkDevice) = command(device, "Pause", "<InstanceID>0</InstanceID>")
-    suspend fun resume(device: DiscoveredNetworkDevice) = command(device, "Play", "<InstanceID>0</InstanceID><Speed>1</Speed>")
-    suspend fun stop(device: DiscoveredNetworkDevice) = command(device, "Stop", "<InstanceID>0</InstanceID>")
+        val endpoint = try {
+            resolveRendererEndpoints(device).avTransport
+        } catch (dlnaMissing: Exception) {
+            if (TvCastProtocol.ROKU_ECP in device.castProtocols) {
+                playViaRokuEcp(device, mediaUrl, title, mimeType)
+                return@withContext
+            }
+            throw dlnaMissing
+        }
+
+        val normalizedMime = mimeType.substringBefore(';').trim().ifBlank { "video/mp4" }
+        val metadataCandidates = buildList {
+            // 1) Rich DLNA metadata with OP=01 flags, size, and companion subtitles (Samsung/LG/Sony/Kodi).
+            add(buildEnhancedDlnaDidlMetadata(title, mediaUrl, normalizedMime, subtitleUrl, sizeBytes))
+            // 2) Standard minimal DIDL-Lite without DLNA flags/subtitles (strict older renderers).
+            add(buildDlnaDidlMetadata(title, mediaUrl, normalizedMime))
+            // 3) Generic video/mp4 fallback when a TV rejects container-specific MIME strings (e.g. x-matroska).
+            if (normalizedMime.startsWith("video/", true) && !normalizedMime.equals("video/mp4", true)) {
+                add(buildDlnaDidlMetadata(title, mediaUrl, "video/mp4"))
+            }
+            // 4) Empty metadata fallback for basic / budget smart TVs that reject DIDL-Lite XML.
+            add("")
+        }.distinct()
+
+        // Some TVs (notably older Samsung/LG models) reject SetAVTransportURI while previous media is still active.
+        runCatching { soap(endpoint, "Stop", "<InstanceID>0</InstanceID>") }
+
+        var lastFailure: Exception? = null
+        for (metadata in metadataCandidates) {
+            try {
+                soap(
+                    endpoint,
+                    "SetAVTransportURI",
+                    """
+                    <InstanceID>0</InstanceID>
+                    <CurrentURI>${escapeDlnaXml(mediaUrl)}</CurrentURI>
+                    <CurrentURIMetaData>${escapeDlnaXml(metadata)}</CurrentURIMetaData>
+                    """.trimIndent()
+                )
+                try {
+                    soap(endpoint, "Play", "<InstanceID>0</InstanceID><Speed>1</Speed>")
+                    return@withContext
+                } catch (playFailure: Exception) {
+                    if (playFailure is CancellationException) throw playFailure
+                    runCatching { soap(endpoint, "Stop", "<InstanceID>0</InstanceID>") }
+                    throw playFailure
+                }
+            } catch (failure: Exception) {
+                if (failure is CancellationException) throw failure
+                lastFailure = failure
+            }
+        }
+        throw lastFailure ?: IOException("تعذر بدء التشغيل على التلفزيون.")
+    }
+
+    suspend fun pause(device: DiscoveredNetworkDevice) {
+        if (isRokuPrimary(device)) {
+            sendRokuKeypress(device, "Play")
+            return
+        }
+        command(device, "Pause", "<InstanceID>0</InstanceID>")
+    }
+
+    suspend fun resume(device: DiscoveredNetworkDevice) {
+        if (isRokuPrimary(device)) {
+            sendRokuKeypress(device, "Play")
+            return
+        }
+        command(device, "Play", "<InstanceID>0</InstanceID><Speed>1</Speed>")
+    }
+
+    suspend fun stop(device: DiscoveredNetworkDevice) {
+        if (isRokuPrimary(device)) {
+            sendRokuKeypress(device, "Home")
+            return
+        }
+        command(device, "Stop", "<InstanceID>0</InstanceID>")
+    }
+
     suspend fun seek(device: DiscoveredNetworkDevice, positionMs: Long) {
         require(positionMs >= 0)
+        if (isRokuPrimary(device)) return
         val seconds = positionMs / 1000
         val target = "%02d:%02d:%02d".format(seconds / 3600, (seconds % 3600) / 60, seconds % 60)
-        command(device, "Seek", "<InstanceID>0</InstanceID><Unit>REL_TIME</Unit><Target>$target</Target>")
+        withContext(Dispatchers.IO) {
+            val endpoint = resolveRendererEndpoints(device).avTransport
+            try {
+                soap(endpoint, "Seek", "<InstanceID>0</InstanceID><Unit>REL_TIME</Unit><Target>$target</Target>")
+            } catch (failure: Exception) {
+                if (failure is CancellationException) throw failure
+                // Some LG/Sony/Philips TVs only accept ABS_TIME instead of REL_TIME.
+                soap(endpoint, "Seek", "<InstanceID>0</InstanceID><Unit>ABS_TIME</Unit><Target>$target</Target>")
+            }
+        }
+    }
+
+    suspend fun getVolume(device: DiscoveredNetworkDevice): Int? = withContext(Dispatchers.IO) {
+        val rendering = runCatching { resolveRendererEndpoints(device).renderingControl }.getOrNull()
+            ?: return@withContext null
+        val response = runCatching {
+            soap(rendering, "GetVolume", "<InstanceID>0</InstanceID><Channel>Master</Channel>")
+        }.getOrNull() ?: return@withContext null
+        extractSoapTag(response, "CurrentVolume")?.toIntOrNull()?.coerceIn(0, 100)
+    }
+
+    suspend fun setVolume(device: DiscoveredNetworkDevice, volumePercent: Int) = withContext(Dispatchers.IO) {
+        val clamped = volumePercent.coerceIn(0, 100)
+        if (isRokuPrimary(device)) {
+            // Roku ECP uses relative key presses; caller adjusts via stepVolume on Roku.
+            return@withContext
+        }
+        val rendering = resolveRendererEndpoints(device).renderingControl
+            ?: throw IOException("التلفزيون لا يدعم التحكم بالصوت عبر DLNA.")
+        soap(
+            rendering,
+            "SetVolume",
+            "<InstanceID>0</InstanceID><Channel>Master</Channel><DesiredVolume>$clamped</DesiredVolume>"
+        )
+        Unit
+    }
+
+    suspend fun stepVolume(device: DiscoveredNetworkDevice, up: Boolean) {
+        if (isRokuPrimary(device)) {
+            sendRokuKeypress(device, if (up) "VolumeUp" else "VolumeDown")
+            return
+        }
+        val current = getVolume(device) ?: 25
+        setVolume(device, (current + if (up) 5 else -5).coerceIn(0, 100))
+    }
+
+    suspend fun setMute(device: DiscoveredNetworkDevice, muted: Boolean) = withContext(Dispatchers.IO) {
+        if (isRokuPrimary(device)) {
+            sendRokuKeypress(device, "VolumeMute")
+            return@withContext
+        }
+        val rendering = resolveRendererEndpoints(device).renderingControl
+            ?: throw IOException("التلفزيون لا يدعم كتم الصوت عبر DLNA.")
+        soap(
+            rendering,
+            "SetMute",
+            "<InstanceID>0</InstanceID><Channel>Master</Channel><DesiredMute>${if (muted) 1 else 0}</DesiredMute>"
+        )
+        Unit
     }
 
     suspend fun getPosition(device: DiscoveredNetworkDevice): PlaybackPosition? =
         withContext(Dispatchers.IO) {
+            if (isRokuPrimary(device)) return@withContext null
+            val endpoint = resolveRendererEndpoints(device).avTransport
             val response = soap(
-                resolveAvTransportEndpoint(device),
+                endpoint,
                 "GetPositionInfo",
                 "<InstanceID>0</InstanceID>"
             )
@@ -122,19 +269,83 @@ class DlnaRendererClient(
                 }
                 parser.next()
             }
+            val transportState = runCatching {
+                val info = soap(endpoint, "GetTransportInfo", "<InstanceID>0</InstanceID>")
+                extractSoapTag(info, "CurrentTransportState")
+            }.getOrNull()
             val positionMs = parseDlnaClockTime(relativeTime) ?: return@withContext null
             val durationMs = parseDlnaClockTime(duration) ?: 0L
-            PlaybackPosition(positionMs, durationMs)
+            PlaybackPosition(positionMs, durationMs, transportState)
         }
 
+    private fun isRokuPrimary(device: DiscoveredNetworkDevice): Boolean =
+        TvCastProtocol.ROKU_ECP in device.castProtocols &&
+            device.descriptionUrl == null &&
+            TvCastProtocol.DLNA !in device.castProtocols
+
+    private suspend fun playViaRokuEcp(
+        device: DiscoveredNetworkDevice,
+        mediaUrl: String,
+        title: String,
+        mimeType: String
+    ) = withContext(Dispatchers.IO) {
+        require(isPrivateLanHost(device.host)) { "عنوان Roku خارج الشبكة المحلية." }
+        val isAudio = mimeType.startsWith("audio/", true)
+        val isImage = mimeType.startsWith("image/", true)
+        val mediaType = when {
+            isAudio -> "a"
+            isImage -> "p"
+            else -> "v"
+        }
+        val encodedUrl = URLEncoder.encode(mediaUrl, "UTF-8")
+        val encodedTitle = URLEncoder.encode(title.ifBlank { "MalekPlay" }, "UTF-8")
+        // PlayOnRoku / Roku Media Player ECP input endpoint (15985 = PlayOnRoku).
+        val target = URL("http://${device.host}:8060/input/15985?t=$mediaType&u=$encodedUrl&videoName=$encodedTitle&videoFormat=${guessRokuFormat(mediaUrl, mimeType)}")
+        val safeUrl = validateDlnaRendererEndpointUrl(target.toExternalForm(), device.host)
+        postEmpty(safeUrl, "تعذر إرسال الوسائط إلى Roku TV. تأكد من تثبيت Roku Media Player أو تفعيل ECP.")
+    }
+
+    private suspend fun sendRokuKeypress(device: DiscoveredNetworkDevice, key: String) = withContext(Dispatchers.IO) {
+        require(isPrivateLanHost(device.host)) { "عنوان Roku خارج الشبكة المحلية." }
+        val safeUrl = validateDlnaRendererEndpointUrl("http://${device.host}:8060/keypress/$key", device.host)
+        postEmpty(safeUrl, "تعذر إرسال أمر التحكم إلى Roku TV.")
+    }
+
+    private fun postEmpty(url: URL, failurePrefix: String) {
+        val connection = (url.openConnection() as HttpURLConnection).apply {
+            connectTimeout = connectTimeoutMs
+            readTimeout = readTimeoutMs
+            requestMethod = "POST"
+            instanceFollowRedirects = false
+            doOutput = true
+            setFixedLengthStreamingMode(0)
+        }
+        try {
+            connection.outputStream.use { }
+            val status = connection.responseCode
+            if (status !in 200..299) {
+                throw IOException("$failurePrefix (HTTP $status)")
+            }
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    private fun guessRokuFormat(mediaUrl: String, mimeType: String): String = when {
+        mediaUrl.endsWith(".mkv", true) || mimeType.contains("matroska", true) -> "mkv"
+        mediaUrl.endsWith(".webm", true) || mimeType.contains("webm", true) -> "webm"
+        mediaUrl.endsWith(".mp3", true) || mimeType.contains("mpeg", true) -> "mp3"
+        else -> "mp4"
+    }
+
     private suspend fun command(device: DiscoveredNetworkDevice, action: String, arguments: String) =
-        withContext(Dispatchers.IO) { soap(resolveAvTransportEndpoint(device), action, arguments) }
+        withContext(Dispatchers.IO) { soap(resolveRendererEndpoints(device).avTransport, action, arguments) }
 
-    private data class AvTransportEndpoint(val controlUrl: URL, val serviceType: String)
-
-    private fun resolveAvTransportEndpoint(device: DiscoveredNetworkDevice): AvTransportEndpoint {
-        require(device.kind == NetworkDeviceKind.MEDIA_RENDERER ||
-            device.services.any { it.contains("MediaRenderer", true) }) {
+    private fun resolveRendererEndpoints(device: DiscoveredNetworkDevice): RendererEndpoints {
+        require(
+            device.kind == NetworkDeviceKind.MEDIA_RENDERER ||
+                device.services.any { it.contains("MediaRenderer", true) || it.contains("AVTransport", true) }
+        ) {
             "الجهاز المكتشف لا يعلن خدمة DLNA MediaRenderer."
         }
         require(isPrivateLanHost(device.host)) {
@@ -155,6 +366,9 @@ class DlnaRendererClient(
         var serviceType: String? = null
         var controlPath: String? = null
         var inService = false
+        var avTransport: ServiceEndpoint? = null
+        var renderingControl: ServiceEndpoint? = null
+
         while (parser.eventType != XmlPullParser.END_DOCUMENT) {
             when (parser.eventType) {
                 XmlPullParser.START_TAG -> {
@@ -165,21 +379,36 @@ class DlnaRendererClient(
                     }
                 }
                 XmlPullParser.END_TAG -> if (parser.name == "service" && inService) {
-                    if (serviceType?.matches(Regex("urn:schemas-upnp-org:service:AVTransport:[0-9]+", RegexOption.IGNORE_CASE)) == true && !controlPath.isNullOrBlank()) {
-                        val resolved = URL(descriptionUrl, controlPath)
-                        val safeControlUrl = validateDlnaRendererEndpointUrl(
-                            resolved.toExternalForm(), device.host
-                        )
-                        val endpoint = AvTransportEndpoint(safeControlUrl, serviceType!!)
-                        endpointCache[cacheKey] = endpoint
-                        return endpoint
+                    val type = serviceType
+                    val path = controlPath
+                    if (!type.isNullOrBlank() && !path.isNullOrBlank()) {
+                        val resolved = URL(descriptionUrl, path)
+                        val safeControlUrl = runCatching {
+                            validateDlnaRendererEndpointUrl(resolved.toExternalForm(), device.host)
+                        }.getOrNull()
+                        if (safeControlUrl != null) {
+                            if (avTransport == null && type.matches(Regex("urn:schemas-upnp-org:service:AVTransport:[0-9]+", RegexOption.IGNORE_CASE))) {
+                                avTransport = ServiceEndpoint(safeControlUrl, type)
+                            } else if (renderingControl == null && type.matches(Regex("urn:schemas-upnp-org:service:RenderingControl:[0-9]+", RegexOption.IGNORE_CASE))) {
+                                renderingControl = ServiceEndpoint(safeControlUrl, type)
+                            }
+                        }
                     }
                     inService = false
                 }
             }
             parser.next()
         }
-        throw IOException("هذا الجهاز لا يعلن خدمة AVTransport؛ قد يكون خادم وسائط فقط.")
+        val resolvedAv = avTransport
+            ?: throw IOException("هذا الجهاز لا يعلن خدمة AVTransport؛ قد يكون خادم وسائط فقط.")
+        val endpoints = RendererEndpoints(resolvedAv, renderingControl)
+        endpointCache[cacheKey] = endpoints
+        return endpoints
+    }
+
+    private fun extractSoapTag(xml: String, tagName: String): String? {
+        val regex = Regex("<(?:[\\w.-]+:)?$tagName[^>]*>(.*?)</(?:[\\w.-]+:)?$tagName>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        return regex.find(xml)?.groupValues?.getOrNull(1)?.trim()
     }
 
     private fun readUrl(url: URL): String {
@@ -202,7 +431,7 @@ class DlnaRendererClient(
         } finally { connection.disconnect() }
     }
 
-    private fun soap(endpoint: AvTransportEndpoint, action: String, arguments: String): String {
+    private fun soap(endpoint: ServiceEndpoint, action: String, arguments: String): String {
         val url = endpoint.controlUrl
         val service = endpoint.serviceType
         val body = """<?xml version="1.0" encoding="utf-8"?>
@@ -247,9 +476,7 @@ class DlnaRendererClient(
             }.orEmpty()
         } finally { connection.disconnect() }
     }
-
 }
-
 
 /**
  * Reads at most [maxBytes] from an untrusted renderer response.
@@ -294,6 +521,32 @@ internal fun buildDlnaDidlMetadata(title: String, url: String, mime: String): St
     val safeMime = escapeDlnaXml(normalizedMime)
     val upnpClass = dlnaUpnpClassForMime(normalizedMime)
     return """<DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/"><item id="0" parentID="-1" restricted="1"><dc:title>$safeTitle</dc:title><upnp:class>$upnpClass</upnp:class><res protocolInfo="http-get:*:$safeMime:*">$safeUrl</res></item></DIDL-Lite>"""
+}
+
+/**
+ * Rich DIDL-Lite metadata including DLNA OP=01 flags (enabling HTTP byte-range seeking
+ * on Samsung/LG/Sony/Hisense/TCL TVs), optional byte size, and companion subtitle tags.
+ */
+internal fun buildEnhancedDlnaDidlMetadata(
+    title: String,
+    url: String,
+    mime: String,
+    subtitleUrl: String? = null,
+    sizeBytes: Long = -1L
+): String {
+    val safeTitle = escapeDlnaXml(title.ifBlank { "MalekPlay media" })
+    val safeUrl = escapeDlnaXml(url)
+    val normalizedMime = mime.substringBefore(';').trim().ifBlank { "application/octet-stream" }
+    val safeMime = escapeDlnaXml(normalizedMime)
+    val upnpClass = dlnaUpnpClassForMime(normalizedMime)
+    val sizeAttr = if (sizeBytes > 0L) """ size="$sizeBytes"""" else ""
+    val dlnaInfo = "DLNA.ORG_OP=01;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000"
+    val subTag = subtitleUrl?.takeIf { it.isNotBlank() }?.let { sub ->
+        val safeSub = escapeDlnaXml(sub)
+        """<res protocolInfo="http-get:*:text/srt:*">$safeSub</res><sec:CaptionInfoEx sec:type="srt">$safeSub</sec:CaptionInfoEx>"""
+    }.orEmpty()
+    val secNs = if (subtitleUrl.isNullOrBlank()) "" else """ xmlns:sec="http://www.sec.co.kr/""""
+    return """<DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/"$secNs><item id="0" parentID="-1" restricted="1"><dc:title>$safeTitle</dc:title><upnp:class>$upnpClass</upnp:class><res$sizeAttr protocolInfo="http-get:*:$safeMime:$dlnaInfo">$safeUrl</res>$subTag</item></DIDL-Lite>"""
 }
 
 private fun escapeDlnaXml(value: String): String = value

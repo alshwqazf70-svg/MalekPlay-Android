@@ -18,29 +18,22 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.CreateNewFolder
-import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.ViewList
 import androidx.compose.material.icons.filled.VideoLibrary
-import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -51,23 +44,20 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -76,7 +66,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.malekplay.R
-import com.malekplay.core.ui.theme.MalekPlayColors
+import com.malekplay.core.ui.theme.contrastingOnColor
+import com.malekplay.core.ui.theme.tintedSurface
 import com.malekplay.core.ui.util.MediaPermissions
 import com.malekplay.domain.model.LibraryItem
 import com.malekplay.domain.model.MediaItem
@@ -84,12 +75,12 @@ import com.malekplay.domain.model.SortMode
 import com.malekplay.domain.model.ViewMode
 import com.malekplay.ui.components.EmptyState
 import com.malekplay.ui.components.FolderRow
-import com.malekplay.ui.components.MediaGridCard
 import com.malekplay.ui.components.MediaBulkDeleteBar
-import com.malekplay.ui.components.MediaListRow
-import com.malekplay.ui.components.SectionHeader
 import com.malekplay.ui.components.PlaylistPickerDialog
+import com.malekplay.ui.library.LibrarySortBar
 import com.malekplay.ui.library.LibraryViewModel
+import com.malekplay.ui.library.ManualSortBanner
+import com.malekplay.ui.library.ReorderableMediaCollection
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -118,11 +109,13 @@ fun LocalScreen(
 
     var tab by remember { mutableStateOf(LocalTab.FOLDERS) }
     var query by remember { mutableStateOf("") }
-    var sortMenu by remember { mutableStateOf(false) }
     var playlistTarget by remember { mutableStateOf<MediaItem?>(null) }
     val selectedUris = remember { androidx.compose.runtime.mutableStateListOf<Uri>() }
     val selectionMode = selectedUris.isNotEmpty()
     fun toggleSelection(uri: Uri) { if (uri in selectedUris) selectedUris.remove(uri) else selectedUris.add(uri) }
+    LaunchedEffect(settings.sortMode) {
+        if (settings.sortMode == SortMode.MANUAL) selectedUris.clear()
+    }
 
     val searchFlow = remember(query) { viewModel.search(query) }
     val searchResults by searchFlow.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -213,7 +206,11 @@ fun LocalScreen(
             .fillMaxSize()
             .background(
                 Brush.verticalGradient(
-                    listOf(colors.surfaceContainerHigh, colors.background, colors.surface)
+                    listOf(
+                        colors.primaryContainer.copy(alpha = 0.24f),
+                        colors.background,
+                        colors.surface
+                    )
                 )
             )
             .padding(contentPadding)
@@ -222,8 +219,9 @@ fun LocalScreen(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 20.dp, end = 12.dp, top = 14.dp, bottom = 10.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .padding(start = 18.dp, end = 14.dp, top = 12.dp, bottom = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(7.dp)
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
@@ -237,25 +235,31 @@ fun LocalScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            IconButton(onClick = onOpenVault) {
-                Icon(Icons.Filled.Lock, contentDescription = "الخزنة الخاصة", tint = MaterialTheme.colorScheme.primary)
-            }
-            IconButton(onClick = { viewModel.refresh() }) {
-                Icon(Icons.Filled.Refresh, contentDescription = stringResource(R.string.lib_refresh))
-            }
-            IconButton(onClick = {
-                viewModel.setViewMode(
-                    if (settings.viewMode == ViewMode.LIST) ViewMode.GRID else ViewMode.LIST
-                )
-            }) {
-                Icon(
-                    if (settings.viewMode == ViewMode.LIST) Icons.Filled.GridView else Icons.Filled.ViewList,
-                    contentDescription = stringResource(R.string.lib_view_grid)
-                )
-            }
-            IconButton(onClick = onOpenSettings) {
-                Icon(Icons.Filled.Settings, contentDescription = stringResource(R.string.settings_title))
-            }
+            LocalHeaderIcon(
+                icon = Icons.Filled.Lock,
+                contentDescription = stringResource(R.string.vault_title),
+                tint = colors.primary,
+                onClick = onOpenVault
+            )
+            LocalHeaderIcon(
+                icon = Icons.Filled.Refresh,
+                contentDescription = stringResource(R.string.lib_refresh),
+                onClick = { viewModel.refresh() }
+            )
+            LocalHeaderIcon(
+                icon = if (settings.viewMode == ViewMode.LIST) Icons.Filled.GridView else Icons.Filled.ViewList,
+                contentDescription = stringResource(R.string.lib_view_grid),
+                onClick = {
+                    viewModel.setViewMode(
+                        if (settings.viewMode == ViewMode.LIST) ViewMode.GRID else ViewMode.LIST
+                    )
+                }
+            )
+            LocalHeaderIcon(
+                icon = Icons.Filled.Settings,
+                contentDescription = stringResource(R.string.settings_title),
+                onClick = onOpenSettings
+            )
         }
 
         LibraryHero(
@@ -263,6 +267,8 @@ fun LocalScreen(
             videoCount = folders.sumOf { it.videoCount },
             audioCount = folders.sumOf { it.audioCount }
         )
+
+        Spacer(Modifier.height(6.dp))
 
         // -------------------------------------------------------- search box
         OutlinedTextField(
@@ -272,9 +278,19 @@ fun LocalScreen(
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp),
             singleLine = true,
-            shape = RoundedCornerShape(14.dp),
+            shape = RoundedCornerShape(16.dp),
             placeholder = { Text(stringResource(R.string.lib_search_hint)) },
-            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) }
+            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = colors.primary) },
+            trailingIcon = {
+                if (query.isNotEmpty()) {
+                    IconButton(onClick = { query = "" }) {
+                        Icon(
+                            imageVector = Icons.Filled.Close,
+                            contentDescription = stringResource(R.string.lib_clear_search)
+                        )
+                    }
+                }
+            }
         )
 
         if (!hasPermission) {
@@ -310,84 +326,75 @@ fun LocalScreen(
         Spacer(Modifier.height(10.dp))
 
         // ------------------------------------------------------------- tabs
-        Row(
+        Surface(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            shape = RoundedCornerShape(15.dp),
+            color = colors.surfaceContainerHigh.copy(alpha = 0.85f),
+            border = androidx.compose.foundation.BorderStroke(1.dp, colors.outlineVariant.copy(alpha = 0.55f))
         ) {
-            LocalTab.entries.forEach { choice ->
-                val label = when (choice) {
-                    LocalTab.FOLDERS -> stringResource(R.string.lib_title_folders)
-                    LocalTab.VIDEOS -> stringResource(R.string.profile_videos)
-                    LocalTab.AUDIO -> stringResource(R.string.profile_songs)
-                }
-                Surface(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(11.dp))
-                        .clickableLocal { tab = choice },
-                    color = if (tab == choice) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.surfaceContainerHigh,
-                    shape = RoundedCornerShape(11.dp)
-                ) {
-                    Text(
-                        label,
-                        modifier = Modifier.padding(vertical = 10.dp),
-                        textAlign = TextAlign.Center,
-                        color = if (tab == choice) MaterialTheme.colorScheme.onPrimary
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.labelLarge
-                    )
-                }
-            }
-        }
-
-        Spacer(Modifier.height(8.dp))
-
-        // ---------------------------------------------------- sort selector
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.End
-        ) {
-            Box {
-                TextButton(onClick = { sortMenu = true }) {
-                    Icon(Icons.Filled.Sort, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text(stringResource(R.string.sort_title))
-                }
-                DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
-                    DropdownMenuItem(
-                        text = { Text(if (settings.foldersFirst) "المجلدات أولاً ✓" else "الملفات أولاً ✓") },
-                        onClick = { viewModel.setFoldersFirst(!settings.foldersFirst) }
-                    )
-                    DropdownMenuItem(
-                        text = { Text(if (settings.sortAscending) "الترتيب تصاعدي ↑" else "الترتيب تنازلي ↓") },
-                        onClick = { viewModel.setSortAscending(!settings.sortAscending) }
-                    )
-                    listOf(
-                        SortMode.NEWEST to "تاريخ الإضافة",
-                        SortMode.OLDEST to "الأقدم إضافة",
-                        SortMode.NAME to "اسم الملف",
-                        SortMode.DURATION to "مدة الملف",
-                        SortMode.SIZE to "حجم الملف",
-                        SortMode.TYPE to "نوع الملف",
-                        SortMode.LAST_PLAYED to "آخر ملف تمت مشاهدته",
-                        SortMode.MANUAL to "ترتيب يدوي بالسحب"
-                    ).forEach { (mode, label) ->
-                        DropdownMenuItem(
-                            text = { Text((if (settings.sortMode == mode) "✓ " else "") + label) },
-                            onClick = {
-                                viewModel.setSortMode(mode)
-                                sortMenu = false
-                            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                LocalTab.entries.forEach { choice ->
+                    val selected = tab == choice
+                    val label = when (choice) {
+                        LocalTab.FOLDERS -> stringResource(R.string.lib_title_folders)
+                        LocalTab.VIDEOS -> stringResource(R.string.profile_videos)
+                        LocalTab.AUDIO -> stringResource(R.string.profile_songs)
+                    }
+                    Surface(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(11.dp))
+                            .clickableLocal { tab = choice },
+                        color = if (selected) colors.primary else Color.Transparent,
+                        shape = RoundedCornerShape(11.dp)
+                    ) {
+                        Text(
+                            label,
+                            modifier = Modifier.padding(vertical = 9.dp),
+                            textAlign = TextAlign.Center,
+                            color = if (selected) contrastingOnColor(colors.primary)
+                            else colors.onSurfaceVariant,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                            style = MaterialTheme.typography.labelLarge
                         )
                     }
                 }
             }
         }
+
+        Spacer(Modifier.height(10.dp))
+
+        // ---------------------------------------------------- sort selector
+        LibrarySortBar(
+            sortMode = settings.sortMode,
+            sortAscending = settings.sortAscending,
+            foldersFirst = settings.foldersFirst,
+            showFoldersFirstOption = true,
+            onSelectMode = { mode ->
+                viewModel.setSortMode(mode)
+                if (mode == SortMode.MANUAL && tab == LocalTab.FOLDERS) {
+                    tab = LocalTab.VIDEOS
+                }
+            },
+            onToggleAscending = { viewModel.setSortAscending(!settings.sortAscending) },
+            onToggleFoldersFirst = { viewModel.setFoldersFirst(!settings.foldersFirst) }
+        )
+
+        ManualSortBanner(
+            visible = settings.sortMode == SortMode.MANUAL && (query.isNotBlank() || tab != LocalTab.FOLDERS),
+            hasCustomOrder = settings.manualSortOrder.isNotEmpty(),
+            onReset = viewModel::resetManualSortOrder,
+            onDone = { viewModel.setSortMode(SortMode.NEWEST) }
+        )
+
+        Spacer(Modifier.height(4.dp))
 
         error?.let { message ->
             Text(
@@ -434,12 +441,13 @@ fun LocalScreen(
         // --------------------------------------------------------- contents
         val searching = query.isNotBlank()
         if (searching) {
-            MediaList(
+            ReorderableMediaCollection(
                 items = searchResults,
                 viewMode = settings.viewMode,
                 emptyTitle = stringResource(R.string.lib_no_results),
                 emptyBody = stringResource(R.string.lib_no_results_body),
                 showFolder = true,
+                lastPlayedMediaId = lastPlayedMediaId,
                 onPlay = onOpenMedia,
                 onSend = { toggleSelection(it.uri) },
                 selectionMode = selectionMode,
@@ -449,7 +457,8 @@ fun LocalScreen(
                 onAddToPlaylist = { playlistTarget = it.media },
                 onDeleted = viewModel::refresh,
                 manualReorderEnabled = settings.sortMode == SortMode.MANUAL,
-                onMoveManualItem = viewModel::moveManualItem
+                onMoveManualItem = viewModel::moveManualItem,
+                onStepManualItem = viewModel::stepManualItem
             )
             return
         }
@@ -468,7 +477,7 @@ fun LocalScreen(
                         }
                     )
                 } else {
-                    val sorted = viewModel.applyFolderSort(folders, settings.sortMode)
+                    val sorted = viewModel.applyFolderSort(folders, settings.sortMode, settings.sortAscending)
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(
@@ -488,11 +497,12 @@ fun LocalScreen(
                     }
                 }
             }
-            LocalTab.VIDEOS -> MediaList(
+            LocalTab.VIDEOS -> ReorderableMediaCollection(
                 items = sortedVideos,
                 viewMode = settings.viewMode,
                 emptyTitle = stringResource(R.string.lib_empty_title),
                 emptyBody = stringResource(R.string.lib_empty_body),
+                lastPlayedMediaId = lastPlayedMediaId,
                 onPlay = onOpenMedia,
                 onSend = { toggleSelection(it.uri) },
                 selectionMode = selectionMode,
@@ -502,13 +512,15 @@ fun LocalScreen(
                 onAddToPlaylist = { playlistTarget = it.media },
                 onDeleted = viewModel::refresh,
                 manualReorderEnabled = settings.sortMode == SortMode.MANUAL,
-                onMoveManualItem = viewModel::moveManualItem
+                onMoveManualItem = viewModel::moveManualItem,
+                onStepManualItem = viewModel::stepManualItem
             )
-            LocalTab.AUDIO -> MediaList(
+            LocalTab.AUDIO -> ReorderableMediaCollection(
                 items = sortedAudio,
                 viewMode = settings.viewMode,
                 emptyTitle = stringResource(R.string.lib_empty_title),
                 emptyBody = stringResource(R.string.lib_empty_body),
+                lastPlayedMediaId = lastPlayedMediaId,
                 onPlay = onOpenMedia,
                 onSend = { toggleSelection(it.uri) },
                 selectionMode = selectionMode,
@@ -518,7 +530,8 @@ fun LocalScreen(
                 onAddToPlaylist = { playlistTarget = it.media },
                 onDeleted = viewModel::refresh,
                 manualReorderEnabled = settings.sortMode == SortMode.MANUAL,
-                onMoveManualItem = viewModel::moveManualItem
+                onMoveManualItem = viewModel::moveManualItem,
+                onStepManualItem = viewModel::stepManualItem
             )
         }
     }
@@ -539,6 +552,11 @@ private fun LibraryHero(
     audioCount: Int
 ) {
     val totalMedia = videoCount + audioCount
+    val primary = MaterialTheme.colorScheme.primary
+    val secondary = MaterialTheme.colorScheme.secondary
+    val deepStop = tintedSurface(primary, Color.Black, 0.30f)
+    val ink = contrastingOnColor(primary)
+    val metricBg = if (ink == Color.White) Color.White.copy(alpha = 0.14f) else Color.Black.copy(alpha = 0.08f)
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -546,13 +564,10 @@ private fun LibraryHero(
             .clip(RoundedCornerShape(24.dp))
             .background(
                 Brush.linearGradient(
-                    colors = listOf(
-                        MaterialTheme.colorScheme.primary,
-                        MaterialTheme.colorScheme.primary.copy(alpha = 0.78f),
-                        MalekPlayColors.Amethyst.copy(alpha = 0.88f)
-                    )
+                    colors = listOf(deepStop, primary, secondary)
                 )
             )
+            .border(1.dp, Color.White.copy(alpha = 0.20f), RoundedCornerShape(24.dp))
             .padding(horizontal = 18.dp, vertical = 17.dp)
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -560,21 +575,21 @@ private fun LibraryHero(
                 text = stringResource(R.string.home_hero_title),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
-                color = Color.White
+                color = ink
             )
             Text(
                 text = stringResource(R.string.home_hero_subtitle),
                 style = MaterialTheme.typography.bodySmall,
-                color = Color.White.copy(alpha = 0.84f)
+                color = ink.copy(alpha = 0.84f)
             )
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                LibraryMetric(totalMedia.toString(), stringResource(R.string.home_total_media), Modifier.weight(1f))
-                LibraryMetric(folderCount.toString(), stringResource(R.string.lib_title_folders), Modifier.weight(1f))
-                LibraryMetric(videoCount.toString(), stringResource(R.string.profile_videos), Modifier.weight(1f))
-                LibraryMetric(audioCount.toString(), stringResource(R.string.profile_songs), Modifier.weight(1f))
+                LibraryMetric(totalMedia.toString(), stringResource(R.string.home_total_media), ink, metricBg, Modifier.weight(1f))
+                LibraryMetric(folderCount.toString(), stringResource(R.string.lib_title_folders), ink, metricBg, Modifier.weight(1f))
+                LibraryMetric(videoCount.toString(), stringResource(R.string.profile_videos), ink, metricBg, Modifier.weight(1f))
+                LibraryMetric(audioCount.toString(), stringResource(R.string.profile_songs), ink, metricBg, Modifier.weight(1f))
             }
         }
     }
@@ -584,24 +599,26 @@ private fun LibraryHero(
 private fun LibraryMetric(
     value: String,
     label: String,
+    ink: Color,
+    chipColor: Color,
     modifier: Modifier = Modifier
 ) {
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(14.dp))
-            .background(Color.White.copy(alpha = 0.14f))
+            .background(chipColor)
             .padding(horizontal = 7.dp, vertical = 9.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
             text = value,
-            color = Color.White,
+            color = ink,
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold
         )
         Text(
             text = label,
-            color = Color.White.copy(alpha = 0.86f),
+            color = ink.copy(alpha = 0.86f),
             style = MaterialTheme.typography.labelSmall,
             maxLines = 1
         )
@@ -613,116 +630,28 @@ private fun Modifier.clickableLocal(onClick: () -> Unit): Modifier =
     this.clickable(onClick = onClick)
 
 @Composable
-private fun MediaList(
-    items: List<com.malekplay.domain.model.LibraryItem>,
-    viewMode: ViewMode,
-    emptyTitle: String,
-    emptyBody: String,
-    showFolder: Boolean = false,
-    onPlay: (com.malekplay.domain.model.MediaItem) -> Unit,
-    onSend: (com.malekplay.domain.model.MediaItem) -> Unit = {},
-    selectionMode: Boolean = false,
-    selectedUris: Set<Uri> = emptySet(),
-    onToggleSelection: (Uri) -> Unit = {},
-    onFavourite: (com.malekplay.domain.model.LibraryItem) -> Unit,
-    onAddToPlaylist: (com.malekplay.domain.model.LibraryItem) -> Unit,
-    onDeleted: () -> Unit = {},
-    manualReorderEnabled: Boolean = false,
-    onMoveManualItem: (String, Int, List<LibraryItem>) -> Unit = { _, _, _ -> }
+private fun LocalHeaderIcon(
+    icon: ImageVector,
+    contentDescription: String,
+    tint: Color = MaterialTheme.colorScheme.onSurface,
+    onClick: () -> Unit
 ) {
-    val itemBounds = remember { mutableStateMapOf<String, Rect>() }
-    if (items.isEmpty()) {
-        EmptyState(title = emptyTitle, body = emptyBody)
-        return
-    }
-    if (viewMode == ViewMode.GRID) {
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(
-                start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp
-            ),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            items(items, key = { it.media.id }) { item ->
-                Box(
-                    Modifier.fillMaxWidth()
-                        .onGloballyPositioned { itemBounds[item.media.id] = it.boundsInRoot() }
-                        .pointerInput(items, manualReorderEnabled) {
-                            if (manualReorderEnabled) {
-                                var targetIndex = -1
-                                detectDragGesturesAfterLongPress(
-                                    onDragStart = { targetIndex = items.indexOfFirst { row -> row.media.id == item.media.id } },
-                                    onDrag = { change, _ ->
-                                        change.consume()
-                                        val origin = itemBounds[item.media.id]?.topLeft ?: return@detectDragGesturesAfterLongPress
-                                        val point = origin + change.position
-                                        targetIndex = items.indexOfFirst { row -> itemBounds[row.media.id]?.contains(point) == true }
-                                    },
-                                    onDragEnd = { if (targetIndex >= 0) onMoveManualItem(item.media.id, targetIndex, items) },
-                                    onDragCancel = {}
-                                )
-                            }
-                        }
-                ) {
-                MediaGridCard(
-                    item = item,
-                    onPlay = { onPlay(item.media) },
-                    onSend = { onSend(item.media) },
-                    onFavourite = { onFavourite(item) },
-                    onAddToPlaylist = { onAddToPlaylist(item) },
-                    onDeleted = onDeleted,
-                    selectionMode = selectionMode,
-                    isSelected = item.media.uri in selectedUris,
-                    onSelect = { onToggleSelection(item.media.uri) }
-                )
-                }
-            }
-        }
-    } else {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(
-                start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp
-            ),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            items(items, key = { it.media.id }) { item ->
-                Box(
-                    Modifier.fillMaxWidth()
-                        .onGloballyPositioned { itemBounds[item.media.id] = it.boundsInRoot() }
-                        .pointerInput(items, manualReorderEnabled) {
-                            if (manualReorderEnabled) {
-                                var targetIndex = -1
-                                detectDragGesturesAfterLongPress(
-                                    onDragStart = { targetIndex = items.indexOfFirst { row -> row.media.id == item.media.id } },
-                                    onDrag = { change, _ ->
-                                        change.consume()
-                                        val origin = itemBounds[item.media.id]?.topLeft ?: return@detectDragGesturesAfterLongPress
-                                        val point = origin + change.position
-                                        targetIndex = items.indexOfFirst { row -> itemBounds[row.media.id]?.contains(point) == true }
-                                    },
-                                    onDragEnd = { if (targetIndex >= 0) onMoveManualItem(item.media.id, targetIndex, items) },
-                                    onDragCancel = {}
-                                )
-                            }
-                        }
-                ) {
-                MediaListRow(
-                    item = item,
-                    showFolder = showFolder,
-                    onPlay = { onPlay(item.media) },
-                    onFavourite = { onFavourite(item) },
-                    onAddToPlaylist = { onAddToPlaylist(item) },
-                    onDeleted = onDeleted,
-                    onSend = { onToggleSelection(item.media.uri) },
-                    selectionMode = selectionMode,
-                    isSelected = item.media.uri in selectedUris,
-                    onSelect = { onToggleSelection(item.media.uri) }
-                )
-                }
-            }
-        }
+    val colors = MaterialTheme.colorScheme
+    Box(
+        modifier = Modifier
+            .size(38.dp)
+            .clip(CircleShape)
+            .background(colors.surfaceContainerHigh.copy(alpha = 0.85f))
+            .border(1.dp, colors.outlineVariant.copy(alpha = 0.55f), CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = tint,
+            modifier = Modifier.size(19.dp)
+        )
     }
 }
+

@@ -1,6 +1,8 @@
 package com.malekplay.network
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -62,5 +64,92 @@ class OnlineSubtitlePayloadValidationTest {
         val text = "1\n00:00:01,000 --> 00:00:02,000\nمرحبا"
         assertTrue(isValidSubtitlePayload(text.toByteArray(Charsets.UTF_16LE), "srt"))
         assertTrue(isValidSubtitlePayload(text.toByteArray(Charsets.UTF_16BE), "srt"))
+    }
+
+    @Test
+    fun rejectsCloudflareHtmlEvenWhenContainingHtmlCommentsAndDetectsContentType() {
+        val cloudflareHtml = "<!DOCTYPE html><html><!-- comment --><body>Just a moment...</body></html>"
+            .toByteArray(Charsets.UTF_8)
+        assertFalse(isValidSubtitlePayload(cloudflareHtml, "srt"))
+        assertTrue(detectSubtitleFormat(cloudflareHtml) == null)
+        assertTrue(isHtmlOrCloudflarePayload(cloudflareHtml, "text/html; charset=utf-8"))
+
+        val error = runCatching {
+            validateSubtitleDownloadResponse("text/html; charset=utf-8", cloudflareHtml, "SubDL")
+        }.exceptionOrNull()
+        assertTrue(error?.message?.contains("Cloudflare") == true)
+
+        // Valid SubRip / text/plain / ZIP responses should pass response validation.
+        val validSrt = "1\n00:00:01,000 --> 00:00:04,000\nHello".toByteArray(Charsets.UTF_8)
+        validateSubtitleDownloadResponse("application/x-subrip", validSrt, "SubDL")
+        validateSubtitleDownloadResponse("text/plain; charset=utf-8", validSrt, "SubDL")
+    }
+
+    @Test
+    fun normalizesUtf16AndWindows1252ToUtf8WithBomForPlayback() {
+        val rawText = "1\r\n00:00:01,000 --> 00:00:04,000\r\nCafé — مرحبا"
+        val utf16LeWithBom = byteArrayOf(0xFF.toByte(), 0xFE.toByte()) +
+            rawText.toByteArray(Charsets.UTF_16LE)
+        val normalizedFromUtf16 = normalizeSubtitleForStorage(utf16LeWithBom, "srt")
+        assertTrue(
+            normalizedFromUtf16.size > 3 &&
+                normalizedFromUtf16[0] == 0xEF.toByte() &&
+                normalizedFromUtf16[1] == 0xBB.toByte() &&
+                normalizedFromUtf16[2] == 0xBF.toByte()
+        )
+        assertTrue(isValidSubtitlePayload(normalizedFromUtf16, "srt"))
+        val decoded = String(normalizedFromUtf16, 3, normalizedFromUtf16.size - 3, Charsets.UTF_8)
+        assertTrue(decoded.contains("00:00:01,000 --> 00:00:04,000"))
+        assertTrue(decoded.contains("Café — مرحبا"))
+
+        val win1252Text = "1\n00:00:01,000 --> 00:00:04,000\nCafé — résumé"
+        val win1252Bytes = win1252Text.toByteArray(java.nio.charset.Charset.forName("windows-1252"))
+        val normalizedFromWin1252 = normalizeSubtitleForStorage(win1252Bytes, "srt", preferArabicLegacy = false)
+        val decoded1252 = String(normalizedFromWin1252, 3, normalizedFromWin1252.size - 3, Charsets.UTF_8)
+        assertTrue(decoded1252.contains("Café — résumé"))
+    }
+
+    @Test
+    fun `accepts srt timings without spaces around arrow and rejects html fragment`() {
+        val compactArrowSrt = "1\n00:00:01,000-->00:00:04,000\nمرحباً بكم\n".toByteArray(Charsets.UTF_8)
+        assertEquals("srt", detectSubtitleFormat(compactArrowSrt, preferArabicLegacy = true))
+        assertTrue(isValidSubtitlePayload(compactArrowSrt, "srt"))
+
+        val htmlHeadFragment = "<head><title>Just a moment...</title></head><body><!-- 00:00:01,000 --> 00:00:02,000 --></body>"
+            .toByteArray(Charsets.UTF_8)
+        assertNull(detectSubtitleFormat(htmlHeadFragment, preferArabicLegacy = true))
+        assertFalse(isValidSubtitlePayload(htmlHeadFragment, "srt"))
+    }
+
+    @Test
+    fun `accepts rtl marks around timestamps, dialogue with just a moment, ass without script info, and microdvd sub`() {
+        val bidiSrt = "1\n\u200E00:00:01,5 --> 00:00:04,2500\u200F\nJust a moment... مرحباً بكم!\n"
+            .toByteArray(Charsets.UTF_8)
+        assertEquals("srt", detectSubtitleFormat(bidiSrt, preferArabicLegacy = true))
+        val normalizedBidi = normalizeSubtitleForStorage(bidiSrt, "srt", preferArabicLegacy = true)
+        assertTrue(isValidSubtitlePayload(normalizedBidi, "srt", preferArabicLegacy = true))
+
+        val minimalAss = "[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,Hello\n"
+            .toByteArray(Charsets.UTF_8)
+        assertEquals("ass", detectSubtitleFormat(minimalAss))
+        assertTrue(isValidSubtitlePayload(minimalAss, "ass"))
+
+        val microDvd = "{1}{1}25.000\n{25}{75}First line|Second line\n{100}{150}مرحبا\n"
+            .toByteArray(Charsets.UTF_8)
+        assertEquals("srt", detectSubtitleFormat(microDvd, preferArabicLegacy = true))
+        val converted = normalizeSubtitleForStorage(microDvd, "srt", preferArabicLegacy = true)
+        assertTrue(isValidSubtitlePayload(converted, "srt", preferArabicLegacy = true))
+        val convertedText = String(converted, 3, converted.size - 3, Charsets.UTF_8)
+        assertTrue(convertedText.contains("00:00:01,000 --> 00:00:03,000"))
+        assertTrue(convertedText.contains("First line\nSecond line"))
+    }
+
+    @Test
+    fun `reports clear error for rar archive responses instead of missing timestamps`() {
+        val rarBytes = byteArrayOf(0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x00)
+        val err = runCatching {
+            validateSubtitleDownloadResponse("application/octet-stream", rarBytes, "SubDL")
+        }.exceptionOrNull()
+        assertTrue(err?.message?.contains("RAR") == true)
     }
 }

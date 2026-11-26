@@ -27,6 +27,7 @@ import com.malekplay.data.repository.MediaRepository
 import com.malekplay.data.repository.UserDataRepository
 import com.malekplay.domain.model.LibraryItem
 import com.malekplay.domain.model.MediaItem as DomainMedia
+import com.malekplay.domain.model.PlayerSettings
 import com.malekplay.network.DiscoveredNetworkDevice
 import com.malekplay.network.OnlineSubtitle
 import com.malekplay.network.OnlineSubtitleRepository
@@ -36,6 +37,9 @@ import com.malekplay.player.LocalSubtitleResolver
 import com.malekplay.player.PipController
 import com.malekplay.player.PlaybackService
 import com.malekplay.player.cast.DlnaPlaybackController
+import com.malekplay.player.cast.WebCastItem
+import com.malekplay.player.cast.WebCastRegistry
+import com.malekplay.player.cast.WebCastRemoteCommand
 import com.malekplay.player.PlaybackVideoEffects
 import com.malekplay.player.effects.VideoEnhancementProfile
 import com.malekplay.player.PlaybackValuePolicy
@@ -84,7 +88,9 @@ data class DlnaPlaybackState(
     val positionMs: Long = 0L,
     val durationMs: Long = 0L,
     val isConnected: Boolean = true,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val volumePercent: Int? = null,
+    val isMuted: Boolean = false
 )
 
 /** Live codec/format telemetry shown in the "Playback info" sheet. */
@@ -117,6 +123,16 @@ data class VideoEnhancementDiagnostics(
     val droppedFrames: Long = 0L,
     val upscalingEnabled: Boolean = false,
     val noiseReductionEnabled: Boolean = false,
+    val vibranceEnabled: Boolean = false,
+    val aiBoostEnabled: Boolean = false,
+    val bypassed: Boolean = false,
+    val customMode: Boolean = false,
+    val effectiveProfile: VideoEnhancementProfile = VideoEnhancementProfile.BALANCED,
+    val downgradeReason: String? = null,
+    val detailStrength: Float = 0.90f,
+    val denoiseStrength: Float = 0.34f,
+    val contrastBoost: Float = 0.14f,
+    val vibranceStrength: Float = 0.08f,
     val programCreations: Long = 0L,
     val configureCalls: Long = 0L,
     val drawFrameCalls: Long = 0L,
@@ -197,8 +213,18 @@ class PlayerViewModel @Inject constructor(
     val videoUpscalingEnabled: StateFlow<Boolean> = _videoUpscalingEnabled.asStateFlow()
     private val _videoNoiseReductionEnabled = MutableStateFlow(false)
     val videoNoiseReductionEnabled: StateFlow<Boolean> = _videoNoiseReductionEnabled.asStateFlow()
+    private val _videoVibranceEnabled = MutableStateFlow(false)
+    val videoVibranceEnabled: StateFlow<Boolean> = _videoVibranceEnabled.asStateFlow()
+    private val _videoEnhancementBypassed = MutableStateFlow(false)
+    val videoEnhancementBypassed: StateFlow<Boolean> = _videoEnhancementBypassed.asStateFlow()
+    private val _videoEnhancementCustomMode = MutableStateFlow(false)
+    val videoEnhancementCustomMode: StateFlow<Boolean> = _videoEnhancementCustomMode.asStateFlow()
     private val _videoEnhancementProfile = MutableStateFlow(VideoEnhancementProfile.BALANCED)
     val videoEnhancementProfile: StateFlow<VideoEnhancementProfile> = _videoEnhancementProfile.asStateFlow()
+    private val _videoEffectiveProfile = MutableStateFlow(VideoEnhancementProfile.BALANCED)
+    val videoEffectiveProfile: StateFlow<VideoEnhancementProfile> = _videoEffectiveProfile.asStateFlow()
+    private val _videoDowngradeReason = MutableStateFlow<String?>(null)
+    val videoDowngradeReason: StateFlow<String?> = _videoDowngradeReason.asStateFlow()
     private val _videoUpscalingError = MutableStateFlow<String?>(null)
     private val _videoEnhancementDiagnostics = MutableStateFlow(VideoEnhancementDiagnostics())
     val videoEnhancementDiagnostics: StateFlow<VideoEnhancementDiagnostics> = _videoEnhancementDiagnostics.asStateFlow()
@@ -223,6 +249,18 @@ class PlayerViewModel @Inject constructor(
     val onlineSubtitleError: StateFlow<String?> = _onlineSubtitleError.asStateFlow()
     private val _onlineSubtitleCredentialsReady = MutableStateFlow(onlineSubtitleRepository.hasCredentials())
     val onlineSubtitleCredentialsReady: StateFlow<Boolean> = _onlineSubtitleCredentialsReady.asStateFlow()
+    private val _onlineSubtitleKeyStatus = MutableStateFlow(
+        onlineSubtitleRepository.hasSubdlKey() to onlineSubtitleRepository.hasWebsiteKey()
+    )
+    val onlineSubtitleKeyStatus: StateFlow<Pair<Boolean, Boolean>> = _onlineSubtitleKeyStatus.asStateFlow()
+    private val _onlineSubtitlePreviewKey = MutableStateFlow<String?>(null)
+    val onlineSubtitlePreviewKey: StateFlow<String?> = _onlineSubtitlePreviewKey.asStateFlow()
+    private val _onlineSubtitlePreviewLines = MutableStateFlow<List<String>>(emptyList())
+    val onlineSubtitlePreviewLines: StateFlow<List<String>> = _onlineSubtitlePreviewLines.asStateFlow()
+    private val _onlineSubtitlePreviewLoading = MutableStateFlow(false)
+    val onlineSubtitlePreviewLoading: StateFlow<Boolean> = _onlineSubtitlePreviewLoading.asStateFlow()
+    private val _onlineSubtitlePreviewError = MutableStateFlow<String?>(null)
+    val onlineSubtitlePreviewError: StateFlow<String?> = _onlineSubtitlePreviewError.asStateFlow()
 
     private val _subtitleTranslationAvailable = MutableStateFlow(false)
     val subtitleTranslationAvailable: StateFlow<Boolean> = _subtitleTranslationAvailable.asStateFlow()
@@ -237,6 +275,10 @@ class PlayerViewModel @Inject constructor(
     private var subtitleTranslationJob: Job? = null
     private var subtitleTranslationGeneration: Long = 0L
     private var translationSourceSubtitleUri: Uri? = null
+    private var pendingExternalSubtitleMediaId: String? = null
+    private var pendingExternalSubtitleId: String? = null
+    private var onlineSubtitleSearchJob: Job? = null
+    private var onlineSubtitleSearchGeneration: Long = 0L
     private var playbackGeneration: Long = 0L
 
     private val _sleepTimerEndsAtMs = MutableStateFlow(0L)
@@ -274,6 +316,28 @@ class PlayerViewModel @Inject constructor(
 
     init {
         connect()
+        observeWebCastCommands()
+    }
+
+    private fun observeWebCastCommands() {
+        viewModelScope.launch {
+            WebCastRegistry.commands.collect { command ->
+                val player = _controller.value ?: return@collect
+                when (command) {
+                    WebCastRemoteCommand.Play -> player.play()
+                    WebCastRemoteCommand.Pause -> player.pause()
+                    is WebCastRemoteCommand.Seek -> player.seekTo(command.positionMs.coerceAtLeast(0L))
+                    WebCastRemoteCommand.Next -> player.seekToNext()
+                    WebCastRemoteCommand.Previous -> player.seekToPrevious()
+                    is WebCastRemoteCommand.SelectIndex -> {
+                        if (command.index in 0 until player.mediaItemCount) {
+                            player.seekTo(command.index, 0L)
+                            player.play()
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /** Idempotent: repeated calls are safe and a failed attempt can be retried. */
@@ -360,12 +424,14 @@ class PlayerViewModel @Inject constructor(
                 if (_dlnaPlayback.value.activeDevice != null) stopDlnaPlayback()
                 nextMediaId?.let(restoredTrackPreferenceIds::remove)
                 clearSubtitleTranslationSource()
+                clearOnlineSubtitleState()
             }
             currentMediaId = nextMediaId
             _currentItemId.value = nextMediaId
             _currentIndex.value = _controller.value?.currentMediaItemIndex ?: 0
             _queueSize.value = _controller.value?.mediaItemCount ?: 0
             refreshVideoEffectState()
+            if (WebCastRegistry.state.value.running) syncWebCastQueue()
             // Favourite state is already observed as a single StateFlow above;
             // querying the repository on every queue transition was unused work.
         }
@@ -422,12 +488,23 @@ class PlayerViewModel @Inject constructor(
     }
 
     private fun publishPlayerSnapshot(player: Player) {
-        _positionMs.value = player.currentPosition
-        _durationMs.value = player.duration.coerceAtLeast(0L)
+        val pos = player.currentPosition
+        val dur = player.duration.coerceAtLeast(0L)
+        val idx = player.currentMediaItemIndex
+        _positionMs.value = pos
+        _durationMs.value = dur
         _bufferedMs.value = player.bufferedPosition
-        _currentIndex.value = player.currentMediaItemIndex
+        _currentIndex.value = idx
         _queueSize.value = player.mediaItemCount
         _currentItemId.value = player.currentMediaItem?.mediaId
+        if (WebCastRegistry.state.value.running) {
+            WebCastRegistry.updatePlaybackSnapshot(
+                activeIndex = idx,
+                positionMs = pos,
+                durationMs = dur,
+                isPlaying = player.isPlaying
+            )
+        }
     }
 
     /** The UI ticker exists only during active playback, never while paused or idle. */
@@ -486,13 +563,27 @@ class PlayerViewModel @Inject constructor(
                 val result = runCatching { future.get() }.getOrNull() ?: return@addListener
                 if (result.resultCode != SessionResult.RESULT_SUCCESS) return@addListener
                 val state = result.extras
-                _videoUpscalingEnabled.value =
-                    state.getBoolean(PlaybackVideoEffects.KEY_STATE_UPSCALING, false)
-                _videoNoiseReductionEnabled.value =
-                    state.getBoolean(PlaybackVideoEffects.KEY_STATE_NOISE_REDUCTION, false)
-                _videoEnhancementProfile.value = VideoEnhancementProfile.fromWireValue(
+                val upscaling = state.getBoolean(PlaybackVideoEffects.KEY_STATE_UPSCALING, false)
+                val denoise = state.getBoolean(PlaybackVideoEffects.KEY_STATE_NOISE_REDUCTION, false)
+                val vibrance = state.getBoolean(PlaybackVideoEffects.KEY_STATE_VIBRANCE, false)
+                val aiBoost = state.getBoolean(PlaybackVideoEffects.KEY_STATE_AI_BOOST, false)
+                val bypassed = state.getBoolean(PlaybackVideoEffects.KEY_STATE_BYPASSED, false)
+                val customMode = state.getBoolean(PlaybackVideoEffects.KEY_STATE_CUSTOM_MODE, false)
+                val profile = VideoEnhancementProfile.fromWireValue(
                     state.getString(PlaybackVideoEffects.KEY_STATE_PROFILE)
                 )
+                val effectiveProfile = VideoEnhancementProfile.fromWireValue(
+                    state.getString(PlaybackVideoEffects.KEY_STATE_EFFECTIVE_PROFILE)
+                )
+                val downgradeReason = state.getString(PlaybackVideoEffects.KEY_STATE_DOWNGRADE_REASON)
+                _videoUpscalingEnabled.value = upscaling
+                _videoNoiseReductionEnabled.value = denoise
+                _videoVibranceEnabled.value = vibrance
+                _videoEnhancementBypassed.value = bypassed
+                _videoEnhancementCustomMode.value = customMode
+                _videoEnhancementProfile.value = profile
+                _videoEffectiveProfile.value = effectiveProfile
+                _videoDowngradeReason.value = downgradeReason
                 _videoEnhancementDiagnostics.value = VideoEnhancementDiagnostics(
                     bridgeAttached = state.getBoolean(PlaybackVideoEffects.KEY_DIAG_BRIDGE_ATTACHED, false),
                     upscalingSubmitted = state.getBoolean(PlaybackVideoEffects.KEY_DIAG_UPSCALE_SUBMITTED, false),
@@ -505,8 +596,18 @@ class PlayerViewModel @Inject constructor(
                     rendererFrames = state.getLong(PlaybackVideoEffects.KEY_DIAG_RENDERER_FRAMES, 0L),
                     averageProcessingOffsetUs = state.getLong(PlaybackVideoEffects.KEY_DIAG_AVG_OFFSET_US, 0L),
                     droppedFrames = state.getLong(PlaybackVideoEffects.KEY_DIAG_DROPPED_FRAMES, 0L),
-                    upscalingEnabled = state.getBoolean(PlaybackVideoEffects.KEY_STATE_UPSCALING, false),
-                    noiseReductionEnabled = state.getBoolean(PlaybackVideoEffects.KEY_STATE_NOISE_REDUCTION, false),
+                    upscalingEnabled = upscaling,
+                    noiseReductionEnabled = denoise,
+                    vibranceEnabled = vibrance,
+                    aiBoostEnabled = aiBoost,
+                    bypassed = bypassed,
+                    customMode = customMode,
+                    effectiveProfile = effectiveProfile,
+                    downgradeReason = downgradeReason,
+                    detailStrength = state.getFloat(PlaybackVideoEffects.KEY_STATE_DETAIL_STRENGTH, effectiveProfile.detailStrength),
+                    denoiseStrength = state.getFloat(PlaybackVideoEffects.KEY_STATE_DENOISE_STRENGTH, effectiveProfile.denoiseStrength),
+                    contrastBoost = state.getFloat(PlaybackVideoEffects.KEY_STATE_CONTRAST_BOOST, effectiveProfile.contrastBoost),
+                    vibranceStrength = state.getFloat(PlaybackVideoEffects.KEY_STATE_VIBRANCE_STRENGTH, effectiveProfile.vibranceStrength),
                     programCreations = state.getLong(PlaybackVideoEffects.KEY_DIAG_PROGRAM_CREATIONS, 0L),
                     configureCalls = state.getLong(PlaybackVideoEffects.KEY_DIAG_CONFIGURE_CALLS, 0L),
                     drawFrameCalls = state.getLong(PlaybackVideoEffects.KEY_DIAG_DRAW_FRAME_CALLS, 0L),
@@ -529,6 +630,67 @@ class PlayerViewModel @Inject constructor(
 
     fun setVideoNoiseReductionEnabled(enabled: Boolean) =
         setVideoEffectEnabled(PlaybackVideoEffects.ACTION_NOISE_REDUCTION, enabled) { _videoNoiseReductionEnabled.value = it }
+
+    fun setVideoVibranceEnabled(enabled: Boolean) =
+        setVideoEffectEnabled(PlaybackVideoEffects.ACTION_VIBRANCE, enabled) { _videoVibranceEnabled.value = it }
+
+    fun setVideoEnhancementBypassed(bypassed: Boolean) =
+        setVideoEffectEnabled(PlaybackVideoEffects.ACTION_COMPARISON_BYPASS, bypassed) { _videoEnhancementBypassed.value = it }
+
+    fun setCustomVideoEnhancement(
+        customMode: Boolean,
+        denoiseStrength: Float,
+        detailStrength: Float,
+        contrastBoost: Float,
+        vibranceStrength: Float
+    ) {
+        val player = _controller.value ?: return
+        _videoUpscalingError.value = null
+        val command = androidx.media3.session.SessionCommand(
+            PlaybackVideoEffects.ACTION_CUSTOM_TUNING,
+            Bundle.EMPTY
+        )
+        val args = Bundle().apply {
+            putBoolean(PlaybackVideoEffects.KEY_CUSTOM_MODE, customMode)
+            putFloat(PlaybackVideoEffects.KEY_DENOISE_STRENGTH, denoiseStrength)
+            putFloat(PlaybackVideoEffects.KEY_DETAIL_STRENGTH, detailStrength)
+            putFloat(PlaybackVideoEffects.KEY_CONTRAST_BOOST, contrastBoost)
+            putFloat(PlaybackVideoEffects.KEY_VIBRANCE_STRENGTH, vibranceStrength)
+        }
+        val future = runCatching { player.sendCustomCommand(command, args) }.getOrNull() ?: return
+        future.addListener(
+            {
+                val result = runCatching { future.get() }.getOrNull()
+                if (result?.resultCode == SessionResult.RESULT_SUCCESS) {
+                    _videoEnhancementCustomMode.value = customMode
+                }
+                refreshVideoEffectState()
+            },
+            ContextCompat.getMainExecutor(app)
+        )
+    }
+
+    fun applySavedVideoEnhancement(settings: PlayerSettings) {
+        if (!settings.rememberVideoEnhancement) return
+        if (!settings.videoEnhancementEnabled) {
+            setInternalGpuEnhancementEnabled(false)
+            return
+        }
+        val profile = VideoEnhancementProfile.fromWireValue(settings.videoEnhancementProfile)
+        setVideoEnhancementProfile(profile)
+        setVideoUpscalingEnabled(settings.videoEnhancementUpscaling)
+        setVideoNoiseReductionEnabled(settings.videoEnhancementDenoise)
+        setVideoVibranceEnabled(settings.videoEnhancementVibrance)
+        if (settings.videoEnhancementCustom) {
+            setCustomVideoEnhancement(
+                customMode = true,
+                denoiseStrength = settings.videoEnhancementDenoiseStrength,
+                detailStrength = settings.videoEnhancementDetailStrength,
+                contrastBoost = settings.videoEnhancementContrastBoost,
+                vibranceStrength = settings.videoEnhancementVibranceStrength
+            )
+        }
+    }
 
     /**
      * Atomically switch the internal GPU detail and denoise stages. This avoids
@@ -671,6 +833,7 @@ class PlayerViewModel @Inject constructor(
         _queueSize.value = safeItems.size
         val nextMediaId = safeItems[safeIndex].id
         clearSubtitleTranslationSource()
+        if (nextMediaId != currentMediaId) clearOnlineSubtitleState()
         restoredTrackPreferenceIds.remove(nextMediaId)
         currentMediaId = nextMediaId
         _currentItemId.value = nextMediaId
@@ -708,6 +871,7 @@ class PlayerViewModel @Inject constructor(
             player.prepare()
             player.playWhenReady = true
             refreshStats()
+            if (WebCastRegistry.state.value.running) syncWebCastQueue()
         }
     }
 
@@ -735,6 +899,7 @@ class PlayerViewModel @Inject constructor(
         _queue.value = emptyList()
         val nextMediaId = uri.toString()
         clearSubtitleTranslationSource()
+        if (nextMediaId != currentMediaId) clearOnlineSubtitleState()
         currentMediaId = nextMediaId
         _currentItemId.value = nextMediaId
         _playerError.value = null
@@ -744,6 +909,7 @@ class PlayerViewModel @Inject constructor(
         player.prepare()
         player.playWhenReady = true
         refreshStats()
+        if (WebCastRegistry.state.value.running) syncWebCastQueue()
     }
 
     /**
@@ -770,12 +936,19 @@ class PlayerViewModel @Inject constructor(
                         dlnaSessionGeneration++
                         _dlnaPlayback.value = DlnaPlaybackState()
                     }
-                    dlnaPlaybackController.play(device, item, title)
+                    dlnaPlaybackController.play(
+                        device = device,
+                        mediaItem = item,
+                        title = title,
+                        subtitleOverrideUri = translationSourceSubtitleUri
+                    )
                     player.pause()
+                    val initialVolume = runCatching { dlnaPlaybackController.getVolume(device) }.getOrNull()
                     _dlnaPlayback.value = DlnaPlaybackState(
                         activeDevice = device,
                         isPlaying = true,
-                        isConnected = true
+                        isConnected = true,
+                        volumePercent = initialVolume
                     )
                     startDlnaPolling(device)
                 } catch (cancelled: CancellationException) {
@@ -840,6 +1013,125 @@ class PlayerViewModel @Inject constructor(
         val target = (state.positionMs + deltaMs).coerceAtLeast(0L)
             .let { if (state.durationMs > 0L) it.coerceAtMost(state.durationMs) else it }
         seekDlnaTo(target)
+    }
+
+    fun stepDlnaVolume(up: Boolean) {
+        val requested = _dlnaPlayback.value.activeDevice ?: return
+        viewModelScope.launch {
+            dlnaCommandMutex.withLock {
+                if (_dlnaPlayback.value.activeDevice?.id != requested.id) return@withLock
+                runCatching {
+                    dlnaPlaybackController.stepVolume(requested, up)
+                    val refreshed = dlnaPlaybackController.getVolume(requested)
+                    _dlnaPlayback.value = _dlnaPlayback.value.copy(
+                        volumePercent = refreshed ?: _dlnaPlayback.value.volumePercent,
+                        isMuted = false,
+                        errorMessage = null
+                    )
+                }.onFailure { err ->
+                    if (err is CancellationException) throw err
+                    publishDlnaError(err.message ?: "لا يدعم هذا التلفزيون التحكم في الصوت عن بُعد.")
+                }
+            }
+        }
+    }
+
+    fun toggleDlnaMute() {
+        val requested = _dlnaPlayback.value.activeDevice ?: return
+        viewModelScope.launch {
+            dlnaCommandMutex.withLock {
+                val state = _dlnaPlayback.value
+                if (state.activeDevice?.id != requested.id) return@withLock
+                val nextMuted = !state.isMuted
+                runCatching {
+                    dlnaPlaybackController.setMute(requested, nextMuted)
+                    _dlnaPlayback.value = state.copy(isMuted = nextMuted, errorMessage = null)
+                }.onFailure { err ->
+                    if (err is CancellationException) throw err
+                    publishDlnaError(err.message ?: "لا يدعم هذا التلفزيون كتم الصوت عن بُعد.")
+                }
+            }
+        }
+    }
+
+    fun startWebCast(requirePin: Boolean = true) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                WebCastRegistry.start(app, requirePin)
+            }.onSuccess {
+                withContext(Dispatchers.Main.immediate) {
+                    syncWebCastQueue()
+                }
+            }.onFailure { err ->
+                if (err is CancellationException) throw err
+                publishDlnaError(err.message ?: "تعذر بدء البث إلى الكمبيوتر.")
+            }
+        }
+    }
+
+    fun stopWebCast() {
+        WebCastRegistry.stop()
+    }
+
+    fun setWebCastRequirePin(requirePin: Boolean) {
+        WebCastRegistry.setRequirePin(requirePin)
+    }
+
+    fun regenerateWebCastPin() {
+        WebCastRegistry.regeneratePin()
+    }
+
+    fun syncWebCastQueue() {
+        val player = _controller.value
+        val items = _queue.value
+        val castItems: List<WebCastItem> = if (items.isNotEmpty()) {
+            items.mapIndexed { idx, media ->
+                val activeSub = if (idx == _currentIndex.value) {
+                    translationSourceSubtitleUri
+                        ?: player?.currentMediaItem?.localConfiguration?.subtitleConfigurations?.firstOrNull()?.uri
+                } else null
+                WebCastItem(
+                    id = "item-$idx-${media.id.hashCode().toUInt()}",
+                    title = media.title.ifBlank { media.fileName },
+                    uri = Uri.parse(media.contentUri),
+                    mimeType = media.mimeType,
+                    durationMs = media.durationMs,
+                    subtitleUri = activeSub,
+                    subtitleTitle = media.fileName
+                )
+            }
+        } else {
+            val current = player?.currentMediaItem
+            val local = current?.localConfiguration
+            if (current != null && local != null) {
+                val title = current.mediaMetadata.title?.toString()?.takeIf { it.isNotBlank() }
+                    ?: local.uri.lastPathSegment
+                    ?: "MalekPlay Stream"
+                val mime = local.mimeType ?: app.contentResolver.getType(local.uri) ?: "video/mp4"
+                listOf(
+                    WebCastItem(
+                        id = "single-${current.mediaId.hashCode().toUInt()}",
+                        title = title,
+                        uri = local.uri,
+                        mimeType = mime,
+                        durationMs = player.duration.coerceAtLeast(0L),
+                        subtitleUri = translationSourceSubtitleUri
+                            ?: local.subtitleConfigurations.firstOrNull()?.uri,
+                        subtitleTitle = title
+                    )
+                )
+            } else emptyList()
+        }
+        val activeIdx = _currentIndex.value.coerceIn(0, (castItems.size - 1).coerceAtLeast(0))
+        WebCastRegistry.updateQueue(castItems, activeIdx)
+        if (player != null) {
+            WebCastRegistry.updatePlaybackSnapshot(
+                activeIndex = activeIdx,
+                positionMs = player.currentPosition,
+                durationMs = player.duration.coerceAtLeast(0L),
+                isPlaying = player.isPlaying
+            )
+        }
     }
 
     /**
@@ -908,9 +1200,16 @@ class PlayerViewModel @Inject constructor(
                         _dlnaPlayback.value.activeDevice?.id != device.id
                     ) break
                     consecutiveFailures = 0
+                    val remoteState = position?.transportState?.uppercase()
+                    val updatedPlaying = when (remoteState) {
+                        "PLAYING", "TRANSITIONING" -> true
+                        "PAUSED_PLAYBACK", "STOPPED", "NO_MEDIA_PRESENT" -> false
+                        else -> _dlnaPlayback.value.isPlaying
+                    }
                     _dlnaPlayback.value = _dlnaPlayback.value.copy(
                         positionMs = position?.positionMs ?: _dlnaPlayback.value.positionMs,
                         durationMs = position?.durationMs ?: _dlnaPlayback.value.durationMs,
+                        isPlaying = updatedPlaying,
                         isConnected = true,
                         errorMessage = null
                     )
@@ -1003,11 +1302,40 @@ class PlayerViewModel @Inject constructor(
         _shuffleEnabled.value = player.shuffleModeEnabled
     }
 
+    /** Stops active playback and clears the mini-player dock cleanly. */
+    fun dismissMiniPlayer() {
+        if (_dlnaPlayback.value.activeDevice != null) stopDlnaPlayback()
+        playbackGeneration++
+        val player = _controller.value ?: return
+        player.playWhenReady = false
+        player.stop()
+        player.clearMediaItems()
+        _queue.value = emptyList()
+        _currentIndex.value = 0
+        _queueSize.value = 0
+        _isPlaying.value = false
+        _positionMs.value = 0L
+        _durationMs.value = 0L
+        currentMediaId = null
+        _currentItemId.value = null
+    }
+
     /** Adds an external subtitle without discarding the current playback queue. */
-    fun addExternalSubtitle(uri: Uri, rememberAsTranslationSource: Boolean = true) {
+    fun addExternalSubtitle(
+        uri: Uri,
+        rememberAsTranslationSource: Boolean = true,
+        language: String = "und",
+        label: String? = null
+    ) {
         val targetMediaId = currentMediaId
         viewModelScope.launch {
-            addExternalSubtitleForMedia(uri, targetMediaId, rememberAsTranslationSource)
+            addExternalSubtitleForMedia(
+                uri = uri,
+                targetMediaId = targetMediaId,
+                rememberAsTranslationSource = rememberAsTranslationSource,
+                subtitleLanguage = language,
+                subtitleLabel = label
+            )
         }
     }
 
@@ -1019,7 +1347,9 @@ class PlayerViewModel @Inject constructor(
     private suspend fun addExternalSubtitleForMedia(
         uri: Uri,
         targetMediaId: String?,
-        rememberAsTranslationSource: Boolean
+        rememberAsTranslationSource: Boolean,
+        subtitleLanguage: String = "und",
+        subtitleLabel: String? = null
     ): Boolean {
         val extension = withContext(Dispatchers.IO) { resolveSubtitleExtension(uri) }
         val mimeType = when (extension) {
@@ -1029,25 +1359,30 @@ class PlayerViewModel @Inject constructor(
             else -> null
         }
         if (mimeType == null) {
-            _playerError.value = "صيغة الترجمة غير مدعومة. استخدم ASS أو SSA أو SRT أو VTT"
+            _playerError.value =
+                app.getString(com.malekplay.R.string.subtitle_unsupported_format)
             return false
         }
         val player = _controller.value ?: run {
-            _playerError.value = "مشغل الفيديو غير جاهز"
+            _playerError.value =
+                app.getString(com.malekplay.R.string.subtitle_player_not_ready)
             return false
         }
         if (targetMediaId == null) {
-            _playerError.value = "لا يوجد فيديو نشط لإضافة الترجمة"
+            _playerError.value =
+                app.getString(com.malekplay.R.string.subtitle_no_active_video)
             return false
         }
         if (targetMediaId != currentMediaId) {
-            _playerError.value = "تغير الفيديو قبل إرفاق الترجمة؛ أعد المحاولة على الفيديو الحالي"
+            _playerError.value =
+                app.getString(com.malekplay.R.string.subtitle_video_changed_attach)
             return false
         }
         val index = player.currentMediaItemIndex
         val current = player.currentMediaItem
         if (current == null || index !in 0 until player.mediaItemCount) {
-            _playerError.value = "لا يوجد فيديو نشط لإضافة الترجمة"
+            _playerError.value =
+                app.getString(com.malekplay.R.string.subtitle_no_active_video)
             return false
         }
         if (rememberAsTranslationSource) {
@@ -1056,14 +1391,49 @@ class PlayerViewModel @Inject constructor(
             _subtitleTranslationError.value = null
         }
         val existing = current.localConfiguration?.subtitleConfigurations.orEmpty()
-        if (existing.any { it.uri == uri }) {
+        val subtitleId = "malekplay_ext:${uri}"
+        val cleanLanguage = subtitleLanguage.trim().ifBlank { "und" }
+        val cleanLabel = subtitleLabel?.trim()?.takeIf { it.isNotBlank() }
+
+        // Prevent old saved subtitle preferences from overriding the newly selected track.
+        restoredTrackPreferenceIds.add(targetMediaId)
+        pendingExternalSubtitleMediaId = targetMediaId
+        pendingExternalSubtitleId = subtitleId
+
+        val existingConfig = existing.firstOrNull { it.uri == uri }
+        if (existingConfig != null) {
+            val existingMatchId = existingConfig.id ?: subtitleId
+            pendingExternalSubtitleId = existingMatchId
+            val matchedGroup = lastGroups.firstOrNull { group ->
+                group.type == C.TRACK_TYPE_TEXT &&
+                    (0 until group.length).any { idx ->
+                        val fid = group.getTrackFormat(idx).id
+                        fid == existingMatchId || fid?.endsWith(":$existingMatchId") == true
+                    }
+            }
+            val builder = player.trackSelectionParameters.buildUpon()
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+            if (matchedGroup != null) {
+                val trackIndex = (0 until matchedGroup.length).first { idx ->
+                    val fid = matchedGroup.getTrackFormat(idx).id
+                    fid == existingMatchId || fid?.endsWith(":$existingMatchId") == true
+                }
+                builder.setOverrideForType(TrackSelectionOverride(matchedGroup.mediaTrackGroup, trackIndex))
+            } else {
+                builder.clearOverridesOfType(C.TRACK_TYPE_TEXT)
+            }
+            player.trackSelectionParameters = builder.build()
+            _textTrackDisabled.value = false
+            refreshTracks()
             _playerError.value = null
             return true
         }
 
         val configuration = MediaItem.SubtitleConfiguration.Builder(uri)
+            .setId(subtitleId)
             .setMimeType(mimeType)
-            .setLanguage("und")
+            .setLanguage(cleanLanguage)
+            .apply { if (cleanLabel != null) setLabel(cleanLabel) }
             .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
             .build()
         val updated = current.buildUpon()
@@ -1074,6 +1444,11 @@ class PlayerViewModel @Inject constructor(
         }
         val position = player.currentPosition.coerceAtLeast(0L)
         val playWhenReady = player.playWhenReady
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+            .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+            .build()
+        _textTrackDisabled.value = false
         player.setMediaItems(queue, index, position)
         player.prepare()
         player.playWhenReady = playWhenReady
@@ -1088,11 +1463,16 @@ class PlayerViewModel @Inject constructor(
         // display name or generic MIME type do not attach the wrong Media3 decoder.
         val prefix = runCatching {
             app.contentResolver.openInputStream(uri)?.use { input ->
-                val bytes = ByteArray(8192)
-                val count = input.read(bytes)
-                if (count > 0) {
-                    runCatching { SrtSubtitleParser.decode(bytes.copyOf(count)) }
-                        .getOrElse { String(bytes, 0, count, Charsets.UTF_8) }
+                val bytes = ByteArray(32_768)
+                var offset = 0
+                while (offset < bytes.size) {
+                    val read = input.read(bytes, offset, bytes.size - offset)
+                    if (read <= 0) break
+                    offset += read
+                }
+                if (offset > 0) {
+                    runCatching { SrtSubtitleParser.decode(bytes.copyOf(offset)) }
+                        .getOrElse { String(bytes, 0, offset, Charsets.UTF_8) }
                 } else ""
             }
         }.getOrNull().orEmpty()
@@ -1126,21 +1506,36 @@ class PlayerViewModel @Inject constructor(
     private fun clearSubtitleTranslationSource() {
         cancelSubtitleTranslation()
         translationSourceSubtitleUri = null
+        pendingExternalSubtitleMediaId = null
+        pendingExternalSubtitleId = null
         _subtitleTranslationAvailable.value = false
         _subtitleTranslationError.value = null
         _subtitleTranslationCompletedCues.value = 0
         _subtitleTranslationTotalCues.value = 0
     }
 
+    private fun clearOnlineSubtitleState() {
+        onlineSubtitleSearchGeneration++
+        onlineSubtitleSearchJob?.cancel()
+        onlineSubtitleSearchJob = null
+        _onlineSubtitleLoading.value = false
+        _onlineSubtitleResults.value = emptyList()
+        _onlineSubtitleError.value = null
+        clearOnlineSubtitlePreview()
+        clearOnlineSubtitleEpisodeGuide()
+    }
+
     /** Translates the currently added external subtitle to Arabic on-device. */
     fun translateCurrentSubtitleToArabic(sourceLanguageCode: String = "en") {
         val source = translationSourceSubtitleUri ?: run {
-            _subtitleTranslationError.value = "أضف ملف ترجمة خارجي أولاً"
+            _subtitleTranslationError.value =
+                app.getString(com.malekplay.R.string.subtitle_add_external_first)
             return
         }
         if (_subtitleTranslationLoading.value) return
         val targetMediaId = currentMediaId ?: run {
-            _subtitleTranslationError.value = "لا يوجد ملف نشط لإضافة الترجمة"
+            _subtitleTranslationError.value =
+                app.getString(com.malekplay.R.string.subtitle_no_active_file)
             return
         }
         val generation = ++subtitleTranslationGeneration
@@ -1162,18 +1557,27 @@ class PlayerViewModel @Inject constructor(
                 // Translation can take several seconds. Never attach its result
                 // to a different item if the viewer changed the queue meanwhile.
                 if (currentMediaId != targetMediaId) {
-                    _subtitleTranslationError.value = "تغير الملف أثناء الترجمة؛ أعد المحاولة على الملف الحالي"
+                    _subtitleTranslationError.value =
+                        app.getString(com.malekplay.R.string.subtitle_file_changed_translate)
                     return@launch
                 }
-                if (!addExternalSubtitleForMedia(translated, targetMediaId, rememberAsTranslationSource = false)) {
-                    _subtitleTranslationError.value = _playerError.value ?: "تعذر إرفاق الترجمة بالفيديو الحالي"
+                if (!addExternalSubtitleForMedia(
+                        uri = translated,
+                        targetMediaId = targetMediaId,
+                        rememberAsTranslationSource = false,
+                        subtitleLanguage = "ar",
+                        subtitleLabel = app.getString(com.malekplay.R.string.subtitle_translated_arabic_label)
+                    )) {
+                    _subtitleTranslationError.value = _playerError.value
+                        ?: app.getString(com.malekplay.R.string.subtitle_attach_failed)
                     return@launch
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
                 currentCoroutineContext().ensureActive()
-                _subtitleTranslationError.value = error.message ?: "تعذرت ترجمة ملف الترجمة"
+                _subtitleTranslationError.value = error.message
+                    ?: app.getString(com.malekplay.R.string.subtitle_translate_failed)
             } finally {
                 if (generation == subtitleTranslationGeneration) {
                     _subtitleTranslationLoading.value = false
@@ -1223,6 +1627,37 @@ class PlayerViewModel @Inject constructor(
         _textTracks.value = text
         _textTrackDisabled.value = player.trackSelectionParameters.disabledTrackTypes
             .contains(C.TRACK_TYPE_TEXT)
+
+        val pendingId = pendingExternalSubtitleId
+        val pendingMedia = pendingExternalSubtitleMediaId
+        if (pendingId != null && pendingMedia == currentMediaId) {
+            val matchedDescriptor = text.firstOrNull { descriptor ->
+                val formatId = lastGroups.getOrNull(descriptor.groupIndex)
+                    ?.getTrackFormat(descriptor.trackIndex)
+                    ?.id
+                formatId == pendingId || formatId?.endsWith(":$pendingId") == true
+            }
+            if (matchedDescriptor != null) {
+                pendingExternalSubtitleId = null
+                pendingExternalSubtitleMediaId = null
+                lastGroups.getOrNull(matchedDescriptor.groupIndex)?.let { group ->
+                    player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                        .setOverrideForType(
+                            TrackSelectionOverride(group.mediaTrackGroup, matchedDescriptor.trackIndex)
+                        )
+                        .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                        .build()
+                    _textTrackDisabled.value = false
+                    matchedDescriptor.stableId?.let { stableId ->
+                        persistTrackPreferences(
+                            subtitleTrackId = stableId,
+                            updateSubtitle = true,
+                            subtitlesEnabled = true
+                        )
+                    }
+                }
+            }
+        }
         restoreTrackPreferencesForCurrentMedia()
     }
 
@@ -1315,6 +1750,7 @@ class PlayerViewModel @Inject constructor(
                 isSubtitleEnabled = subtitlesEnabled ?: existing?.isSubtitleEnabled ?: !_textTrackDisabled.value,
                 externalSubtitleUri = existing?.externalSubtitleUri
             )
+            trackPreferencesByMediaId[mediaId] = preference
             runCatchingCancellable { mediaRepository.saveTrackPreference(preference) }
         }
     }
@@ -1565,10 +2001,64 @@ class PlayerViewModel @Inject constructor(
     fun saveOnlineSubtitleProviderKeys(subdlKey: String, websiteKey: String) {
         runCatching { onlineSubtitleRepository.saveProviderApiKeys(subdlKey, websiteKey) }
             .onSuccess {
+                _onlineSubtitleKeyStatus.value =
+                    onlineSubtitleRepository.hasSubdlKey() to onlineSubtitleRepository.hasWebsiteKey()
                 _onlineSubtitleError.value = null
-                android.widget.Toast.makeText(app, "تم حفظ مفاتيح مزودي الترجمة بأمان", android.widget.Toast.LENGTH_SHORT).show()
+                android.widget.Toast.makeText(
+                    app,
+                    app.getString(com.malekplay.R.string.subtitle_provider_keys_saved),
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
             }
-            .onFailure { _onlineSubtitleError.value = it.message ?: "تعذر حفظ مفاتيح مزودي الترجمة" }
+            .onFailure {
+                _onlineSubtitleError.value = it.message
+                    ?: app.getString(com.malekplay.R.string.subtitle_provider_keys_save_failed)
+            }
+    }
+
+    fun clearOnlineSubtitlePreview() {
+        _onlineSubtitlePreviewKey.value = null
+        _onlineSubtitlePreviewLines.value = emptyList()
+        _onlineSubtitlePreviewLoading.value = false
+        _onlineSubtitlePreviewError.value = null
+    }
+
+    fun previewOnlineSubtitle(subtitle: OnlineSubtitle) {
+        val key = subtitle.provider + ":" + subtitle.sourceId
+        if (_onlineSubtitlePreviewKey.value == key && _onlineSubtitlePreviewLines.value.isNotEmpty()) {
+            clearOnlineSubtitlePreview()
+            return
+        }
+        val targetMediaId = currentMediaId
+        viewModelScope.launch {
+            _onlineSubtitlePreviewKey.value = key
+            _onlineSubtitlePreviewLines.value = emptyList()
+            _onlineSubtitlePreviewLoading.value = true
+            _onlineSubtitlePreviewError.value = null
+            try {
+                val lines = withContext(Dispatchers.IO) {
+                    onlineSubtitleRepository.previewSubtitleLines(subtitle, maxCues = 6)
+                }
+                if (currentMediaId == targetMediaId && _onlineSubtitlePreviewKey.value == key) {
+                    _onlineSubtitlePreviewLines.value = lines
+                    if (lines.isEmpty()) {
+                        _onlineSubtitlePreviewError.value =
+                            app.getString(com.malekplay.R.string.subtitle_preview_empty)
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                if (currentMediaId == targetMediaId && _onlineSubtitlePreviewKey.value == key) {
+                    _onlineSubtitlePreviewError.value = error.message
+                        ?: app.getString(com.malekplay.R.string.subtitle_preview_failed)
+                }
+            } finally {
+                if (_onlineSubtitlePreviewKey.value == key) {
+                    _onlineSubtitlePreviewLoading.value = false
+                }
+            }
+        }
     }
 
     fun clearOnlineSubtitleEpisodeGuide() {
@@ -1594,7 +2084,7 @@ class PlayerViewModel @Inject constructor(
                 _onlineSubtitleEpisodeGuide.value = guide
                 if (guide == null) {
                     _onlineSubtitleGuideError.value =
-                        "لم نعثر على مسلسل مطابق بالاسم والسنة. تحقق من العنوان أو أدخل الموسم والحلقة يدويًا."
+                        app.getString(com.malekplay.R.string.subtitle_guide_not_found)
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -1603,9 +2093,9 @@ class PlayerViewModel @Inject constructor(
                     _onlineSubtitleGuideError.value = if (
                         forceRefresh && _onlineSubtitleEpisodeGuide.value != null
                     ) {
-                        "تعذر تحديث دليل الحلقات الآن؛ نعرض النسخة السابقة المحفوظة."
+                        app.getString(com.malekplay.R.string.subtitle_guide_refresh_failed_cached)
                     } else {
-                        "تعذر تحميل دليل الحلقات الآن. يمكنك متابعة البحث وإدخال الموسم والحلقة يدويًا."
+                        app.getString(com.malekplay.R.string.subtitle_guide_load_failed)
                     }
                 }
             } finally {
@@ -1617,11 +2107,13 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun searchOnlineSubtitles(title: String, language: String, season: Int?, episode: Int?) {
-        if (_onlineSubtitleLoading.value) return
         val targetMediaId = currentMediaId
-        viewModelScope.launch {
+        onlineSubtitleSearchJob?.cancel()
+        val generation = ++onlineSubtitleSearchGeneration
+        onlineSubtitleSearchJob = viewModelScope.launch {
             _onlineSubtitleLoading.value = true
             _onlineSubtitleError.value = null
+            _subtitleTranslationError.value = null
             _onlineSubtitleResults.value = emptyList()
             try {
                 // The database media id is not necessarily a URI. Prefer the actual
@@ -1636,23 +2128,29 @@ class PlayerViewModel @Inject constructor(
                     onlineSubtitleRepository.searchAutomatic(title, language, season, episode, sourceUri)
                 }
                 // A slow provider response must never populate the sheet for a different video.
-                if (currentMediaId != targetMediaId) return@launch
+                if (generation != onlineSubtitleSearchGeneration || currentMediaId != targetMediaId) return@launch
                 _onlineSubtitleResults.value = results
-                if (results.isEmpty()) _onlineSubtitleError.value = "لم نعثر على ترجمة مطابقة. جرّب تعديل اسم العنوان أو اللغة."
+                if (results.isEmpty()) {
+                    _onlineSubtitleError.value =
+                        app.getString(com.malekplay.R.string.subtitle_search_empty)
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
-                if (currentMediaId == targetMediaId) {
+                if (generation == onlineSubtitleSearchGeneration && currentMediaId == targetMediaId) {
                     _onlineSubtitleError.value = when (error) {
                         is com.malekplay.network.SubtitleHttpException ->
-                            error.message ?: "رفض مزود الترجمة طلب البحث"
+                            error.message ?: app.getString(com.malekplay.R.string.subtitle_search_provider_rejected)
                         is java.io.IOException ->
-                            "تعذر الاتصال بخدمات الترجمة. تحقق من الإنترنت ثم أعد المحاولة."
-                        else -> error.message ?: "تعذر البحث عن الترجمة"
+                            app.getString(com.malekplay.R.string.subtitle_search_network_error)
+                        else -> error.message ?: app.getString(com.malekplay.R.string.subtitle_search_failed)
                     }
                 }
             } finally {
-                _onlineSubtitleLoading.value = false
+                if (generation == onlineSubtitleSearchGeneration) {
+                    _onlineSubtitleLoading.value = false
+                    onlineSubtitleSearchJob = null
+                }
             }
         }
     }
@@ -1660,32 +2158,50 @@ class PlayerViewModel @Inject constructor(
     fun downloadOnlineSubtitle(subtitle: OnlineSubtitle) {
         if (_onlineSubtitleLoading.value) return
         val targetMediaId = currentMediaId ?: run {
-            _onlineSubtitleError.value = "لا يوجد فيديو نشط لإضافة الترجمة"
+            _onlineSubtitleError.value =
+                app.getString(com.malekplay.R.string.subtitle_no_active_video)
             return
         }
         viewModelScope.launch {
             _onlineSubtitleLoading.value = true
             _onlineSubtitleError.value = null
+            _subtitleTranslationError.value = null
             try {
                 val uri = withContext(Dispatchers.IO) { onlineSubtitleRepository.download(subtitle) }
                 // A subtitle download may finish after an automatic/manual
                 // queue transition. Keep it scoped to the item it was requested for.
                 if (currentMediaId != targetMediaId) {
-                    _onlineSubtitleError.value = "تغير الفيديو أثناء تنزيل الترجمة؛ أعد المحاولة على الفيديو الحالي"
+                    _onlineSubtitleError.value =
+                        app.getString(com.malekplay.R.string.subtitle_video_changed_download)
                     return@launch
                 }
-                if (!addExternalSubtitleForMedia(uri, targetMediaId, rememberAsTranslationSource = true)) {
-                    _onlineSubtitleError.value = _playerError.value ?: "تغير الفيديو قبل إرفاق الترجمة"
+                val normalizedLang = SubtitleQueryCleaner.normalizeLanguage(subtitle.language)
+                    .takeIf { it.isNotBlank() } ?: "und"
+                if (!addExternalSubtitleForMedia(
+                        uri = uri,
+                        targetMediaId = targetMediaId,
+                        rememberAsTranslationSource = true,
+                        subtitleLanguage = normalizedLang,
+                        subtitleLabel = subtitle.release.take(80)
+                    )) {
+                    _onlineSubtitleError.value = _playerError.value
+                        ?: app.getString(com.malekplay.R.string.subtitle_video_changed_attach)
                     return@launch
                 }
-                android.widget.Toast.makeText(app, "تم تنزيل الترجمة وتطبيقها بنجاح", android.widget.Toast.LENGTH_SHORT).show()
+                android.widget.Toast.makeText(
+                    app,
+                    app.getString(com.malekplay.R.string.subtitle_download_apply_success),
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
                 currentCoroutineContext().ensureActive()
                 _onlineSubtitleError.value = if (error is java.io.IOException) {
-                    "تعذر الاتصال بخدمة تنزيل الترجمة. تحقق من الإنترنت ثم أعد المحاولة."
-                } else error.message ?: "تعذر تنزيل الترجمة"
+                    app.getString(com.malekplay.R.string.subtitle_download_network_error)
+                } else {
+                    error.message ?: app.getString(com.malekplay.R.string.subtitle_download_failed)
+                }
             } finally {
                 _onlineSubtitleLoading.value = false
             }
@@ -1697,11 +2213,13 @@ class PlayerViewModel @Inject constructor(
         if (_onlineSubtitleLoading.value || _subtitleTranslationLoading.value) return
         val sourceLanguage = com.malekplay.network.SubtitleQueryCleaner.normalizeLanguage(subtitle.language)
         if (sourceLanguage == "ar") {
-            _onlineSubtitleError.value = "هذه الترجمة عربية بالفعل"
+            _onlineSubtitleError.value =
+                app.getString(com.malekplay.R.string.subtitle_already_arabic)
             return
         }
         val targetMediaId = currentMediaId ?: run {
-            _onlineSubtitleError.value = "لا يوجد فيديو نشط لإضافة الترجمة"
+            _onlineSubtitleError.value =
+                app.getString(com.malekplay.R.string.subtitle_no_active_video)
             return
         }
         val generation = ++subtitleTranslationGeneration
@@ -1717,7 +2235,8 @@ class PlayerViewModel @Inject constructor(
                     onlineSubtitleRepository.download(subtitle)
                 }
                 if (currentMediaId != targetMediaId) {
-                    _onlineSubtitleError.value = "تغير الفيديو أثناء تنزيل الترجمة؛ أعد المحاولة على الفيديو الحالي"
+                    _onlineSubtitleError.value =
+                        app.getString(com.malekplay.R.string.subtitle_video_changed_download)
                     return@launch
                 }
                 val translated = withContext(Dispatchers.IO) {
@@ -1730,12 +2249,19 @@ class PlayerViewModel @Inject constructor(
                     }
                 }
                 if (currentMediaId != targetMediaId) {
-                    _subtitleTranslationError.value = "تغير الفيديو أثناء الترجمة؛ لم نطبق النتيجة على الفيديو الجديد"
+                    _subtitleTranslationError.value =
+                        app.getString(com.malekplay.R.string.subtitle_video_changed_translate)
                     return@launch
                 }
-                if (!addExternalSubtitleForMedia(translated, targetMediaId, rememberAsTranslationSource = false)) {
+                if (!addExternalSubtitleForMedia(
+                        uri = translated,
+                        targetMediaId = targetMediaId,
+                        rememberAsTranslationSource = false,
+                        subtitleLanguage = "ar",
+                        subtitleLabel = app.getString(com.malekplay.R.string.subtitle_translated_arabic_label)
+                    )) {
                     _subtitleTranslationError.value = _playerError.value
-                        ?: "تغير الفيديو قبل إرفاق الترجمة المترجمة"
+                        ?: app.getString(com.malekplay.R.string.subtitle_video_changed_attach_translated)
                     return@launch
                 }
                 // Keep the downloaded foreign subtitle as the source for a later
@@ -1744,14 +2270,15 @@ class PlayerViewModel @Inject constructor(
                 _subtitleTranslationAvailable.value = true
                 android.widget.Toast.makeText(
                     app,
-                    "تم تنزيل الترجمة الأجنبية وترجمتها إلى العربية",
+                    app.getString(com.malekplay.R.string.subtitle_download_translate_success),
                     android.widget.Toast.LENGTH_SHORT
                 ).show()
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
                 currentCoroutineContext().ensureActive()
-                _subtitleTranslationError.value = error.message ?: "تعذر تنزيل الترجمة وترجمتها"
+                _subtitleTranslationError.value = error.message
+                    ?: app.getString(com.malekplay.R.string.subtitle_download_translate_failed)
             } finally {
                 if (generation == subtitleTranslationGeneration) {
                     _onlineSubtitleLoading.value = false

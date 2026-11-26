@@ -99,7 +99,7 @@ class AssHandler(
     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
         super.onMediaItemTransition(mediaItem, reason)
         Log.i("AssHandler", "onMediaItemTransition: item = $mediaItem, reason = $reason")
-        overlayManager?.disable()
+        overlayManager?.disable(allowRebind = false)
         releaseMediaResources(closeAssInstance = true)
         runCatching { renderCallback?.invoke(null) }
             .onFailure { Log.w("AssHandler", "ASS renderer detach callback failed", it) }

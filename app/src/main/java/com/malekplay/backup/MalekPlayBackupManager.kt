@@ -215,7 +215,7 @@ class MalekPlayBackupManager @Inject constructor(
                     )
                 }
             })
-            .put("settings", settingsToJson(settings))
+            .put("settings", playerSettingsToJson(settings))
 
         val bytes = root.toString(2).toByteArray(StandardCharsets.UTF_8)
         require(bytes.size <= MAX_BACKUP_BYTES) { "Backup file exceeds the size limit" }
@@ -283,7 +283,7 @@ class MalekPlayBackupManager @Inject constructor(
                 }
             }
         }
-        val restoredSettings = settingsFromJson(validated.settings)
+        val restoredSettings = playerSettingsFromJson(validated.settings)
 
         // Snapshot all stores before writing. Each store commits atomically locally;
         // if a later store fails, restore the prior snapshots and retain the original error.
@@ -324,10 +324,24 @@ class MalekPlayBackupManager @Inject constructor(
 
     // ------------------------------------------------------------- settings IO
 
-    private fun settingsToJson(s: PlayerSettings): JSONObject = JSONObject()
+    private companion object {
+        const val FORMAT = "malekplay-backup"
+        const val BACKUP_VERSION = 2
+        const val MAX_BACKUP_BYTES = 4 * 1024 * 1024
+        const val MAX_FAVOURITES = 20_000
+        const val MAX_PLAYLISTS = 500
+        const val MAX_PLAYLIST_ITEMS = 5_000
+        const val MAX_TOTAL_PLAYLIST_ITEMS = 50_000
+        const val MAX_HISTORY_ENTRIES = 200
+        const val MAX_URI_LENGTH = 4096
+    }
+}
+
+internal fun playerSettingsToJson(s: PlayerSettings): JSONObject = JSONObject()
         .put("themeMode", s.themeMode.name)
         .put("accent", s.accent)
         .put("dynamicColor", s.dynamicColor)
+        .put("textColorMode", s.textColorMode)
         .put("resumePlayback", s.resumePlayback)
         .put("defaultSpeed", s.defaultSpeed.toDouble())
         .put("skipSeconds", s.skipSeconds)
@@ -354,12 +368,27 @@ class MalekPlayBackupManager @Inject constructor(
         .put("foldersFirst", s.foldersFirst)
         .put("manualSortOrder", org.json.JSONArray(s.manualSortOrder))
         .put("viewMode", s.viewMode.name)
+        .put("rememberVideoEnhancement", s.rememberVideoEnhancement)
+        .put("videoEnhancementEnabled", s.videoEnhancementEnabled)
+        .put("videoEnhancementProfile", s.videoEnhancementProfile)
+        .put("videoEnhancementCustom", s.videoEnhancementCustom)
+        .put("videoEnhancementUpscaling", s.videoEnhancementUpscaling)
+        .put("videoEnhancementDenoise", s.videoEnhancementDenoise)
+        .put("videoEnhancementVibrance", s.videoEnhancementVibrance)
+        .put("videoEnhancementSmartAi", s.videoEnhancementSmartAi)
+        .put("videoEnhancementDetailStrength", s.videoEnhancementDetailStrength.toDouble())
+        .put("videoEnhancementDenoiseStrength", s.videoEnhancementDenoiseStrength.toDouble())
+        .put("videoEnhancementContrastBoost", s.videoEnhancementContrastBoost.toDouble())
+        .put("videoEnhancementVibranceStrength", s.videoEnhancementVibranceStrength.toDouble())
 
-    private fun settingsFromJson(json: JSONObject): PlayerSettings = PlayerSettings(
+internal fun playerSettingsFromJson(json: JSONObject): PlayerSettings = PlayerSettings(
         themeMode = runCatching { AppThemeMode.valueOf(json.optString("themeMode", "DARK")) }
             .getOrDefault(AppThemeMode.DARK),
         accent = json.optString("accent").takeIf { it.isNotBlank() } ?: "amethyst",
         dynamicColor = json.optBoolean("dynamicColor", false),
+        textColorMode = json.optString("textColorMode")
+            .takeIf { it in setOf("aurora", "white", "black", "gold", "purple", "cyan", "mint", "pink") }
+            ?: "aurora",
         resumePlayback = json.optBoolean("resumePlayback", true),
         defaultSpeed = json.optDouble("defaultSpeed", 1.0).toFloat().coerceIn(0.25f, 4f),
         skipSeconds = json.optInt("skipSeconds", 10).coerceIn(5, 60),
@@ -386,32 +415,41 @@ class MalekPlayBackupManager @Inject constructor(
         gestureVerticalRight = GestureAction.fromName(
             json.optString("gestureVerticalRight"), GestureAction.VOLUME
         ),
-        equalizerPresetIndex = json.optInt("equalizerPresetIndex", 1).coerceIn(0, 7),
+        equalizerPresetIndex = json.optInt(
+            "equalizerPresetIndex",
+            com.malekplay.domain.model.EqualizerPreset.FLAT.ordinal
+        ).coerceIn(0, com.malekplay.domain.model.EqualizerPreset.entries.lastIndex),
         equalizerBands = runCatching {
             val array = json.optJSONArray("equalizerBands") ?: JSONArray()
-            List(5) { index -> array.optInt(index, 0).coerceIn(-1500, 1500) }
-        }.getOrDefault(List(5) { 0 }),
+            List(10) { index ->
+                if (index < array.length()) array.optInt(index, 0).coerceIn(-1200, 1200) else 0
+            }
+        }.getOrDefault(List(10) { 0 }),
         bassBoostStrength = json.optInt("bassBoostStrength", 0).coerceIn(0, 1000),
         virtualizerStrength = json.optInt("virtualizerStrength", 0).coerceIn(0, 1000),
-        loudnessGainDb = json.optInt("loudnessGainDb", 0).coerceIn(0, 30),
+        loudnessGainDb = json.optInt("loudnessGainDb", 0).coerceIn(0, 12),
         sortMode = runCatching { SortMode.valueOf(json.optString("sortMode", "NEWEST")) }
             .getOrDefault(SortMode.NEWEST),
         sortAscending = json.optBoolean("sortAscending", false),
         foldersFirst = json.optBoolean("foldersFirst", true),
         manualSortOrder = json.optJSONArray("manualSortOrder")?.let { array -> List(array.length()) { array.optString(it) }.filter { it.isNotBlank() } } ?: emptyList(),
         viewMode = runCatching { ViewMode.valueOf(json.optString("viewMode", "GRID")) }
-            .getOrDefault(ViewMode.GRID)
+            .getOrDefault(ViewMode.GRID),
+        rememberVideoEnhancement = json.optBoolean("rememberVideoEnhancement", false),
+        videoEnhancementEnabled = json.optBoolean("videoEnhancementEnabled", false),
+        videoEnhancementProfile = json.optString("videoEnhancementProfile", "balanced")
+            .takeIf { it in setOf("economy", "balanced", "ultra") } ?: "balanced",
+        videoEnhancementCustom = json.optBoolean("videoEnhancementCustom", false),
+        videoEnhancementUpscaling = json.optBoolean("videoEnhancementUpscaling", true),
+        videoEnhancementDenoise = json.optBoolean("videoEnhancementDenoise", true),
+        videoEnhancementVibrance = json.optBoolean("videoEnhancementVibrance", true),
+        videoEnhancementSmartAi = json.optBoolean("videoEnhancementSmartAi", false),
+        videoEnhancementDetailStrength = json.optDouble("videoEnhancementDetailStrength", 0.90)
+            .toFloat().takeIf { it.isFinite() }?.coerceIn(0f, 1.20f) ?: 0.90f,
+        videoEnhancementDenoiseStrength = json.optDouble("videoEnhancementDenoiseStrength", 0.34)
+            .toFloat().takeIf { it.isFinite() }?.coerceIn(0f, 0.60f) ?: 0.34f,
+        videoEnhancementContrastBoost = json.optDouble("videoEnhancementContrastBoost", 0.14)
+            .toFloat().takeIf { it.isFinite() }?.coerceIn(0f, 0.22f) ?: 0.14f,
+        videoEnhancementVibranceStrength = json.optDouble("videoEnhancementVibranceStrength", 0.08)
+            .toFloat().takeIf { it.isFinite() }?.coerceIn(0f, 0.35f) ?: 0.08f
     )
-
-    private companion object {
-        const val FORMAT = "malekplay-backup"
-        const val BACKUP_VERSION = 2
-        const val MAX_BACKUP_BYTES = 4 * 1024 * 1024
-        const val MAX_FAVOURITES = 20_000
-        const val MAX_PLAYLISTS = 500
-        const val MAX_PLAYLIST_ITEMS = 5_000
-        const val MAX_TOTAL_PLAYLIST_ITEMS = 50_000
-        const val MAX_HISTORY_ENTRIES = 200
-        const val MAX_URI_LENGTH = 4096
-    }
-}
