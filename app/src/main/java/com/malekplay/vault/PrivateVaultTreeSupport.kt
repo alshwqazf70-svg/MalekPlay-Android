@@ -12,7 +12,9 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
 import java.io.OutputStream
+import java.security.MessageDigest
 import java.util.UUID
+import java.util.zip.CRC32
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
@@ -88,7 +90,7 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
             parentDocumentId = sourceParentDocumentId ?: DocumentsContract.getTreeDocumentId(treeUri),
             displayPath = sourceDisplayPath ?: rootName
         )
-        val tempArchive = File(appContext.cacheDir, ".malek-vault-${UUID.randomUUID()}.zip")
+        val tempArchive = vault.createPrivateWorkFile(".malek-vault-", ".zip")
         val stored = try {
             FileOutputStream(tempArchive).use { raw ->
                 ZipOutputStream(raw).use { zip ->
@@ -103,8 +105,17 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
                         onProgress?.invoke(idx + 1, files.size.coerceAtLeast(1), node.name)
                         val path = safeArchivePath(node.relativePath)
                         require(path.isNotEmpty()) { "Invalid file path in folder." }
+                        val mime = resolver.getType(node.uri) ?: guessMimeFromName(node.name)
+                        val preferStored = shouldStoreUncompressed(node.name, mime)
+                        val storedMeta = if (preferStored) computeSizeAndCrc(node.uri) else null
                         val zipEntry = ZipEntry(path).apply {
-                            comment = resolver.getType(node.uri) ?: "application/octet-stream"
+                            comment = mime
+                            if (storedMeta != null) {
+                                method = ZipEntry.STORED
+                                size = storedMeta.first
+                                compressedSize = storedMeta.first
+                                crc = storedMeta.second
+                            }
                         }
                         zip.putNextEntry(zipEntry)
                         resolver.openInputStream(node.uri)?.use { it.copyTo(zip) }
@@ -113,11 +124,12 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
                     }
                 }
             }
+            vault.ensureAvailableInternalSpace(tempArchive.length())
             FileInputStream(tempArchive).use {
                 vault.importStream(rootName, FOLDER_ARCHIVE_MIME, it, session, sourceOrigin = origin)
             }
         } finally {
-            tempArchive.delete()
+            vault.releasePrivateWorkFile(tempArchive)
         }
         val deletion = if (moveSource) {
             val allToDelete = if (rootDocumentId != null) {
@@ -244,7 +256,7 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
         onFileRestored: ((fileName: String) -> Unit)? = null
     ): VaultFolderRestoreResult {
         require(entry.mimeType == FOLDER_ARCHIVE_MIME) { "Entry is not a folder archive." }
-        val tempArchive = File(appContext.cacheDir, ".malek-restore-${UUID.randomUUID()}.zip")
+        val tempArchive = vault.createPrivateWorkFile(".malek-restore-", ".zip")
         val parentDocId = targetParentDocumentId ?: DocumentsContract.getTreeDocumentId(destinationTree)
         val parentUri = DocumentsContract.buildDocumentUriUsingTree(destinationTree, parentDocId)
         val existingRootNames = listChildNames(destinationTree, parentDocId)
@@ -262,6 +274,9 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
         val knownChildNames = hashMapOf<String, MutableSet<String>>()
 
         try {
+            if (entry.sizeBytes > 0L) {
+                vault.ensureAvailableInternalSpace(entry.sizeBytes)
+            }
             vault.exportToFile(entry.id, tempArchive, session)
             rootFolder = DocumentsContract.createDocument(
                 resolver,
@@ -340,6 +355,7 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
                                             ?: error("Could not write $uniqueFileName")
                                         val expectedSize = item.size
                                         var writtenBytes = 0L
+                                        val expectedSha256: ByteArray
                                         out.use { rawOut ->
                                             val counter = CountingSink(rawOut)
                                             zip.copyTo(counter)
@@ -348,12 +364,14 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
                                                 runCatching { rawOut.fd.sync() }
                                             }
                                             writtenBytes = counter.written
+                                            expectedSha256 = counter.digestBytes()
                                         }
                                         if (expectedSize >= 0L) {
                                             check(writtenBytes == expectedSize) {
                                                 "Written size mismatch for $uniqueFileName ($writtenBytes != $expectedSize)"
                                             }
                                         }
+                                        vault.verifyWrittenDestinationDigest(createdFile, writtenBytes, expectedSha256)
                                         writeSuccess = true
                                         createdFileUris += createdFile
                                         restoredFiles++
@@ -384,7 +402,7 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
                 createdFileUris = createdFileUris
             )
         } finally {
-            tempArchive.delete()
+            vault.releasePrivateWorkFile(tempArchive)
         }
     }
 
@@ -406,6 +424,7 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
         var failedCount = 0
         var removedFromVaultCount = 0
         var keptInVaultCount = 0
+        var extractedButVaultDeleteFailedCount = 0
         val failures = mutableListOf<String>()
         val restoredPaths = mutableListOf<String>()
         val total = entries.size.coerceAtLeast(1)
@@ -454,7 +473,13 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
                     result.createdFileUris.forEach { restoredPaths += it.toString() }
                     if (removeFromVaultAfterRestore) {
                         val deleted = runCatching { vault.delete(entry.id, session) }
-                        if (deleted.isSuccess) removedFromVaultCount++ else keptInVaultCount++
+                        if (deleted.isSuccess) {
+                            removedFromVaultCount++
+                        } else {
+                            keptInVaultCount++
+                            extractedButVaultDeleteFailedCount++
+                            failures += "${entry.displayName}: Extracted safely, but encrypted copy remains in vault."
+                        }
                     } else {
                         keptInVaultCount++
                     }
@@ -493,7 +518,13 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
                     restoreOutcome.getOrNull()?.let { restoredPaths += it.toString() }
                     if (removeFromVaultAfterRestore) {
                         val deleted = runCatching { vault.delete(entry.id, session) }
-                        if (deleted.isSuccess) removedFromVaultCount++ else keptInVaultCount++
+                        if (deleted.isSuccess) {
+                            removedFromVaultCount++
+                        } else {
+                            keptInVaultCount++
+                            extractedButVaultDeleteFailedCount++
+                            failures += "${entry.displayName}: Extracted safely, but encrypted copy remains in vault."
+                        }
                     } else {
                         keptInVaultCount++
                     }
@@ -506,6 +537,7 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
             failedCount = failedCount,
             removedFromVaultCount = removedFromVaultCount,
             keptInVaultCount = keptInVaultCount,
+            extractedButVaultDeleteFailedCount = extractedButVaultDeleteFailedCount,
             failures = failures,
             restoredFilePathsOrUris = restoredPaths
         )
@@ -814,23 +846,74 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
     private fun safeSegment(raw: String): String = raw.replace('/', '_').replace('\\', '_')
         .filter { it.code >= 32 }.take(240).takeUnless { it == "." || it == ".." }.orEmpty()
 
+    private fun computeSizeAndCrc(uri: Uri): Pair<Long, Long>? = runCatching {
+        val crc = CRC32()
+        var total = 0L
+        val buffer = ByteArray(64 * 1024)
+        resolver.openInputStream(uri)?.use { input ->
+            while (true) {
+                val n = input.read(buffer)
+                if (n < 0) break
+                if (n == 0) continue
+                crc.update(buffer, 0, n)
+                total += n.toLong()
+            }
+            total to crc.value
+        }
+    }.getOrNull()
+
+    private fun shouldStoreUncompressed(name: String, mime: String): Boolean {
+        if (mime.startsWith("video/") || mime.startsWith("audio/") || mime.startsWith("image/")) return true
+        val ext = name.substringAfterLast('.', "").lowercase()
+        return ext in setOf("mp4", "mkv", "avi", "mov", "webm", "m4v", "ts", "mp3", "m4a", "aac", "flac", "ogg", "opus", "jpg", "jpeg", "png", "webp", "gif", "zip", "rar", "7z", "gz")
+    }
+
+    private fun guessMimeFromName(name: String): String {
+        val ext = name.substringAfterLast('.', "").lowercase()
+        return when (ext) {
+            "mp4", "m4v" -> "video/mp4"
+            "mkv" -> "video/x-matroska"
+            "webm" -> "video/webm"
+            "avi" -> "video/x-msvideo"
+            "mov" -> "video/quicktime"
+            "mp3" -> "audio/mpeg"
+            "m4a" -> "audio/mp4"
+            "aac" -> "audio/aac"
+            "flac" -> "audio/flac"
+            "ogg", "opus" -> "audio/ogg"
+            "wav" -> "audio/wav"
+            "jpg", "jpeg" -> "image/jpeg"
+            "png" -> "image/png"
+            "webp" -> "image/webp"
+            "gif" -> "image/gif"
+            "txt", "log", "srt", "vtt", "ass", "md", "csv", "json", "xml" -> "text/plain"
+            "pdf" -> "application/pdf"
+            else -> "application/octet-stream"
+        }
+    }
+
     private class CountingSink(private val delegate: OutputStream) : OutputStream() {
         var written: Long = 0L
             private set
+        private val digest = MessageDigest.getInstance("SHA-256")
 
         override fun write(value: Int) {
             delegate.write(value)
-            written = Math.addExact(written, 1L)
+            digest.update(value.toByte())
+            written += 1L
         }
 
         override fun write(buffer: ByteArray, offset: Int, length: Int) {
             delegate.write(buffer, offset, length)
-            written = Math.addExact(written, length.toLong())
+            digest.update(buffer, offset, length)
+            written += length.toLong()
         }
 
         override fun flush() {
             delegate.flush()
         }
+
+        fun digestBytes(): ByteArray = digest.digest()
     }
 
     companion object {

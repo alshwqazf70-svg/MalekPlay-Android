@@ -614,6 +614,22 @@
     <string name="vault_viewer_unsupported_preview">This file type (%1$s) does not support in-vault preview; you can export or take it out to open it.</string>
     <string name="vault_sort_order_toggle">Toggle sort direction</string>
     <string name="vault_root_crumb">Root</string>
+    <string name="vault_archive_loading">Loading encrypted folder contents…</string>
+    <string name="vault_archive_search_hint">Search inside encrypted folder</string>
+    <string name="vault_archive_include_subfolders">Include subfolders</string>
+    <string name="vault_archive_sort_type">Type</string>
+    <string name="vault_archive_empty_folder">This encrypted folder has no items.</string>
+    <string name="vault_archive_no_matches">No matching items found in this folder.</string>
+    <string name="vault_archive_delete_title">Delete from encrypted folder</string>
+    <string name="vault_archive_delete_message">Permanently delete %1$d selected item(s) from this encrypted folder? Remaining files stay intact.</string>
+    <string name="vault_archive_delete_success">Deleted %1$d item(s) from the encrypted folder safely.</string>
+    <string name="vault_archive_delete_failed">Could not update encrypted folder: %1$s</string>
+    <string name="vault_archive_info_path">Archive path: %1$s</string>
+    <string name="vault_archive_extracting">Decrypting and extracting files…</string>
+    <string name="vault_archive_updating">Rebuilding encrypted folder safely…</string>
+    <string name="vault_archive_cancelled">Operation cancelled safely.</string>
+    <string name="vault_error_insufficient_storage">Insufficient storage space on device.</string>
+    <string name="vault_take_out_delete_failed">Extracted %1$d item(s) safely, but their encrypted copies still remain in the vault.</string>
 
     <!-- Music & Video Categories enhancements -->
     <string name="music_search_hint">Search songs, albums, artists, or genres</string>

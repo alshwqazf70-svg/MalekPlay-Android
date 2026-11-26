@@ -205,7 +205,7 @@ class PrivateVaultBrowserAndManagementTest {
     fun resolveUniqueChildNameAvoidsCaseInsensitiveOverwritesForFilesAndFolders() {
         val existingFiles = setOf("Photo.JPG", "photo (1).jpg", "readme")
         assertEquals("photo (2).jpg", resolveUniqueChildName("photo.jpg", existingFiles, isDirectory = false))
-        assertEquals("readme (1)", resolveUniqueChildName("README", existingFiles, isDirectory = false))
+        assertEquals("README (1)", resolveUniqueChildName("README", existingFiles, isDirectory = false))
 
         val existingDirs = setOf("Vacation", "vacation (1)")
         assertEquals("Vacation (2)", resolveUniqueChildName("Vacation", existingDirs, isDirectory = true))
@@ -465,7 +465,7 @@ class PrivateVaultBrowserAndManagementTest {
     }
 }
 
-private class InMemoryVaultDocumentsProvider(
+internal class InMemoryVaultDocumentsProvider(
     private val backingDir: File
 ) : DocumentsProvider() {
     companion object {
@@ -490,6 +490,9 @@ private class InMemoryVaultDocumentsProvider(
         nodes["root"] = DocNode("root", null, "Root", DocumentsContract.Document.MIME_TYPE_DIR, true, null)
     }
 
+    fun addDirectory(parentId: String, name: String): String =
+        addDirectory(parentId, "dir-${UUID.randomUUID()}", name)
+
     fun addDirectory(parentId: String, id: String, name: String): String {
         nodes[id] = DocNode(id, parentId, name, DocumentsContract.Document.MIME_TYPE_DIR, true, null)
         return id
@@ -504,11 +507,32 @@ private class InMemoryVaultDocumentsProvider(
 
     fun hasDocument(docId: String): Boolean = nodes.containsKey(docId)
 
+    fun listChildNames(parentId: String): Set<String> =
+        nodes.values.filter { it.parentId == parentId }.map { it.name }.toSet()
+
+    fun findChildId(parentId: String, name: String): String? =
+        nodes.values.firstOrNull { it.parentId == parentId && it.name == name }?.id
+
     fun findChildDirId(parentId: String, name: String): String? =
         nodes.values.firstOrNull { it.parentId == parentId && it.isDirectory && it.name == name }?.id
 
     fun readFileBytes(parentId: String, name: String): ByteArray? =
         nodes.values.firstOrNull { it.parentId == parentId && !it.isDirectory && it.name == name }?.backingFile?.readBytes()
+
+    fun readDocumentBytes(parentId: String, name: String): ByteArray? = readFileBytes(parentId, name)
+
+    override fun isChildDocument(parentDocumentId: String?, documentId: String?): Boolean {
+        if (parentDocumentId == null || documentId == null) return false
+        if (parentDocumentId == documentId) return true
+        var cursor: DocNode? = nodes[documentId]
+        val visited = HashSet<String>()
+        while (cursor != null && visited.add(cursor.id)) {
+            val pid = cursor.parentId ?: return false
+            if (pid == parentDocumentId) return true
+            cursor = nodes[pid]
+        }
+        return false
+    }
 
     override fun onCreate(): Boolean = true
 

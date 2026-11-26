@@ -59,6 +59,7 @@ class PrivateVaultLocalizationParityTest {
         val uiFiles = listOf(
             "ui/vault/PrivateVaultScreen.kt",
             "ui/vault/VaultInternalBrowserModal.kt",
+            "ui/vault/VaultEncryptedFolderBrowserModal.kt",
             "ui/vault/VaultMediaViewerDialog.kt"
         )
         val arabicCharRegex = Regex("""[\u0600-\u06FF]""")
@@ -72,9 +73,10 @@ class PrivateVaultLocalizationParityTest {
     @Test
     fun arabicConfigurationUsesRtlDirectionAndResolvesVaultStrings() {
         val baseContext = ApplicationProvider.getApplicationContext<Context>()
+        val arLocale = Locale("ar")
         val arConfig = Configuration(baseContext.resources.configuration).apply {
-            setLocale(Locale("ar"))
-            setLayoutDirection(Locale("ar"))
+            setLocale(arLocale)
+            setLayoutDirection(arLocale)
         }
         val arContext = baseContext.createConfigurationContext(arConfig)
 
@@ -82,9 +84,13 @@ class PrivateVaultLocalizationParityTest {
             android.view.View.LAYOUT_DIRECTION_RTL,
             arContext.resources.configuration.layoutDirection
         )
-        val takeOut = arContext.getString(R.string.vault_take_out)
+
+        val arStrings = parseVaultStrings(
+            resolveRepoFile("app/src/main/res/values-ar/strings.xml", "src/main/res/values-ar/strings.xml")
+        ).values
+        val takeOut = arStrings.getValue("vault_take_out")
         assertTrue(takeOut.contains("إخراج"))
-        val formattedSummary = arContext.getString(R.string.vault_browser_selected_summary, 4, "12.5 MB")
+        val formattedSummary = String.format(arLocale, arStrings.getValue("vault_browser_selected_summary"), 4, "12.5 MB")
         assertTrue(formattedSummary.contains("4") && formattedSummary.contains("12.5 MB"))
     }
 

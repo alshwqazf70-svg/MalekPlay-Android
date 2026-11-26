@@ -228,9 +228,107 @@ data class VaultBatchTransferSummary(
     val keptInVaultCount: Int,
     val movedSourceCount: Int = 0,
     val copiedOnlySourceCount: Int = 0,
+    val extractedButVaultDeleteFailedCount: Int = 0,
     val failures: List<String> = emptyList(),
     val restoredFilePathsOrUris: List<String> = emptyList()
 )
+
+enum class VaultArchiveSort {
+    NAME,
+    SIZE,
+    TYPE,
+    DATE
+}
+
+data class VaultArchiveListingItem(
+    val path: String,
+    val name: String,
+    val parentPath: String,
+    val isDirectory: Boolean,
+    val sizeBytes: Long,
+    val lastModifiedMs: Long,
+    val mimeType: String,
+    val childCount: Int = 0
+)
+
+fun filterAndSortArchiveItems(
+    items: List<VaultArchiveListingItem>,
+    query: String,
+    sort: VaultArchiveSort,
+    ascending: Boolean = true
+): List<VaultArchiveListingItem> {
+    val q = query.trim().lowercase(Locale.getDefault())
+    val filtered = if (q.isEmpty()) {
+        items
+    } else {
+        items.filter {
+            it.name.lowercase(Locale.getDefault()).contains(q) ||
+                it.path.lowercase(Locale.getDefault()).contains(q)
+        }
+    }
+    val comparator = when (sort) {
+        VaultArchiveSort.NAME -> compareBy<VaultArchiveListingItem> {
+            it.name.lowercase(Locale.getDefault())
+        }
+        VaultArchiveSort.SIZE -> compareBy<VaultArchiveListingItem> {
+            it.sizeBytes.coerceAtLeast(0L)
+        }.thenBy { it.name.lowercase(Locale.getDefault()) }
+        VaultArchiveSort.TYPE -> compareBy<VaultArchiveListingItem> {
+            if (it.isDirectory) "" else it.name.substringAfterLast('.', "").lowercase(Locale.getDefault())
+        }.thenBy { it.mimeType.lowercase(Locale.getDefault()) }
+            .thenBy { it.name.lowercase(Locale.getDefault()) }
+        VaultArchiveSort.DATE -> compareBy<VaultArchiveListingItem> {
+            it.lastModifiedMs
+        }.thenBy { it.name.lowercase(Locale.getDefault()) }
+    }
+    val ordered = if (ascending) comparator else comparator.reversed()
+    return filtered.sortedWith(compareBy<VaultArchiveListingItem> { !it.isDirectory }.then(ordered))
+}
+
+/**
+ * Cross-subfolder selection manager for browsing inside an encrypted folder archive.
+ * Keyed by normalized archive path so selecting across multiple subfolders preserves everything.
+ */
+class VaultArchiveSelectionManager {
+    private val selectedByPath = LinkedHashMap<String, VaultArchiveListingItem>()
+
+    fun toggle(item: VaultArchiveListingItem): Boolean {
+        return if (selectedByPath.containsKey(item.path)) {
+            selectedByPath.remove(item.path)
+            false
+        } else {
+            selectedByPath[item.path] = item
+            true
+        }
+    }
+
+    fun setSelected(item: VaultArchiveListingItem, selected: Boolean) {
+        if (selected) selectedByPath[item.path] = item else selectedByPath.remove(item.path)
+    }
+
+    fun selectAll(items: List<VaultArchiveListingItem>) {
+        items.forEach { selectedByPath[it.path] = it }
+    }
+
+    fun deselectAll(items: List<VaultArchiveListingItem>) {
+        items.forEach { selectedByPath.remove(it.path) }
+    }
+
+    fun retainPaths(validPaths: Set<String>) {
+        val iter = selectedByPath.keys.iterator()
+        while (iter.hasNext()) {
+            if (iter.next() !in validPaths) iter.remove()
+        }
+    }
+
+    fun clear() = selectedByPath.clear()
+    fun contains(path: String): Boolean = selectedByPath.containsKey(path)
+    fun count(): Int = selectedByPath.size
+    fun totalBytes(): Long = selectedByPath.values.sumOf { if (it.isDirectory) 0L else it.sizeBytes.coerceAtLeast(0L) }
+    fun selectedItems(): List<VaultArchiveListingItem> = selectedByPath.values.toList()
+    fun areAllSelected(items: List<VaultArchiveListingItem>): Boolean =
+        items.isNotEmpty() && items.all { selectedByPath.containsKey(it.path) }
+}
 
 data class VaultImportBatchResult(
     val importedCount: Int,

@@ -614,6 +614,22 @@
     <string name="vault_viewer_unsupported_preview">هذا النوع من الملفات (%1$s) لا يدعم المعاينة المباشرة؛ يمكنك نسخه أو إخراجه لفتحه.</string>
     <string name="vault_sort_order_toggle">عكس اتجاه الترتيب</string>
     <string name="vault_root_crumb">الرئيسي</string>
+    <string name="vault_archive_loading">جارٍ فك تشفير وقراءة محتويات المجلد…</string>
+    <string name="vault_archive_search_hint">ابحث داخل المجلد المشفّر</string>
+    <string name="vault_archive_include_subfolders">تضمين المجلدات الفرعية</string>
+    <string name="vault_archive_sort_type">النوع</string>
+    <string name="vault_archive_empty_folder">هذا المجلد المشفّر لا يحتوي على ملفات.</string>
+    <string name="vault_archive_no_matches">لا توجد عناصر مطابقة في هذا المجلد.</string>
+    <string name="vault_archive_delete_title">حذف من المجلد المشفّر</string>
+    <string name="vault_archive_delete_message">هل تريد حذف %1$d عنصر محدد نهائياً من داخل هذا المجلد المشفّر؟ ستبقى بقية الملفات سليمة.</string>
+    <string name="vault_archive_delete_success">تم حذف %1$d عنصر بأمان من داخل المجلد المشفّر.</string>
+    <string name="vault_archive_delete_failed">تعذر تحديث المجلد المشفّر: %1$s</string>
+    <string name="vault_archive_info_path">المسار داخل الأرشيف: %1$s</string>
+    <string name="vault_archive_extracting">جارٍ فك التشفير وإخراج الملفات…</string>
+    <string name="vault_archive_updating">جارٍ إعادة بناء الأرشيف المشفّر بأمان…</string>
+    <string name="vault_archive_cancelled">تم إلغاء العملية بأمان.</string>
+    <string name="vault_error_insufficient_storage">مساحة التخزين غير كافية لإتمام العملية.</string>
+    <string name="vault_take_out_delete_failed">تم إخراج %1$d عنصر بنجاح، لكن النسخ المشفّرة لا تزال داخل الخزنة.</string>
 
     <!-- تحسينات أقسام الموسيقى والمسلسلات والأفلام -->
     <string name="music_search_hint">ابحث في الأغاني والألبومات والفنانين والأنواع</string>

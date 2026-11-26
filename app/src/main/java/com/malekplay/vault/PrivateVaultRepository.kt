@@ -6,9 +6,14 @@ import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
+import android.os.StatFs
 import android.provider.OpenableColumns
 import java.io.*
+import java.security.MessageDigest
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
+
+class VaultInsufficientStorageException(message: String, cause: Throwable? = null) : IOException(message, cause)
 
 data class VaultSourceOrigin(
     val treeUri: String? = null,
@@ -62,10 +67,16 @@ class PrivateVaultRepository(context: Context) {
     private val resolver = appContext.contentResolver
     private val cacheDirectory = appContext.cacheDir
     private val directory = File(appContext.filesDir, "private_vault").apply {
-        check(isDirectory || mkdirs()) { "تعذر إنشاء مساحة الخزنة الخاصة." }
+        check(isDirectory || mkdirs()) { "Could not initialize private vault storage." }
+        restrictDirectoryPermissions(this)
     }
     private val thumbsDirectory = File(directory, "thumbs").apply {
-        check(isDirectory || mkdirs()) { "تعذر إنشاء مجلد المصغرات." }
+        check(isDirectory || mkdirs()) { "Could not initialize vault thumbnail directory." }
+        restrictDirectoryPermissions(this)
+    }
+    private val workDirectory = File(directory, PrivateVaultRecovery.WORK_DIR_NAME).apply {
+        check(isDirectory || mkdirs()) { "Could not initialize vault work directory." }
+        restrictDirectoryPermissions(this)
     }
     private val indexFile = File(directory, "vault.index.enc")
     private val backupIndex = File(directory, "vault.index.bak")
@@ -174,7 +185,7 @@ class PrivateVaultRepository(context: Context) {
     ): ByteArray {
         requireValidId(entry.id)
         if (entry.sizeBytes > maxBytes) {
-            error("الملف كبير جداً للعرض المباشر في الذاكرة (${entry.sizeBytes} bytes).")
+            error("File is too large for direct in-memory preview (${entry.sizeBytes} bytes).")
         }
         val encrypted = payload(entry.id)
         check(encrypted.isFile) { "Encrypted file is missing." }
@@ -378,8 +389,8 @@ class PrivateVaultRepository(context: Context) {
     }
 
     /**
-     * Decrypts, authenticates, writes to [destination], flushes, and verifies the exact written
-     * byte count before returning. Never deletes the encrypted vault entry.
+     * Decrypts, authenticates, writes to [destination], flushes, and verifies both the exact
+     * written byte count and SHA-256 content digest before returning. Never deletes the vault copy.
      */
     @Synchronized fun exportToDocumentVerified(
         id: String,
@@ -396,41 +407,58 @@ class PrivateVaultRepository(context: Context) {
             val file = payload(id)
             check(file.isFile) { "Encrypted file is missing." }
             var writtenBytes = 0L
+            val expectedSha256: ByteArray
             if (PrivateVaultCrypto.isChunkedV2File(file)) {
                 // Chunked v2 files authenticate each 64 KB chunk via AEAD directly into the destination stream
                 // without duplicating gigabytes of plaintext in temporary storage.
                 val output = resolver.openOutputStream(destination, "wt") ?: error("Cannot write destination.")
                 output.use { rawSink ->
-                    val countingSink = CountingSinkOutputStream(rawSink)
-                    PrivateVaultCrypto.decryptStreamAuto(file, countingSink, key, legacyPwd, onProgress)
+                    val countingSink = DigestCountingOutputStream(rawSink)
+                    try {
+                        PrivateVaultCrypto.decryptStreamAuto(file, countingSink, key, legacyPwd, onProgress)
+                    } catch (io: IOException) {
+                        throw mapStorageIoException(io)
+                    }
                     countingSink.flush()
                     if (rawSink is FileOutputStream) {
                         runCatching { rawSink.fd.sync() }
                     }
                     writtenBytes = countingSink.bytesWritten
+                    expectedSha256 = countingSink.digestBytes()
                 }
             } else {
-                val verified = File(directory, "restore-${UUID.randomUUID()}.tmp")
+                val verified = createPrivateWorkFile("restore-", ".tmp")
                 try {
-                    FileOutputStream(verified).use { sink ->
-                        PrivateVaultCrypto.decryptStreamAuto(file, sink, key, legacyPwd, onProgress)
-                        sink.fd.sync()
+                    try {
+                        FileOutputStream(verified).use { sink ->
+                            PrivateVaultCrypto.decryptStreamAuto(file, sink, key, legacyPwd, onProgress)
+                            sink.fd.sync()
+                        }
+                    } catch (io: IOException) {
+                        throw mapStorageIoException(io)
                     }
                     val expectedLegacySize = verified.length()
                     val output = resolver.openOutputStream(destination, "wt") ?: error("Cannot write destination.")
                     output.use { rawSink ->
-                        val countingSink = CountingSinkOutputStream(rawSink)
-                        FileInputStream(verified).use { source -> source.copyTo(countingSink) }
+                        val countingSink = DigestCountingOutputStream(rawSink)
+                        try {
+                            FileInputStream(verified).use { source -> source.copyTo(countingSink) }
+                        } catch (io: IOException) {
+                            throw mapStorageIoException(io)
+                        }
                         countingSink.flush()
                         if (rawSink is FileOutputStream) {
                             runCatching { rawSink.fd.sync() }
                         }
                         writtenBytes = countingSink.bytesWritten
+                        expectedSha256 = countingSink.digestBytes()
                     }
                     check(writtenBytes == expectedLegacySize) {
                         "Destination write size mismatch ($writtenBytes != $expectedLegacySize)."
                     }
-                } finally { verified.delete() }
+                } finally {
+                    releasePrivateWorkFile(verified)
+                }
             }
             if (entry.sizeBytes >= 0L) {
                 check(writtenBytes == entry.sizeBytes) {
@@ -443,7 +471,109 @@ class PrivateVaultRepository(context: Context) {
                     "Destination provider reported size mismatch ($reportedSize != ${entry.sizeBytes})."
                 }
             }
+            verifyWrittenDestinationDigest(destination, writtenBytes, expectedSha256)
             return writtenBytes
+        } finally {
+            legacyPwd?.fill('\u0000')
+        }
+    }
+
+    internal fun verifyWrittenDestinationDigest(
+        destination: Uri,
+        expectedSize: Long,
+        expectedSha256: ByteArray
+    ) {
+        val readBack = runCatching { resolver.openInputStream(destination) }.getOrNull() ?: return
+        readBack.use { input ->
+            val digest = MessageDigest.getInstance("SHA-256")
+            val buffer = ByteArray(64 * 1024)
+            var total = 0L
+            while (true) {
+                val n = input.read(buffer)
+                if (n < 0) break
+                if (n == 0) continue
+                digest.update(buffer, 0, n)
+                total += n.toLong()
+            }
+            check(total == expectedSize) {
+                "Post-write verification size mismatch ($total != $expectedSize)."
+            }
+            check(digest.digest().contentEquals(expectedSha256)) {
+                "Post-write SHA-256 verification failed for destination file."
+            }
+        }
+    }
+
+    internal fun ensureAvailableInternalSpace(requiredBytes: Long) {
+        if (requiredBytes <= 0L) return
+        val available = runCatching { StatFs(directory.absolutePath).availableBytes }.getOrDefault(Long.MAX_VALUE)
+        if (available < requiredBytes) {
+            throw VaultInsufficientStorageException(
+                "Insufficient internal storage space (required=$requiredBytes, available=$available)."
+            )
+        }
+    }
+
+    internal fun createPrivateWorkFile(prefix: String, suffix: String): File {
+        check(workDirectory.isDirectory || workDirectory.mkdirs()) {
+            "Could not initialize vault work directory."
+        }
+        val file = File(workDirectory, "$prefix${UUID.randomUUID()}$suffix")
+        file.createNewFile()
+        restrictFilePermissions(file)
+        activeTempNames.add(file.name)
+        return file
+    }
+
+    internal fun releasePrivateWorkFile(file: File?) {
+        if (file == null) return
+        try {
+            if (file.isFile) file.delete()
+        } finally {
+            activeTempNames.remove(file.name)
+        }
+    }
+
+    internal fun payloadFileFor(id: String): File {
+        requireValidId(id)
+        return payload(id)
+    }
+
+    @Synchronized internal fun replaceEntryPayload(
+        id: String,
+        verifiedNewEncryptedFile: File,
+        newPlainSizeBytes: Long,
+        session: PrivateVaultSession
+    ): PrivateVaultEntry {
+        requireValidId(id)
+        val key = session.requireMasterKey()
+        val legacyPwd = session.legacyPasswordCopy()
+        try {
+            val current = readIndexInternal(key, legacyPwd)
+            val existing = current.firstOrNull { it.id == id } ?: error("Vault item not found.")
+            val target = payload(id)
+            val backup = File(directory, "$id.mkv.bak")
+            backup.delete()
+            if (target.exists()) {
+                check(target.renameTo(backup)) { "Could not stage existing encrypted archive backup." }
+            }
+            var committed = false
+            try {
+                check(verifiedNewEncryptedFile.renameTo(target)) {
+                    "Could not promote verified encrypted archive."
+                }
+                val updated = existing.copy(sizeBytes = newPlainSizeBytes)
+                persistIndexWithKey(current.map { if (it.id == id) updated else it }, key)
+                committed = true
+                backup.delete()
+                return updated
+            } catch (failure: Throwable) {
+                if (!committed) {
+                    if (target.exists() && backup.exists()) target.delete()
+                    if (backup.exists() && !target.exists()) backup.renameTo(target)
+                }
+                throw failure
+            }
         } finally {
             legacyPwd?.fill('\u0000')
         }
@@ -727,7 +857,8 @@ class PrivateVaultRepository(context: Context) {
                 PrivateVaultRecovery.recover(
                     directory,
                     entries.mapTo(mutableSetOf()) { it.id },
-                    pruneOrphanThumbs = true
+                    pruneOrphanThumbs = true,
+                    activeTempNames = activeTempNames.toSet()
                 )
             }
             if (!needsSizeMigration) return entries
@@ -774,23 +905,65 @@ class PrivateVaultRepository(context: Context) {
         }
     }
 
-    private class CountingSinkOutputStream(private val delegate: OutputStream) : OutputStream() {
+    private class DigestCountingOutputStream(private val delegate: OutputStream) : OutputStream() {
         var bytesWritten: Long = 0
             private set
+        private val digest = MessageDigest.getInstance("SHA-256")
 
         override fun write(value: Int) {
             delegate.write(value)
-            bytesWritten = Math.addExact(bytesWritten, 1L)
+            digest.update(value.toByte())
+            bytesWritten += 1L
         }
 
         override fun write(buffer: ByteArray, offset: Int, length: Int) {
             delegate.write(buffer, offset, length)
-            bytesWritten = Math.addExact(bytesWritten, length.toLong())
+            digest.update(buffer, offset, length)
+            bytesWritten += length.toLong()
         }
 
         override fun flush() {
             delegate.flush()
         }
+
+        fun digestBytes(): ByteArray = digest.digest()
+    }
+
+    private fun mapStorageIoException(io: IOException): IOException {
+        val msg = io.message.orEmpty()
+        return if (msg.contains("ENOSPC", ignoreCase = true) ||
+            msg.contains("No space left", ignoreCase = true) ||
+            msg.contains("disk full", ignoreCase = true)
+        ) {
+            VaultInsufficientStorageException("Insufficient storage space during vault operation.", io)
+        } else {
+            io
+        }
+    }
+
+    private fun restrictDirectoryPermissions(dir: File) {
+        runCatching {
+            dir.setReadable(false, false)
+            dir.setWritable(false, false)
+            dir.setExecutable(false, false)
+            dir.setReadable(true, true)
+            dir.setWritable(true, true)
+            dir.setExecutable(true, true)
+        }
+    }
+
+    private fun restrictFilePermissions(file: File) {
+        runCatching {
+            file.setReadable(false, false)
+            file.setWritable(false, false)
+            file.setExecutable(false, false)
+            file.setReadable(true, true)
+            file.setWritable(true, true)
+        }
+    }
+
+    companion object {
+        private val activeTempNames: MutableSet<String> = ConcurrentHashMap.newKeySet()
     }
 
     private fun persistIndexWithKey(entries: List<PrivateVaultEntry>, key: ByteArray) {

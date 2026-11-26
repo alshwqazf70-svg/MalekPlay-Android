@@ -111,6 +111,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.malekplay.R
 import com.malekplay.ui.library.LibraryViewModel
+import com.malekplay.vault.PrivateVaultArchiveBrowser
 import com.malekplay.vault.PrivateVaultEntry
 import com.malekplay.vault.PrivateVaultRepository
 import com.malekplay.vault.PrivateVaultSession
@@ -118,6 +119,7 @@ import com.malekplay.vault.PrivateVaultTreeSupport
 import com.malekplay.vault.SelectedVaultBrowserItem
 import com.malekplay.vault.VaultEntryFilter
 import com.malekplay.vault.VaultEntrySort
+import com.malekplay.vault.VaultInsufficientStorageException
 import com.malekplay.vault.filterAndSortVaultEntries
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -141,6 +143,9 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val repository = remember(context) { PrivateVaultRepository(context) }
     val treeSupport = remember(context, repository) { PrivateVaultTreeSupport(context, repository) }
+    val archiveBrowser = remember(context, repository, treeSupport) {
+        PrivateVaultArchiveBrowser(context, repository, treeSupport)
+    }
     val libraryViewModel: LibraryViewModel = hiltViewModel()
     val scope = rememberCoroutineScope()
 
@@ -152,8 +157,9 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
     var message by remember { mutableStateOf<String?>(null) }
     val entries = remember { mutableStateListOf<PrivateVaultEntry>() }
 
-    // Viewer, batch, search, filter, sort, change-password state
+    // Viewer, archive browser, batch, search, filter, sort, change-password state
     var viewingEntry by remember { mutableStateOf<PrivateVaultEntry?>(null) }
+    var browsingArchiveEntry by remember { mutableStateOf<PrivateVaultEntry?>(null) }
     var isMediaPlaying by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var activeFilter by remember { mutableStateOf(VaultEntryFilter.ALL) }
@@ -202,6 +208,7 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
         activeCancelFlag?.set(true)
         activeCancelFlag = null
         viewingEntry = null
+        browsingArchiveEntry = null
         isMediaPlaying = false
         showChangePasswordDialog = false
         showBatchDeleteConfirm = false
@@ -339,33 +346,47 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                 }
                 summary
             }.onSuccess { summary ->
-                if (removeFromVault) {
+                if (removeFromVault && summary.removedFromVaultCount > 0) {
                     selectedEntryIds.clear()
                 }
-                message = if (removeFromVault) {
-                    if (summary.failedCount == 0) {
-                        context.getString(R.string.vault_take_out_result_success, summary.succeededCount)
-                    } else {
+                message = when {
+                    cancelFlag.get() && summary.succeededCount == 0 ->
+                        context.getString(R.string.vault_archive_cancelled)
+                    summary.extractedButVaultDeleteFailedCount > 0 ->
                         context.getString(
-                            R.string.vault_take_out_result_partial,
-                            summary.succeededCount,
-                            summary.failedCount
+                            R.string.vault_take_out_delete_failed,
+                            summary.extractedButVaultDeleteFailedCount
                         )
+                    removeFromVault -> {
+                        if (summary.failedCount == 0) {
+                            context.getString(R.string.vault_take_out_result_success, summary.succeededCount)
+                        } else {
+                            context.getString(
+                                R.string.vault_take_out_result_partial,
+                                summary.succeededCount,
+                                summary.failedCount
+                            )
+                        }
                     }
-                } else {
-                    if (summary.failedCount == 0) {
-                        context.getString(R.string.vault_export_copy_result_success, summary.succeededCount)
-                    } else {
-                        context.getString(
-                            R.string.vault_export_copy_result_partial,
-                            summary.succeededCount,
-                            summary.failedCount
-                        )
+                    else -> {
+                        if (summary.failedCount == 0) {
+                            context.getString(R.string.vault_export_copy_result_success, summary.succeededCount)
+                        } else {
+                            context.getString(
+                                R.string.vault_export_copy_result_partial,
+                                summary.succeededCount,
+                                summary.failedCount
+                            )
+                        }
                     }
                 }
             }.onFailure { err ->
                 runCatching { refreshEntries(session) }
-                message = err.localizedMessage ?: context.getString(R.string.vault_single_export_failed)
+                message = if (err is VaultInsufficientStorageException) {
+                    context.getString(R.string.vault_error_insufficient_storage)
+                } else {
+                    err.localizedMessage ?: context.getString(R.string.vault_single_export_failed)
+                }
             }
             activeCancelFlag = null
             importProgress = 0
@@ -1293,7 +1314,7 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                                             if (isSelected) selectedEntryIds.remove(entry.id)
                                             else selectedEntryIds.add(entry.id)
                                         } else if (entry.mimeType == PrivateVaultTreeSupport.FOLDER_ARCHIVE_MIME) {
-                                            requestTransfer(listOf(entry), removeFromVault = true)
+                                            browsingArchiveEntry = entry
                                         } else {
                                             viewingEntry = entry
                                         }
@@ -1412,6 +1433,35 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                     }
                 }
             }
+        }
+    }
+
+    // Encrypted folder browser modal (tapping an encrypted folder opens its contents inside Vault)
+    browsingArchiveEntry?.let { archive ->
+        val activeSession = vaultSession
+        if (activeSession != null) {
+            VaultEncryptedFolderBrowserModal(
+                archiveEntry = archive,
+                allVaultEntries = entries.toList(),
+                repository = repository,
+                treeSupport = treeSupport,
+                archiveBrowser = archiveBrowser,
+                session = activeSession,
+                onTouchActivity = ::touchActivity,
+                onSuppressNextBackgroundLock = { suppressNextBackgroundLock = it },
+                onPlaybackActiveChanged = { playing -> isMediaPlaying = playing },
+                onVaultEntryUpdated = {
+                    scope.launch {
+                        withContext(Dispatchers.IO) { refreshEntries(activeSession) }
+                    }
+                },
+                onMediaRestored = { libraryViewModel.refresh() },
+                onDismiss = {
+                    isMediaPlaying = false
+                    browsingArchiveEntry = null
+                    touchActivity()
+                }
+            )
         }
     }
 

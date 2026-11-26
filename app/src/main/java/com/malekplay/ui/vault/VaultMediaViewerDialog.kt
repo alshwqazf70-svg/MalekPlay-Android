@@ -68,9 +68,11 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
 import com.malekplay.R
+import com.malekplay.vault.PrivateVaultArchiveBrowser
 import com.malekplay.vault.PrivateVaultEntry
 import com.malekplay.vault.PrivateVaultRepository
 import com.malekplay.vault.PrivateVaultSession
+import com.malekplay.vault.VaultArchiveListingItem
 import com.malekplay.vault.VaultMediaDataSource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -83,9 +85,14 @@ fun VaultMediaViewerDialog(
     repository: PrivateVaultRepository,
     session: PrivateVaultSession,
     entries: List<PrivateVaultEntry>,
+    archiveBrowser: PrivateVaultArchiveBrowser? = null,
+    archiveItem: VaultArchiveListingItem? = null,
     onPlaybackActiveChanged: (Boolean) -> Unit,
     onDismiss: () -> Unit
 ) {
+    val activeMime = archiveItem?.mimeType ?: entry.mimeType
+    val activeTitle = archiveItem?.name ?: entry.displayName
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
@@ -99,27 +106,32 @@ fun VaultMediaViewerDialog(
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
                 when {
-                    entry.mimeType.startsWith("video/") || entry.mimeType.startsWith("audio/") -> {
+                    activeMime.startsWith("video/") || activeMime.startsWith("audio/") -> {
                         VaultIsolatedMediaPlayer(
                             entry = entry,
                             repository = repository,
                             session = session,
                             entries = entries,
+                            archiveItem = archiveItem,
                             onPlaybackActiveChanged = onPlaybackActiveChanged
                         )
                     }
-                    entry.mimeType.startsWith("image/") -> {
+                    activeMime.startsWith("image/") -> {
                         VaultInMemoryImageViewer(
                             entry = entry,
                             repository = repository,
-                            session = session
+                            session = session,
+                            archiveBrowser = archiveBrowser,
+                            archiveItem = archiveItem
                         )
                     }
                     else -> {
                         VaultInMemoryTextViewer(
                             entry = entry,
                             repository = repository,
-                            session = session
+                            session = session,
+                            archiveBrowser = archiveBrowser,
+                            archiveItem = archiveItem
                         )
                     }
                 }
@@ -142,7 +154,7 @@ fun VaultMediaViewerDialog(
                         )
                     }
                     Text(
-                        text = entry.displayName,
+                        text = activeTitle,
                         color = Color.White,
                         style = MaterialTheme.typography.titleMedium,
                         maxLines = 1,
@@ -161,24 +173,35 @@ private fun VaultIsolatedMediaPlayer(
     repository: PrivateVaultRepository,
     session: PrivateVaultSession,
     entries: List<PrivateVaultEntry>,
+    archiveItem: VaultArchiveListingItem?,
     onPlaybackActiveChanged: (Boolean) -> Unit
 ) {
     val context = LocalContext.current
-    val isAudio = entry.mimeType.startsWith("audio/")
+    val activeMime = archiveItem?.mimeType ?: entry.mimeType
+    val activeTitle = archiveItem?.name ?: entry.displayName
+    val isAudio = activeMime.startsWith("audio/")
     var isPlaying by remember { mutableStateOf(true) }
     var positionMs by remember { mutableLongStateOf(0L) }
     var durationMs by remember { mutableLongStateOf(0L) }
     var playbackError by remember { mutableStateOf<String?>(null) }
 
-    val exoPlayer = remember(entry.id, session) {
+    val mediaUri = remember(entry.id, archiveItem?.path) {
+        if (archiveItem != null) {
+            VaultMediaDataSource.archiveEntryUri(entry.id, archiveItem.path)
+        } else {
+            VaultMediaDataSource.entryUri(entry.id)
+        }
+    }
+
+    val exoPlayer = remember(entry.id, archiveItem?.path, session) {
         val dataSourceFactory = VaultMediaDataSource.Factory(repository, session) { entries }
         ExoPlayer.Builder(context)
             .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
             .build().apply {
                 setMediaItem(
                     MediaItem.Builder()
-                        .setUri(VaultMediaDataSource.entryUri(entry.id))
-                        .setMimeType(entry.mimeType)
+                        .setUri(mediaUri)
+                        .setMimeType(activeMime)
                         .build()
                 )
                 playWhenReady = true
@@ -242,7 +265,7 @@ private fun VaultIsolatedMediaPlayer(
                     )
                 }
                 Text(
-                    text = entry.displayName,
+                    text = activeTitle,
                     color = Color.White,
                     style = MaterialTheme.typography.titleMedium,
                     maxLines = 2,
@@ -342,22 +365,29 @@ private fun VaultIsolatedMediaPlayer(
 private fun VaultInMemoryImageViewer(
     entry: PrivateVaultEntry,
     repository: PrivateVaultRepository,
-    session: PrivateVaultSession
+    session: PrivateVaultSession,
+    archiveBrowser: PrivateVaultArchiveBrowser?,
+    archiveItem: VaultArchiveListingItem?
 ) {
     val context = LocalContext.current
-    var bitmap by remember(entry.id) { mutableStateOf<android.graphics.Bitmap?>(null) }
-    var loading by remember(entry.id) { mutableStateOf(true) }
-    var error by remember(entry.id) { mutableStateOf<String?>(null) }
-    var scale by remember(entry.id) { mutableFloatStateOf(1f) }
-    var offsetX by remember(entry.id) { mutableFloatStateOf(0f) }
-    var offsetY by remember(entry.id) { mutableFloatStateOf(0f) }
+    val itemKey = "${entry.id}:${archiveItem?.path.orEmpty()}"
+    var bitmap by remember(itemKey) { mutableStateOf<android.graphics.Bitmap?>(null) }
+    var loading by remember(itemKey) { mutableStateOf(true) }
+    var error by remember(itemKey) { mutableStateOf<String?>(null) }
+    var scale by remember(itemKey) { mutableFloatStateOf(1f) }
+    var offsetX by remember(itemKey) { mutableFloatStateOf(0f) }
+    var offsetY by remember(itemKey) { mutableFloatStateOf(0f) }
 
-    LaunchedEffect(entry.id, session) {
+    LaunchedEffect(itemKey, session) {
         loading = true
         error = null
         val loaded = withContext(Dispatchers.IO) {
             runCatching {
-                val bytes = repository.readEntryBytes(entry, session, maxBytes = 32 * 1024 * 1024)
+                val bytes = if (archiveItem != null && archiveBrowser != null) {
+                    archiveBrowser.readArchiveEntryBytes(entry, archiveItem.path, session, maxBytes = 32 * 1024 * 1024)
+                } else {
+                    repository.readEntryBytes(entry, session, maxBytes = 32 * 1024 * 1024)
+                }
                 try {
                     BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                         ?: error(context.getString(R.string.vault_viewer_image_decode_failed))
@@ -370,7 +400,7 @@ private fun VaultInMemoryImageViewer(
         loaded.onSuccess { bitmap = it }.onFailure { error = it.localizedMessage }
     }
 
-    DisposableEffect(entry.id) {
+    DisposableEffect(itemKey) {
         onDispose {
             bitmap?.recycle()
             bitmap = null
@@ -380,7 +410,7 @@ private fun VaultInMemoryImageViewer(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .pointerInput(entry.id) {
+            .pointerInput(itemKey) {
                 detectTapGestures(
                     onDoubleTap = {
                         scale = 1f
@@ -389,7 +419,7 @@ private fun VaultInMemoryImageViewer(
                     }
                 )
             }
-            .pointerInput(entry.id) {
+            .pointerInput(itemKey) {
                 detectTransformGestures { _, pan, zoom, _ ->
                     val nextScale = (scale * zoom).coerceIn(1f, 5f)
                     scale = nextScale
@@ -410,7 +440,7 @@ private fun VaultInMemoryImageViewer(
             bitmap != null -> {
                 Image(
                     bitmap = bitmap!!.asImageBitmap(),
-                    contentDescription = entry.displayName,
+                    contentDescription = archiveItem?.name ?: entry.displayName,
                     contentScale = ContentScale.Fit,
                     modifier = Modifier
                         .fillMaxSize()
@@ -430,27 +460,36 @@ private fun VaultInMemoryImageViewer(
 private fun VaultInMemoryTextViewer(
     entry: PrivateVaultEntry,
     repository: PrivateVaultRepository,
-    session: PrivateVaultSession
+    session: PrivateVaultSession,
+    archiveBrowser: PrivateVaultArchiveBrowser?,
+    archiveItem: VaultArchiveListingItem?
 ) {
     val context = LocalContext.current
-    var content by remember(entry.id) { mutableStateOf<String?>(null) }
-    var loading by remember(entry.id) { mutableStateOf(true) }
-    var error by remember(entry.id) { mutableStateOf<String?>(null) }
+    val itemKey = "${entry.id}:${archiveItem?.path.orEmpty()}"
+    val activeMime = archiveItem?.mimeType ?: entry.mimeType
+    val activeName = archiveItem?.name ?: entry.displayName
+    var content by remember(itemKey) { mutableStateOf<String?>(null) }
+    var loading by remember(itemKey) { mutableStateOf(true) }
+    var error by remember(itemKey) { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(entry.id, session) {
+    LaunchedEffect(itemKey, session) {
         loading = true
         error = null
-        val isTextLike = entry.mimeType.startsWith("text/") ||
-            entry.displayName.substringAfterLast('.', "").lowercase() in
+        val isTextLike = activeMime.startsWith("text/") ||
+            activeName.substringAfterLast('.', "").lowercase() in
             setOf("txt", "srt", "ass", "vtt", "json", "xml", "log", "md", "csv")
         if (!isTextLike) {
             loading = false
-            error = context.getString(R.string.vault_viewer_unsupported_preview, entry.mimeType)
+            error = context.getString(R.string.vault_viewer_unsupported_preview, activeMime)
             return@LaunchedEffect
         }
         val result = withContext(Dispatchers.IO) {
             runCatching {
-                val bytes = repository.readEntryBytes(entry, session, maxBytes = 512 * 1024)
+                val bytes = if (archiveItem != null && archiveBrowser != null) {
+                    archiveBrowser.readArchiveEntryBytes(entry, archiveItem.path, session, maxBytes = 512 * 1024)
+                } else {
+                    repository.readEntryBytes(entry, session, maxBytes = 512 * 1024)
+                }
                 try {
                     bytes.toString(Charsets.UTF_8)
                 } finally {
