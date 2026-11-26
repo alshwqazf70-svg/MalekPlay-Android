@@ -283,7 +283,10 @@ internal fun detectSubtitleFormat(bytes: ByteArray, preferArabicLegacy: Boolean 
     val text = decodedText.trimStart('\uFEFF', ' ', '\t', '\n', '\r')
         .replace("\r\n", "\n")
         .replace('\r', '\n')
-    if (isAssDialogueText(text)) return "ass"
+    if (isAssDialogueText(text)) {
+        val isLegacySsa = Regex("""(?im)^\\s*ScriptType:\\s*v4\\.00\\s*$""").containsMatchIn(text)
+        return if (isLegacySsa) "ssa" else "ass"
+    }
     val hasCue = hasSubtitleTimestampLine(text)
     if (hasCue) {
         return if (text.startsWith("WEBVTT", ignoreCase = true)) "vtt" else "srt"
@@ -374,7 +377,7 @@ internal fun isValidSubtitlePayload(
     if (isHtmlOrCloudflarePayload(bytes)) return false
 
     val detected = detectSubtitleFormat(bytes, preferArabicLegacy) ?: return false
-    return if (extension == "ssa") detected == "ass" else detected == extension
+    return detected == extension
 }
 
 /**
