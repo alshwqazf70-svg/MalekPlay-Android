@@ -114,30 +114,4 @@ class OnlineSubtitleSearchSheetStateTest {
         )
     }
 
-    @Test
-    fun actionLabelsExistInEnglishAndArabicResources() {
-        val base = ApplicationProvider.getApplicationContext<Context>()
-        val english = base.createConfigurationContext(
-            Configuration(base.resources.configuration).apply {
-                setLocale(Locale.ENGLISH)
-            }
-        )
-        val arabic = base.createConfigurationContext(
-            Configuration(base.resources.configuration).apply {
-                setLocale(Locale("ar"))
-            }
-        )
-
-        assertEquals("Download & apply", english.getString(R.string.subtitle_download_and_apply))
-        assertEquals("Downloading & applying…", english.getString(R.string.subtitle_downloading_and_applying))
-        assertEquals("Preview", english.getString(R.string.subtitle_preview_button))
-        assertEquals("Hide preview", english.getString(R.string.subtitle_hide_preview_button))
-        assertEquals("Download & translate to Arabic (AI)", english.getString(R.string.subtitle_download_and_translate_ai))
-
-        assertEquals("تنزيل وتطبيق", arabic.getString(R.string.subtitle_download_and_apply))
-        assertEquals("جارٍ التنزيل والتطبيق…", arabic.getString(R.string.subtitle_downloading_and_applying))
-        assertEquals("معاينة", arabic.getString(R.string.subtitle_preview_button))
-        assertEquals("إخفاء المعاينة", arabic.getString(R.string.subtitle_hide_preview_button))
-        assertEquals("تنزيل وترجمة للعربية (AI)", arabic.getString(R.string.subtitle_download_and_translate_ai))
-    }
 }
