@@ -284,7 +284,7 @@ internal fun detectSubtitleFormat(bytes: ByteArray, preferArabicLegacy: Boolean 
         .replace("\r\n", "\n")
         .replace('\r', '\n')
     if (isAssDialogueText(text)) {
-        val isLegacySsa = Regex("""(?im)^\\s*ScriptType:\\s*v4\\.00\\s*$""").containsMatchIn(text)
+        val isLegacySsa = Regex("""(?im)^\s*ScriptType:\s*v4\.00\s*$""").containsMatchIn(text)
         return if (isLegacySsa) "ssa" else "ass"
     }
     val hasCue = hasSubtitleTimestampLine(text)
@@ -392,7 +392,7 @@ internal fun extractPreviewLines(
 ): List<String> {
     val decoded = decodeSubtitleBytes(bytes, preferArabicLegacy)
     val blocks = SrtSubtitleParser.splitBlocks(decoded, extension)
-    val markup = Regex("""<[^>]+>|\{\\[^}]*}""")
+    val markup = Regex("""<[^>]+>|\{\\[^}]*}|\\[NnHh]""")
     return blocks.asSequence()
         .mapNotNull { block ->
             val lines = block.lines().map { it.trim() }.filter { it.isNotEmpty() }
