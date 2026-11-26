@@ -125,7 +125,11 @@ internal object UltraSharePairingReadiness {
     /** Allow slow OEM DNS-SD setup and discovery, but bound a scan that never finds its peer before falling back to LAN. */
     const val WIFI_DIRECT_INVITATION_DISCOVERY_TIMEOUT_MS = 25_000L
 
-    /** Bound receiver-side Wi-Fi Direct group/advertisement startup before falling back to LAN automatically. */
+    /**
+     * Receiver startup fallback must outlive the serialized 5s discovery cleanup,
+     * 15s group-creation deadline, and 10s DNS-SD advertisement deadline, with
+     * an additional 5s callback/scheduling margin.
+     */
     const val WIFI_DIRECT_RECEIVER_STARTUP_FALLBACK_TIMEOUT_MS = 35_000L
 
     /** A delayed callback may mutate state only while its exact invitation attempt is current. */
