@@ -749,21 +749,6 @@ fun VideoPlayerScreen(
         }
     }
 
-    LaunchedEffect(currentVideoId, controller, settings.rememberVideoEnhancement) {
-        if (controller != null && settings.rememberVideoEnhancement) {
-            val alreadyConfiguredOnPlayer = videoUpscalingEnabled ||
-                videoNoiseReductionEnabled ||
-                videoVibranceEnabled ||
-                googleAiEnabled
-            if (alreadyConfiguredOnPlayer) return@LaunchedEffect
-            if (settings.videoEnhancementSmartAi) {
-                googleAiRequestVersion++
-                googleAiEnabled = true
-            } else if (settings.videoEnhancementEnabled) {
-                viewModel.applySavedVideoEnhancement(settings)
-            }
-        }
-    }
     fun takeScreenshot() {
         val view = playerView ?: return
         scope.launch {
@@ -833,20 +818,18 @@ fun VideoPlayerScreen(
 
     LaunchedEffect(googleAiEnabled, controller, playerView, currentVideoId) {
         if (googleAiMediaId != currentVideoId) {
-            // PlaybackService intentionally clears per-video GPU flags on a queue
-            // transition. Recreate the selected AI backend for the new item instead
-            // of leaving the screen's local fallback flag latched to the old item.
+            // PlaybackService clears per-video GPU flags on a queue transition;
+            // disable Smart AI as well so enhancement never starts automatically.
             googleAiMediaId = currentVideoId
             googleAiRequestVersion++
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) googleAiBridge?.close()
             googleAiBridge = null
             internalAiFallback = false
             internalAiFallbackPending = false
-            googleAiState = if (googleAiEnabled) {
-                GoogleMediaEnhancementState.WAITING_FOR_VIDEO
-            } else {
-                GoogleMediaEnhancementState.DISABLED
+            if (googleAiEnabled) {
+                googleAiEnabled = false
             }
+            googleAiState = GoogleMediaEnhancementState.DISABLED
             googleAiProgress = 0
             googleAiMessage = null
         }
@@ -1428,36 +1411,6 @@ fun VideoPlayerScreen(
                     stringResource(R.string.player_google_ai_disabled)
                 }
             }
-            fun syncSavedEnhancement(
-                enabled: Boolean = videoUpscalingEnabled || videoNoiseReductionEnabled || videoVibranceEnabled || googleAiEnabled,
-                profile: VideoEnhancementProfile = videoEnhancementProfile,
-                custom: Boolean = videoEnhancementCustomMode,
-                upscaling: Boolean = videoUpscalingEnabled,
-                denoise: Boolean = videoNoiseReductionEnabled,
-                vibrance: Boolean = videoVibranceEnabled,
-                smartAi: Boolean = googleAiEnabled,
-                detailStrength: Float = videoEnhancementDiagnostics.detailStrength,
-                denoiseStrength: Float = videoEnhancementDiagnostics.denoiseStrength,
-                contrastBoost: Float = videoEnhancementDiagnostics.contrastBoost,
-                vibranceStrength: Float = videoEnhancementDiagnostics.vibranceStrength
-            ) {
-                if (!settings.rememberVideoEnhancement) return
-                settingsViewModel.update { current ->
-                    current.copy(
-                        videoEnhancementEnabled = enabled,
-                        videoEnhancementProfile = profile.wireValue,
-                        videoEnhancementCustom = custom,
-                        videoEnhancementUpscaling = upscaling,
-                        videoEnhancementDenoise = denoise,
-                        videoEnhancementVibrance = vibrance,
-                        videoEnhancementSmartAi = smartAi,
-                        videoEnhancementDetailStrength = detailStrength,
-                        videoEnhancementDenoiseStrength = denoiseStrength,
-                        videoEnhancementContrastBoost = contrastBoost,
-                        videoEnhancementVibranceStrength = vibranceStrength
-                    )
-                }
-            }
             VideoEnhancementSheet(
                 upscalingEnabled = videoUpscalingEnabled,
                 noiseReductionEnabled = videoNoiseReductionEnabled,
@@ -1471,7 +1424,6 @@ fun VideoPlayerScreen(
                 customMode = videoEnhancementCustomMode,
                 bypassed = videoEnhancementBypassed,
                 diagnostics = videoEnhancementDiagnostics,
-                rememberForNextVideos = settings.rememberVideoEnhancement,
                 onDismiss = {
                     viewModel.setVideoEnhancementBypassed(false)
                     showVideoEnhancementSheet = false
@@ -1481,16 +1433,13 @@ fun VideoPlayerScreen(
                         googleAiRequestVersion++
                         googleAiEnabled = false
                         viewModel.setInternalGpuEnhancementEnabled(false)
-                        syncSavedEnhancement(enabled = false, upscaling = false, denoise = false, vibrance = false, smartAi = false)
                     } else {
                         viewModel.setInternalGpuEnhancementEnabled(true)
-                        syncSavedEnhancement(enabled = true, upscaling = true, denoise = true, vibrance = true, smartAi = false)
                     }
                 },
                 onToggleSmartAi = { enable ->
                     googleAiRequestVersion++
                     googleAiEnabled = enable
-                    syncSavedEnhancement(enabled = enable, smartAi = enable)
                 },
                 onToggleUpscaling = { enable ->
                     if (googleAiEnabled) {
@@ -1498,11 +1447,6 @@ fun VideoPlayerScreen(
                         googleAiEnabled = false
                     }
                     viewModel.setVideoUpscalingEnabled(enable)
-                    syncSavedEnhancement(
-                        enabled = enable || videoNoiseReductionEnabled || videoVibranceEnabled,
-                        upscaling = enable,
-                        smartAi = false
-                    )
                 },
                 onToggleNoiseReduction = { enable ->
                     if (googleAiEnabled) {
@@ -1510,30 +1454,12 @@ fun VideoPlayerScreen(
                         googleAiEnabled = false
                     }
                     viewModel.setVideoNoiseReductionEnabled(enable)
-                    syncSavedEnhancement(
-                        enabled = videoUpscalingEnabled || enable || videoVibranceEnabled,
-                        denoise = enable,
-                        smartAi = false
-                    )
                 },
                 onToggleVibrance = { enable ->
                     viewModel.setVideoVibranceEnabled(enable)
-                    syncSavedEnhancement(
-                        enabled = videoUpscalingEnabled || videoNoiseReductionEnabled || enable,
-                        vibrance = enable
-                    )
                 },
                 onSelectProfile = { profile ->
                     viewModel.setVideoEnhancementProfile(profile)
-                    syncSavedEnhancement(
-                        enabled = true,
-                        profile = profile,
-                        custom = false,
-                        detailStrength = profile.detailStrength,
-                        denoiseStrength = profile.denoiseStrength,
-                        contrastBoost = profile.contrastBoost,
-                        vibranceStrength = profile.vibranceStrength
-                    )
                 },
                 onApplyCustomTuning = { denoise, detail, contrast, vibrance ->
                     viewModel.setCustomVideoEnhancement(
@@ -1543,35 +1469,9 @@ fun VideoPlayerScreen(
                         contrastBoost = contrast,
                         vibranceStrength = vibrance
                     )
-                    syncSavedEnhancement(
-                        enabled = true,
-                        custom = true,
-                        denoiseStrength = denoise,
-                        detailStrength = detail,
-                        contrastBoost = contrast,
-                        vibranceStrength = vibrance
-                    )
                 },
                 onComparisonBypassChange = { bypassed ->
                     viewModel.setVideoEnhancementBypassed(bypassed)
-                },
-                onRememberChange = { remember ->
-                    settingsViewModel.update { current ->
-                        current.copy(
-                            rememberVideoEnhancement = remember,
-                            videoEnhancementEnabled = videoUpscalingEnabled || videoNoiseReductionEnabled || videoVibranceEnabled || googleAiEnabled,
-                            videoEnhancementProfile = videoEnhancementProfile.wireValue,
-                            videoEnhancementCustom = videoEnhancementCustomMode,
-                            videoEnhancementUpscaling = videoUpscalingEnabled,
-                            videoEnhancementDenoise = videoNoiseReductionEnabled,
-                            videoEnhancementVibrance = videoVibranceEnabled,
-                            videoEnhancementSmartAi = googleAiEnabled,
-                            videoEnhancementDetailStrength = videoEnhancementDiagnostics.detailStrength,
-                            videoEnhancementDenoiseStrength = videoEnhancementDiagnostics.denoiseStrength,
-                            videoEnhancementContrastBoost = videoEnhancementDiagnostics.contrastBoost,
-                            videoEnhancementVibranceStrength = videoEnhancementDiagnostics.vibranceStrength
-                        )
-                    }
                 },
                 onOpenDiagnostics = {
                     showVideoEnhancementSheet = false

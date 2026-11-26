@@ -2,10 +2,11 @@ package io.github.peerless2012.ass.media.render
 
 import android.os.Looper
 import androidx.annotation.OptIn
+import androidx.media3.common.C
 import androidx.media3.common.Effect
+import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.OverlayEffect
-import androidx.media3.effect.ScaleAndRotateTransformation
 import androidx.media3.exoplayer.ExoPlayer
 import io.github.peerless2012.ass.AssRender
 import io.github.peerless2012.ass.media.AssHandler
@@ -18,12 +19,10 @@ class AssOverlayManager(
 ) {
     private var currentRenderer: AssRender? = null
     private var subtitleEffect: OverlayEffect? = null
-    // Media3 creates PlaybackVideoGraphWrapper/VideoSink only when a non-empty
-    // video-effect chain is present before prepare(). Keep an identity GL effect
-    // installed for the lifetime of the player so runtime effect updates never
-    // have to create the video graph from an empty initial chain.
-    private val alwaysReadyVideoEffect: Effect = ScaleAndRotateTransformation.Builder().build()
     private var additionalEffects: List<Effect> = emptyList()
+    // Track whether the player currently has a non-empty effect graph so idle
+    // playback stays on the zero-copy hardware surface path without GPU shaders.
+    private var videoGraphActive = false
 
     /** True only after setVideoEffects completed successfully on the player looper. */
     @Volatile
@@ -36,7 +35,7 @@ class AssOverlayManager(
 
     init {
         AssVideoEffectRegistry.attach(player, this)
-        applyEffects()
+        applyEffects(allowRebind = false)
     }
 
     /**
@@ -44,7 +43,7 @@ class AssOverlayManager(
      * while merely posting a task made the host report a connected bridge before
      * Media3 had actually accepted the effect list.
      */
-    fun setAdditionalEffects(effects: List<Effect>): Boolean {
+    fun setAdditionalEffects(effects: List<Effect>, allowRebind: Boolean = true): Boolean {
         if (Looper.myLooper() != player.applicationLooper) {
             lastApplyFailure =
                 "IllegalStateException: setAdditionalEffects must run on ExoPlayer applicationLooper"
@@ -52,13 +51,13 @@ class AssOverlayManager(
         }
         val previous = additionalEffects
         additionalEffects = effects.toList()
-        if (applyEffects()) return true
+        if (applyEffects(allowRebind = allowRebind)) return true
 
         // Keep the last known-good pipeline if Media3 rejects the new effect list,
         // but preserve the failed-attempt reason for the diagnostics screen.
         val failure = lastApplyFailure
         additionalEffects = previous
-        applyEffects()
+        applyEffects(allowRebind = false)
         lastApplyFailure = failure
         return false
     }
@@ -72,20 +71,18 @@ class AssOverlayManager(
             AssCanvasOverlay(handler, renderer)
         }
         subtitleEffect = OverlayEffect(listOf(overlay))
-        applyEffects()
+        applyEffects(allowRebind = true)
     }
 
-    fun disable() {
+    fun disable(allowRebind: Boolean = true) {
         if (currentRenderer == null && subtitleEffect == null) return
         currentRenderer = null
         subtitleEffect = null
-        applyEffects()
+        applyEffects(allowRebind = allowRebind)
     }
 
     /**
      * Detaches this manager from a player that is being released or rebound.
-     * Unlike disable(), release removes every effect owned by this manager,
-     * including the always-ready identity stage and host-provided GPU stages.
      */
     fun release(): Boolean {
         if (Looper.myLooper() != player.applicationLooper) {
@@ -96,6 +93,7 @@ class AssOverlayManager(
         currentRenderer = null
         subtitleEffect = null
         additionalEffects = emptyList()
+        videoGraphActive = false
         return try {
             player.setVideoEffects(emptyList())
             isOperational = false
@@ -108,11 +106,30 @@ class AssOverlayManager(
         }
     }
 
-    private fun applyEffects(): Boolean {
+    private fun applyEffects(allowRebind: Boolean): Boolean {
         // Keep image-processing effects first and ASS subtitles last so subtitle
         // glyphs stay crisp and are not blurred or resampled by video filters.
+        val desiredEffects = additionalEffects + listOfNotNull(subtitleEffect)
+        val needsGraph = desiredEffects.isNotEmpty()
+        val graphToggledDuringPlayback = (needsGraph != videoGraphActive) &&
+            player.playbackState != Player.STATE_IDLE
         return try {
-            player.setVideoEffects(listOf(alwaysReadyVideoEffect) + additionalEffects + listOfNotNull(subtitleEffect))
+            if (allowRebind && graphToggledDuringPlayback) {
+                val wasPlaying = player.playWhenReady
+                val mediaIndex = player.currentMediaItemIndex
+                val positionMs = player.currentPosition.coerceAtLeast(0L)
+                val hasCurrentItem = player.mediaItemCount > 0 && mediaIndex != C.INDEX_UNSET
+                player.stop()
+                player.setVideoEffects(desiredEffects)
+                if (hasCurrentItem) {
+                    player.seekTo(mediaIndex, positionMs)
+                    player.prepare()
+                    player.playWhenReady = wasPlaying
+                }
+            } else {
+                player.setVideoEffects(desiredEffects)
+            }
+            videoGraphActive = needsGraph
             isOperational = true
             lastApplyFailure = null
             true

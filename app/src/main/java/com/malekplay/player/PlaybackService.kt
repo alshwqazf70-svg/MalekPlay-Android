@@ -45,7 +45,6 @@ import com.malekplay.player.effects.VideoEnhancementPipelineEffect
 import com.malekplay.player.effects.VideoEnhancementPipelineConfig
 import com.malekplay.player.effects.VideoUpscaleTargetPolicy
 import com.malekplay.player.effects.VideoUpscaleTarget
-import com.malekplay.player.effects.GoogleMediaEnhancementCapability
 import io.github.peerless2012.ass.media.AssHandler
 import io.github.peerless2012.ass.media.kt.buildWithAssSupport
 import io.github.peerless2012.ass.media.render.AssVideoEffectRegistry
@@ -208,30 +207,15 @@ class PlaybackService : MediaSessionService() {
         // The bridge starts lazily only when a local file is handed to a Cast receiver.
         // It exposes tokenized, seekable LAN URLs rather than leaking content:// URIs.
         localExoPlayer = player
-        // Install both mutable GPU stages before any media item can be prepared:
-        // denoise consumes decoded source pixels; detail follows optional Lanczos.
-        // Runtime changes update their atomic configs without rebuilding the graph.
-        val denoisePipeline = VideoEnhancementPipelineEffect()
-        val detailPipeline = VideoEnhancementPipelineEffect()
-        videoDenoisePipeline = denoisePipeline
-        videoEnhancementPipeline = detailPipeline
-        videoEnhancementPipelineAttached = AssVideoEffectRegistry.setAdditionalEffects(
-            player,
-            listOf(denoisePipeline, detailPipeline)
-        )
-        if (!videoEnhancementPipelineAttached) {
-            val reason = AssVideoEffectRegistry.lastFailure(player)
-                ?: "ASS effect manager did not accept the initial GPU pipeline"
-            VideoEnhancementMetrics.recordFailure("ass_effect_manager_attach", IllegalStateException(reason))
-            Log.e(TAG, "Could not attach the always-ready GPU enhancement pipeline: $reason")
-        }
+        // Create the mutable GPU shader holders lazily in memory only. Do not
+        // attach them to ExoPlayer until the user manually enables video
+        // enhancement so normal playback keeps the zero-copy hardware surface
+        // path and does not consume GPU or battery.
+        videoDenoisePipeline = VideoEnhancementPipelineEffect()
+        videoEnhancementPipeline = VideoEnhancementPipelineEffect()
+        videoEnhancementPipelineAttached = false
+        videoEffectsBridgeAttached = false
 
-        // Probe Google AI capability without touching the active decoder or surface.
-        // The opt-in UI bridge owns the short-lived surface session and restores this
-        // player's normal output whenever the view, media item, or session is released.
-        GoogleMediaEnhancementCapability.inspect(this) { status ->
-            Log.i(TAG, "Google AI media enhancement capability: $status")
-        }
         // Bind audio effects directly to the service-owned ExoPlayer session;
         // the UI listener is a secondary observer, not the only attachment path.
         player.addListener(object : Player.Listener {
@@ -491,8 +475,10 @@ class PlaybackService : MediaSessionService() {
         putFloat(PlaybackVideoEffects.KEY_STATE_DENOISE_STRENGTH, if (videoCustomTuning) customDenoiseStrength else lastEffectiveProfile.denoiseStrength)
         putFloat(PlaybackVideoEffects.KEY_STATE_CONTRAST_BOOST, if (videoCustomTuning) customContrastBoost else lastEffectiveProfile.contrastBoost)
         putFloat(PlaybackVideoEffects.KEY_STATE_VIBRANCE_STRENGTH, if (videoCustomTuning) customVibranceStrength else lastEffectiveProfile.vibranceStrength)
-        // Read the live registry state instead of exposing a stale service-side flag.
-        videoEffectsBridgeAttached = localExoPlayer?.let(AssVideoEffectRegistry::isAttached) == true
+        // Read the live registry state; only report the enhancement bridge as
+        // attached when enhancement effects are actually installed by the user.
+        val registryAttached = localExoPlayer?.let(AssVideoEffectRegistry::isAttached) == true
+        videoEffectsBridgeAttached = videoEnhancementPipelineAttached && registryAttached
         val bridgeFailure = localExoPlayer?.let(AssVideoEffectRegistry::lastFailure)
         if (bridgeFailure != null &&
             VideoEnhancementMetrics.snapshot().lastFailure?.contains(bridgeFailure) != true
@@ -507,9 +493,8 @@ class PlaybackService : MediaSessionService() {
         putString(PlaybackVideoEffects.KEY_DIAG_LAST_EFFECT, metrics.lastEffectName)
         putString(
             PlaybackVideoEffects.KEY_DIAG_LAST_FAILURE,
-            // A live ASS/effect-manager rejection is more actionable than an
-            // older shader failure retained for intermittent-error diagnostics.
-            bridgeFailure ?: metrics.lastFailure ?: if (!videoEffectsBridgeAttached) {
+            // Report a bridge failure only when enhancement was requested or ASS failed.
+            bridgeFailure ?: metrics.lastFailure ?: if (hasAnyVideoEnhancementEnabled() && !videoEffectsBridgeAttached) {
                 "effects_bridge_not_registered_or_not_operational"
             } else null
         )
@@ -537,7 +522,7 @@ class PlaybackService : MediaSessionService() {
                 localExoPlayer?.let {
                     applyEffectChain(
                         it,
-                        listOfNotNull(videoDenoisePipeline, videoEnhancementPipeline),
+                        emptyList(),
                         hasLanczos = false
                     )
                 }
@@ -561,9 +546,7 @@ class PlaybackService : MediaSessionService() {
             totalProcessingOffsetUs: Long,
             frameCount: Int
         ) {
-            val chainConnected = videoEffectsBridgeAttached || videoEnhancementPipelineAttached ||
-                localExoPlayer?.let(AssVideoEffectRegistry::isAttached) == true
-            if (frameCount <= 0 || (!hasAnyVideoEnhancementEnabled() && !chainConnected)) return
+            if (frameCount <= 0 || (!hasAnyVideoEnhancementEnabled() && !videoEnhancementPipelineAttached)) return
             val gpu = VideoEnhancementMetrics.snapshot()
             val averageOffsetUs = totalProcessingOffsetUs / frameCount
             lastRendererFrameCount += frameCount.toLong()
@@ -613,16 +596,19 @@ class PlaybackService : MediaSessionService() {
             lastRendererFrameCount = 0L
             lastAverageProcessingOffsetUs = 0L
             droppedVideoFramesTotal = 0L
-            // Keep the same always-attached shader in passthrough mode for the
-            // next item; per-video enhancement state is reset without removing
-            // the VideoFrameProcessor's configured effect graph.
+            // Keep enhancement disabled by default on every queue item transition and
+            // detach GPU enhancement shaders so battery-saving hardware playback is restored.
+            val wasPipelineAttached = videoEnhancementPipelineAttached
             disableAllVideoEnhancements()
-            localExoPlayer?.let {
-                videoEffectsBridgeAttached = applyEffectChain(
-                    it,
-                    listOfNotNull(videoDenoisePipeline, videoEnhancementPipeline),
-                    hasLanczos = false
-                )
+            if (wasPipelineAttached) {
+                localExoPlayer?.let {
+                    applyEffectChain(
+                        it,
+                        emptyList(),
+                        hasLanczos = false,
+                        allowRebind = false
+                    )
+                }
             }
         }
 
@@ -847,22 +833,24 @@ class PlaybackService : MediaSessionService() {
             lastDowngradeReason = null
             videoDenoisePipeline?.update(VideoEnhancementPipelineConfig())
             videoEnhancementPipeline?.update(VideoEnhancementPipelineConfig())
-            videoEffectsBridgeAttached = applyEffectChain(
+            val detached = applyEffectChain(
                 player,
-                listOfNotNull(videoDenoisePipeline, videoEnhancementPipeline),
+                emptyList(),
                 hasLanczos = false,
                 lanczosTarget = null
             )
-            lastAppliedEnhancementSignature = if (videoEffectsBridgeAttached) "disabled" else null
-            return videoEffectsBridgeAttached
+            videoEffectsBridgeAttached = false
+            lastAppliedEnhancementSignature = if (detached) "disabled" else null
+            return detached
         }
         if (!isLocalClearVideoSession()) {
             disableAllVideoEnhancements()
-            videoEffectsBridgeAttached = applyEffectChain(
+            applyEffectChain(
                 player,
-                listOfNotNull(videoDenoisePipeline, videoEnhancementPipeline),
+                emptyList(),
                 hasLanczos = false
             )
+            videoEffectsBridgeAttached = false
             return false
         }
         // Resolve and publish the requested shader configuration before checking
@@ -1041,11 +1029,11 @@ class PlaybackService : MediaSessionService() {
             val cleared = runCatching {
                 applyEffectChain(
                     player,
-                    listOfNotNull(videoDenoisePipeline, videoEnhancementPipeline),
+                    emptyList(),
                     hasLanczos = false
                 )
             }.getOrDefault(false)
-            videoEffectsBridgeAttached = cleared
+            videoEffectsBridgeAttached = false
             if (!cleared) {
                 Log.e(TAG, "Could not clear the previous video enhancement chain after rejection")
             }
@@ -1076,7 +1064,8 @@ class PlaybackService : MediaSessionService() {
         player: ExoPlayer,
         effects: List<Effect>,
         hasLanczos: Boolean,
-        lanczosTarget: VideoUpscaleTarget? = null
+        lanczosTarget: VideoUpscaleTarget? = null,
+        allowRebind: Boolean = true
     ): Boolean {
         val targetKey = lanczosTarget?.let { it.longEdge to it.shortEdge }
         val structuralChange = appliedLanczosEffect != hasLanczos ||
@@ -1092,10 +1081,9 @@ class PlaybackService : MediaSessionService() {
             AssVideoEffectRegistry.isAttached(player)
         ) return true
 
-        // setVideoEffects is explicitly supported after prepare(), including
-        // during playback. It is synchronous on the player application looper
-        // through AssOverlayManager, so no stop/prepare/seek cycle is needed.
-        if (!AssVideoEffectRegistry.setAdditionalEffects(player, effects)) {
+        // Detaching or attaching the OpenGL graph transitions between emptyList()
+        // and the active shader pipeline; AssOverlayManager rebinds cleanly when needed.
+        if (!AssVideoEffectRegistry.setAdditionalEffects(player, effects, allowRebind)) {
             return false
         }
 

@@ -488,8 +488,7 @@
     <string name="player_video_enhancement_denoise_slider">Noise reduction</string>
     <string name="player_video_enhancement_contrast_slider">Local contrast</string>
     <string name="player_video_enhancement_vibrance_slider">Color vibrance</string>
-    <string name="player_video_enhancement_remember">Remember for next videos</string>
-    <string name="player_video_enhancement_remember_desc">Automatically apply these enhancement settings when opening videos</string>
+    <string name="player_video_enhancement_manual_only_note">Video enhancement runs only when enabled manually to save battery, and resets for the next video.</string>
 
     <string name="vault_title">Private Vault</string>
     <string name="vault_settings_summary">AES-256-GCM encrypted media &amp; folder vault with isolated playback</string>

@@ -67,7 +67,6 @@ fun VideoEnhancementSheet(
     customMode: Boolean,
     bypassed: Boolean,
     diagnostics: VideoEnhancementDiagnostics,
-    rememberForNextVideos: Boolean,
     onDismiss: () -> Unit,
     onToggleMasterEnhancement: (Boolean) -> Unit,
     onToggleSmartAi: (Boolean) -> Unit,
@@ -77,7 +76,6 @@ fun VideoEnhancementSheet(
     onSelectProfile: (VideoEnhancementProfile) -> Unit,
     onApplyCustomTuning: (denoise: Float, detail: Float, contrast: Float, vibrance: Float) -> Unit,
     onComparisonBypassChange: (Boolean) -> Unit,
-    onRememberChange: (Boolean) -> Unit,
     onOpenDiagnostics: () -> Unit
 ) {
     val anyEnabled = upscalingEnabled || noiseReductionEnabled || vibranceEnabled || smartAiEnabled
@@ -382,11 +380,10 @@ fun VideoEnhancementSheet(
 
             HorizontalDivider()
 
-            EnhancementToggleRow(
-                title = stringResource(R.string.player_video_enhancement_remember),
-                subtitle = stringResource(R.string.player_video_enhancement_remember_desc),
-                checked = rememberForNextVideos,
-                onCheckedChange = onRememberChange
+            Text(
+                text = stringResource(R.string.player_video_enhancement_manual_only_note),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
             OutlinedButton(

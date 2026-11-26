@@ -488,8 +488,7 @@
     <string name="player_video_enhancement_denoise_slider">تقليل الضوضاء</string>
     <string name="player_video_enhancement_contrast_slider">التباين الموضعي</string>
     <string name="player_video_enhancement_vibrance_slider">حيوية الألوان</string>
-    <string name="player_video_enhancement_remember">حفظ الإعدادات للفيديوهات القادمة</string>
-    <string name="player_video_enhancement_remember_desc">تطبيق إعدادات التحسين تلقائياً عند فتح أي فيديو</string>
+    <string name="player_video_enhancement_manual_only_note">يعمل تحسين جودة الفيديو يدوياً عند تشغيله فقط حفاظاً على البطارية، ويتوقف تلقائياً عند الانتقال لفيديو آخر.</string>
 
     <string name="vault_title">الخزنة الخاصة</string>
     <string name="vault_settings_summary">خزنة مشفّرة بمعيار AES-256-GCM مع تشغيل معزول داخل الذاكرة بدون تسريب ملفات</string>
