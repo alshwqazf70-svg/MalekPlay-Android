@@ -124,7 +124,7 @@ class OnlineSubtitleLocalizationAndUiStateTest {
 
         assertTrue(english.plurals.getValue("subtitle_downloads_count").any { it.contains("download") })
         assertEquals(
-            listOf("%1$d تنزيل", "تنزيل واحد", "تنزيلان", "%1$d تنزيلات", "%1$d تنزيلاً", "%1$d تنزيل"),
+            listOf("%1\$d تنزيل", "تنزيل واحد", "تنزيلان", "%1\$d تنزيلات", "%1\$d تنزيلاً", "%1\$d تنزيل"),
             arabic.plurals.getValue("subtitle_downloads_count")
         )
     }
