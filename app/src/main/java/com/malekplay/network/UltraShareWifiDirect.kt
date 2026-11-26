@@ -1526,13 +1526,21 @@ object UltraShareWifiDirect {
                     // A missing ActionListener callback is different from an accepted
                     // connect() whose group negotiation is still running. Recover only
                     // the silent request; never cut short the later 30-second negotiation.
-                    recoverAndRetryConnect(
-                        deviceAddress = deviceAddress,
-                        preferThisDeviceAsGroupOwner = preferThisDeviceAsGroupOwner,
-                        token = token,
-                        attempt = attempt,
-                        reason = WifiP2pManager.ERROR
-                    )
+                    if (shouldRetryWifiDirectConnectFailure(WifiP2pManager.ERROR, attempt)) {
+                        recoverAndRetryConnect(
+                            deviceAddress = deviceAddress,
+                            preferThisDeviceAsGroupOwner = preferThisDeviceAsGroupOwner,
+                            token = token,
+                            attempt = attempt,
+                            reason = WifiP2pManager.ERROR
+                        )
+                    } else {
+                        connectionInProgress = false
+                        connectionAttemptToken++
+                        pairingTargetDeviceAddress = null
+                        cancelClientPeerConfirmation()
+                        reportError("لم يستجب نظام Android لطلب اتصال Wi-Fi Direct بعد محاولات متعددة.")
+                    }
                 }
             }
             connectionTimeout?.let(mainHandler::removeCallbacks)
