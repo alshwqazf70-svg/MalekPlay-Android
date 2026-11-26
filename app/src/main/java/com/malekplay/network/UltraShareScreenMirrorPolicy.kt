@@ -40,13 +40,13 @@ object UltraShareScreenMirrorPolicy {
      * Android 14+ (API 34+) requires registering a MediaProjection.Callback before
      * createVirtualDisplay() and using FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION.
      */
-    fun requiresMediaProjectionCallback(sdkInt: Int = Build.VERSION_CODES.SDK_INT): Boolean =
+    fun requiresMediaProjectionCallback(sdkInt: Int = Build.VERSION.SDK_INT): Boolean =
         sdkInt >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
 
     fun requiresTypedMediaProjectionForegroundService(sdkInt: Int = Build.VERSION.SDK_INT): Boolean =
         sdkInt >= Build.VERSION_CODES.Q
 
-    fun mediaProjectionForegroundServiceType(sdkInt: Int = Build.VERSION_CODES.SDK_INT): Int =
+    fun mediaProjectionForegroundServiceType(sdkInt: Int = Build.VERSION.SDK_INT): Int =
         if (sdkInt >= Build.VERSION_CODES.Q) {
             ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
         } else {

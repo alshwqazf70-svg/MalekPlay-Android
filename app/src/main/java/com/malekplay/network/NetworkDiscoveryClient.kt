@@ -11,6 +11,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.net.DatagramPacket
@@ -26,6 +27,7 @@ import java.nio.charset.StandardCharsets
 import java.util.Collections
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 
 internal fun isSameDiscoveryHost(endpointHost: String?, packetHost: String): Boolean {
     val cleanEndpoint = LanNetworkSupport.stripZone(endpointHost)
@@ -144,12 +146,12 @@ class NetworkDiscoveryClient {
             }
 
             val activeDiscoverySockets = Collections.newSetFromMap(ConcurrentHashMap<MulticastSocket, Boolean>())
-            @Volatile var networkChanged = false
+            val networkChanged = AtomicBoolean(false)
             val networkCallback = if (lanNetwork != null) {
                 object : ConnectivityManager.NetworkCallback() {
                     override fun onLost(network: Network) {
                         if (network == lanNetwork) {
-                            networkChanged = true
+                            networkChanged.set(true)
                             activeDiscoverySockets.toList().forEach { sock -> runCatching { sock.close() } }
                         }
                     }
@@ -175,13 +177,13 @@ class NetworkDiscoveryClient {
                 // Run independent multicast protocols together to keep the initial scan responsive.
                 val (ssdpDevices, wsDiscoveryDevices, mdnsDevices) = coroutineScope {
                     val ssdp = async(Dispatchers.IO) {
-                        val activeCheck = { isActive && !networkChanged }
+                        val activeCheck = { isActive && !networkChanged.get() }
                         collectProtocolResults { results ->
                             discoverSsdp(results, lanNetwork, activeDiscoverySockets, activeCheck)
                         }
                     }
                     val wsDiscovery = async(Dispatchers.IO) {
-                        val activeCheck = { isActive && !networkChanged }
+                        val activeCheck = { isActive && !networkChanged.get() }
                         collectProtocolResults { results ->
                             discoverWsDiscovery(results, lanNetwork, activeDiscoverySockets, activeCheck)
                         }
