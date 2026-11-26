@@ -7,6 +7,7 @@ on:
       - performance/large-library-optimization
       - feature/ultrashare-bidirectional-2026-11-08
       - feature/zapya-engineering-analysis
+      - arena/8b8ac1eb-malekplay-android
   workflow_dispatch:
 
 concurrency:
