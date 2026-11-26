@@ -47,6 +47,7 @@ class OnlineSubtitleEndToEndTest {
             "1\n00:01:02 --> 00:01:05\nNo millis\n" to "srt",
             "1\n00:00:01:24 --> 00:00:03:10\nColon millis\n" to "srt",
             "١\n٠٠:٠٠:٠١,٢٥٠ --> ٠٠:٠٠:٠٣,٥٠٠\nمرحباً بالعربية\n" to "srt",
+            "۱\n۰۱:۰۲:۰۳,۴۵۶ --> ۰۱:۰۲:۰۵,۶۷۸\nمتن فارسی الأرقام\n" to "srt",
             "WEBVTT\n\n00:01.250 --> 00:03.500 align:start\nShort VTT\n" to "vtt",
             "[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:01.00,0:00:02.50,Default,,0,0,0,,ASS cue\n" to "ass"
         )
