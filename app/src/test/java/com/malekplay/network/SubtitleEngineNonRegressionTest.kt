@@ -203,8 +203,10 @@ class SubtitleEngineNonRegressionTest {
         """.trimIndent()
         assertEquals("ass", SrtSubtitleParser.detectFormat(assSource))
         val assCues = SrtSubtitleParser.splitBlocks(assSource, "ass")
-        val dialogueCue = assCues.first { it.startsWith("Dialogue:") }
-        val (masked, tags) = SrtSubtitleParser.maskMarkup(dialogueCue.substringAfter(",0,,"))
+        val dialogueCue = assCues.single()
+        assertTrue(dialogueCue.startsWith("1\\n00:00:01,000 --> 00:00:03,500"))
+        val cueText = dialogueCue.substringAfter("00:00:03,500\\n")
+        val (masked, tags) = SrtSubtitleParser.maskMarkup(cueText)
         val restored = SrtSubtitleParser.restoreMarkup(masked.replace("Hello", "مرحباً").replace("world", "بالعالم"), tags)
         assertTrue(restored.contains("""{\i1}"""))
         assertTrue(restored.contains("""\N"""))
