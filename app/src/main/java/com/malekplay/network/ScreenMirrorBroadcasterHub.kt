@@ -231,11 +231,9 @@ class ScreenMirrorBroadcasterHub internal constructor(
                     break
                 }
                 val remoteAddr = client.inetAddress
-                val validLan = remoteAddr is Inet4Address && (
-                    remoteAddr.isSiteLocalAddress ||
-                        remoteAddr.isLinkLocalAddress ||
-                        (allowLoopbackForTest && remoteAddr.isLoopbackAddress)
-                    )
+                val remoteHost = remoteAddr?.hostAddress.orEmpty()
+                val validLan = UltraShareCore.isValidPrivateLanHost(remoteHost) ||
+                    (allowLoopbackForTest && remoteAddr?.isLoopbackAddress == true)
                 if (!validLan) {
                     runCatching { client.close() }
                     continue

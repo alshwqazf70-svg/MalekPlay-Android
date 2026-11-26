@@ -3416,6 +3416,8 @@ class UltraShareForegroundService : Service() {
             }
         }
 
+        private val mirrorViewerActionScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
         internal fun sendMirrorViewerAction(
             context: Context,
             hostAddress: String,
@@ -3438,7 +3440,7 @@ class UltraShareForegroundService : Service() {
                     )
                 )
             }.getOrNull() ?: return
-            CoroutineScope(Dispatchers.IO).launch {
+            mirrorViewerActionScope.launch {
                 runCatching {
                     UltraShareControlChannel.sendClientApplicationMessage(hostAddress, wire)
                 }

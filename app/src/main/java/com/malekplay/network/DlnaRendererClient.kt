@@ -193,13 +193,16 @@ class DlnaRendererClient internal constructor(
             capabilityCache[key] ?: capabilitiesFor(device)
         }
 
+    private val capabilityCacheLock = Any()
+
     private fun updateCapabilities(
         cacheKey: String?,
         transform: (RendererCapabilities) -> RendererCapabilities
     ) {
         if (cacheKey == null) return
-        capabilityCache.compute(cacheKey) { _, existing ->
-            transform(existing ?: RendererCapabilities())
+        synchronized(capabilityCacheLock) {
+            val existing = capabilityCache[cacheKey] ?: RendererCapabilities()
+            capabilityCache[cacheKey] = transform(existing)
         }
     }
 

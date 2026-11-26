@@ -178,6 +178,15 @@ class ScreenMirrorViewerClient internal constructor(
                                     }
                                     UltraShareScreenMirrorProtocol.FrameType.VIDEO_IDR,
                                     UltraShareScreenMirrorProtocol.FrameType.VIDEO_DELTA -> {
+                                        if (_status.value.phase != ConnectionPhase.STREAMING || _status.value.protectedScreenActive) {
+                                            _status.value = _status.value.copy(
+                                                phase = ConnectionPhase.STREAMING,
+                                                protectedScreenActive = false,
+                                                width = if (hdr.width > 0) hdr.width else _status.value.width,
+                                                height = if (hdr.height > 0) hdr.height else _status.value.height,
+                                                rotation = hdr.rotation
+                                            )
+                                        }
                                         framesInWindow++
                                         bytesInWindow += frame.payload.size
                                         val nowNs = System.nanoTime()

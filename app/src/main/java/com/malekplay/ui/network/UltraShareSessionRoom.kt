@@ -997,9 +997,11 @@ private fun GroupScreenMirrorCard(
     onCreateMirrorGroup: () -> Unit,
     onJoinMirrorGroup: () -> Unit
 ) {
-    val isHostRole = state.receiving && state.activePeers.isNotEmpty()
     val hostMirror = state.mirrorHostState
     val incomingOffer = state.incomingMirrorOffer
+    val isHostRole = (state.receiving && incomingOffer == null) &&
+        (state.activePeers.isNotEmpty() || hostMirror.active || hostMirror.starting)
+    val isWaitingHost = state.receiving && !connected && !hostMirror.active && !hostMirror.starting && incomingOffer == null
     val audioCaptureSupported = com.malekplay.network.UltraShareScreenMirrorPolicy.supportsAudioPlaybackCapture()
 
     Column(
@@ -1044,6 +1046,7 @@ private fun GroupScreenMirrorCard(
                         hostMirror.active -> "بث شاشة هذا الهاتف نشط الآن (${hostMirror.viewerCount} مشاهد)"
                         incomingOffer != null -> "بث مباشر متاح من ${incomingOffer.hostName}"
                         isHostRole -> "شارك شاشة هذا الهاتف مع جميع أجهزة المجموعة"
+                        isWaitingHost -> "الغرفة جاهزة — شارك رمز QR أو ابدأ البث فوراً"
                         connected -> "بانتظار بدء الشاشة الجماعية من منشئ المجموعة"
                         else -> "أنشئ مجموعة لمشاركة شاشتك أو امسح QR لمشاهدة شاشة المضيف"
                     },
@@ -1067,7 +1070,7 @@ private fun GroupScreenMirrorCard(
             }
         }
 
-        if (!connected && !hostMirror.active && !hostMirror.starting && incomingOffer == null) {
+        if (!connected && !state.receiving && !hostMirror.active && !hostMirror.starting && incomingOffer == null) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -1089,6 +1092,30 @@ private fun GroupScreenMirrorCard(
                     border = BorderStroke(1.dp, Color(0xFF9A63C7))
                 ) {
                     Text("انضمام بمسح QR", fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        } else if (isWaitingHost) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(
+                    onClick = onStartScreenMirror,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFB66CFF),
+                        contentColor = Color(0xFF190F22)
+                    )
+                ) {
+                    Text("بدء البث الآن", fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                OutlinedButton(
+                    onClick = onCreateMirrorGroup,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFD7A0FF)),
+                    border = BorderStroke(1.dp, Color(0xFF9A63C7))
+                ) {
+                    Text("عرض رمز QR", fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
         } else if (incomingOffer != null) {

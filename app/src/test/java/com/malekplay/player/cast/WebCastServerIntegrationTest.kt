@@ -52,7 +52,7 @@ class WebCastServerIntegrationTest {
     fun tokenRotatesAndOldSessionTokenIsRejectedAfterStopAndRestart() {
         val server = WebCastServer(
             context = context,
-            initialUpstreamFactory = DefaultDataSource.Factory(context),
+            upstreamFactory = DefaultDataSource.Factory(context),
             privateIpv4Provider = loopbackProvider,
             allowLoopbackForTest = true
         )
@@ -86,7 +86,7 @@ class WebCastServerIntegrationTest {
     fun pinAuthRateLimitsRepeatedWrongGuesses() {
         val server = WebCastServer(
             context = context,
-            initialUpstreamFactory = DefaultDataSource.Factory(context),
+            upstreamFactory = DefaultDataSource.Factory(context),
             privateIpv4Provider = loopbackProvider,
             allowLoopbackForTest = true
         )
@@ -127,7 +127,7 @@ class WebCastServerIntegrationTest {
         }
         val server = WebCastServer(
             context = context,
-            initialUpstreamFactory = DefaultDataSource.Factory(context),
+            upstreamFactory = DefaultDataSource.Factory(context),
             privateIpv4Provider = loopbackProvider,
             allowLoopbackForTest = true
         )
@@ -394,7 +394,7 @@ class WebCastServerIntegrationTest {
         }
         val server = WebCastServer(
             context = context,
-            initialUpstreamFactory = slowFactory,
+            upstreamFactory = slowFactory,
             privateIpv4Provider = loopbackProvider,
             allowLoopbackForTest = true
         )
@@ -485,7 +485,7 @@ class WebCastServerIntegrationTest {
     fun productionWebCastAndBridgeRejectLoopbackWithoutTestOptIn() {
         val server = WebCastServer(
             context = context,
-            initialUpstreamFactory = DefaultDataSource.Factory(context),
+            upstreamFactory = DefaultDataSource.Factory(context),
             privateIpv4Provider = loopbackProvider,
             allowLoopbackForTest = false
         )
@@ -520,7 +520,7 @@ class WebCastServerIntegrationTest {
         val fakeHostCounter = AtomicInteger(0)
         val server = WebCastServer(
             context = context,
-            initialUpstreamFactory = DefaultDataSource.Factory(context),
+            upstreamFactory = DefaultDataSource.Factory(context),
             privateIpv4Provider = loopbackProvider,
             allowLoopbackForTest = true,
             nanoTimeProvider = { fakeClockNs.get() },

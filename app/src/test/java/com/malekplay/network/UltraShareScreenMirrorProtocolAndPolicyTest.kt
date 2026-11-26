@@ -5,6 +5,7 @@ import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -90,7 +91,7 @@ class UltraShareScreenMirrorProtocolAndPolicyTest {
         assertTrue(UltraShareScreenMirrorProtocol.isMirrorControlPayload(wire))
         assertEquals(null, UltraShareMeshControlProtocol.decode(wire))
 
-        val decoded = UltraShareScreenMirrorProtocol.decodeControl(wire)
+        val decoded = requireNotNull(UltraShareScreenMirrorProtocol.decodeControl(wire))
         assertEquals(startMsg.type, decoded.type)
         assertEquals(sessionId, decoded.sessionId)
         assertEquals(hostPeerId, decoded.senderPeerId)
@@ -106,16 +107,16 @@ class UltraShareScreenMirrorProtocolAndPolicyTest {
             revision = 1L,
             viewerAction = UltraShareScreenMirrorProtocol.ViewerAction.REQUEST_IDR
         )
-        val decodedViewer = UltraShareScreenMirrorProtocol.decodeControl(
-            UltraShareScreenMirrorProtocol.encodeControl(viewerMsg)
+        val decodedViewer = requireNotNull(
+            UltraShareScreenMirrorProtocol.decodeControl(
+                UltraShareScreenMirrorProtocol.encodeControl(viewerMsg)
+            )
         )
         assertEquals(UltraShareScreenMirrorProtocol.ViewerAction.REQUEST_IDR, decodedViewer.viewerAction)
     }
 
     @Test fun malformedControlFramesAreRejected() {
-        assertThrows(IllegalArgumentException::class.java) {
-            UltraShareScreenMirrorProtocol.decodeControl(byteArrayOf(1, 2, 3, 4))
-        }
+        assertNull(UltraShareScreenMirrorProtocol.decodeControl(byteArrayOf(1, 2, 3, 4)))
         val badKeyMsg = UltraShareScreenMirrorProtocol.ControlMessage(
             type = UltraShareScreenMirrorProtocol.ControlType.MIRROR_START,
             sessionId = sessionId,

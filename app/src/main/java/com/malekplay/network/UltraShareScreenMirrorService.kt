@@ -301,6 +301,7 @@ class UltraShareScreenMirrorService : Service() {
         }
     }
 
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     private fun buildNotification(text: String): Notification {
         val openIntent = PendingIntent.getActivity(
             this,
@@ -326,6 +327,7 @@ class UltraShareScreenMirrorService : Service() {
     }
 
     private fun updateNotificationText(text: String) {
+        if (activeInstance !== this || activeSessionId == null) return
         val mgr = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
         mgr.notify(NOTIFICATION_ID, buildNotification(text))
     }

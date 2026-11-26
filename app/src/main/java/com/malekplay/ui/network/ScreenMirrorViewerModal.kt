@@ -10,6 +10,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
@@ -40,6 +41,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -72,6 +74,8 @@ fun ScreenMirrorViewerModal(
     var controlsVisible by remember { mutableStateOf(true) }
     var audioMuted by remember { mutableStateOf(false) }
     var decoderError by remember { mutableStateOf<String?>(null) }
+    var reconnectNonce by remember { mutableIntStateOf(0) }
+    val streamKeyHash = remember(offer.streamKey) { offer.streamKey.contentHashCode() }
 
     val localViewerId = remember(context) {
         UltraShareScreenMirrorProtocol.canonicalId(UltraShareDiscovery.localPeerId(context)).orEmpty()
@@ -92,7 +96,13 @@ fun ScreenMirrorViewerModal(
         )
     }
 
-    val viewerClient = remember(offer.sessionId, offer.hostAddress, offer.streamPort) {
+    val viewerClient = remember(
+        offer.sessionId,
+        offer.hostAddress,
+        offer.streamPort,
+        streamKeyHash,
+        reconnectNonce
+    ) {
         ScreenMirrorViewerClient(
             context = context,
             hostAddress = offer.hostAddress,
@@ -134,7 +144,7 @@ fun ScreenMirrorViewerModal(
             dismissOnClickOutside = false
         )
     ) {
-        Box(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color(0xFF07050A))
@@ -144,11 +154,12 @@ fun ScreenMirrorViewerModal(
                 ) { controlsVisible = !controlsVisible },
             contentAlignment = Alignment.Center
         ) {
+            val containerRatio = if (maxHeight.value > 0f) maxWidth.value / maxHeight.value else 1f
             Box(
-                modifier = if (videoRatio >= 1f) {
-                    Modifier.fillMaxWidth().aspectRatio(videoRatio)
-                } else {
+                modifier = if (containerRatio >= videoRatio) {
                     Modifier.fillMaxHeight().aspectRatio(videoRatio)
+                } else {
+                    Modifier.fillMaxWidth().aspectRatio(videoRatio)
                 },
                 contentAlignment = Alignment.Center
             ) {
@@ -236,14 +247,28 @@ fun ScreenMirrorViewerModal(
                             )
                         }
                         if (status.phase == ScreenMirrorViewerClient.ConnectionPhase.ERROR || decoderError != null) {
-                            Button(
-                                onClick = onLeave,
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = MalekPlayColors.PurpleBright,
-                                    contentColor = Color(0xFF190F22)
-                                )
-                            ) {
-                                Text("العودة للغرفة", fontWeight = FontWeight.Bold)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(
+                                    onClick = {
+                                        decoderError = null
+                                        reconnectNonce++
+                                    },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Color(0xFF65D6A2),
+                                        contentColor = Color(0xFF0E2018)
+                                    )
+                                ) {
+                                    Text("إعادة الاتصال", fontWeight = FontWeight.Bold)
+                                }
+                                Button(
+                                    onClick = onLeave,
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = MalekPlayColors.PurpleBright,
+                                        contentColor = Color(0xFF190F22)
+                                    )
+                                ) {
+                                    Text("العودة للغرفة", fontWeight = FontWeight.Bold)
+                                }
                             }
                         }
                     }

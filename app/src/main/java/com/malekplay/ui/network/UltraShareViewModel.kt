@@ -3132,7 +3132,7 @@ private fun forgetApprovedSenderTarget(host: String) {
     fun startHostScreenMirroring(resultCode: Int, data: android.content.Intent) {
         val current = _state.value
         if (!current.receiving && current.activePeers.isEmpty()) {
-            _state.value = current.copy(error = "يجب أن تكون منشئ المجموعة ومتصلاً بالأجهزة أولاً.")
+            _state.value = current.copy(error = "يجب أن تكون منشئ المجموعة أولاً.")
             return
         }
         UltraShareScreenMirrorService.startMirroring(

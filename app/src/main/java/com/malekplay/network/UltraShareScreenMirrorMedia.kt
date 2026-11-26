@@ -322,6 +322,8 @@ internal class AndroidScreenMirrorCapturer(
 
     @Volatile private var activeWidth = 0
     @Volatile private var activeHeight = 0
+    @Volatile private var lastSourceWidth = 0
+    @Volatile private var lastSourceHeight = 0
     @Volatile private var activeRotation = 0
     @Volatile private var activeFps = UltraShareScreenMirrorPolicy.DEFAULT_FPS
     @Volatile private var activeBitrate = UltraShareScreenMirrorPolicy.DEFAULT_BITRATE_BPS
@@ -407,6 +409,8 @@ internal class AndroidScreenMirrorCapturer(
         val w = metrics.widthPixels.coerceAtLeast(320)
         val h = metrics.heightPixels.coerceAtLeast(320)
         val dpi = metrics.densityDpi.coerceAtLeast(120)
+        lastSourceWidth = w
+        lastSourceHeight = h
         return Triple(w, h, dpi).also { activeRotation = rotationDegrees }
     }
 
@@ -659,7 +663,11 @@ internal class AndroidScreenMirrorCapturer(
             (powerManager != null && !powerManager.isInteractive)
         hub.publishProtectedScreenState(lockedOrOff)
 
+        val prevSourceW = lastSourceWidth
+        val prevSourceH = lastSourceHeight
         val (rawW, rawH, _) = readDisplayMetrics()
+        if (rawW == prevSourceW && rawH == prevSourceH) return
+
         val memMb = (context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager)
             ?.memoryClass ?: 256
         val baseProfile = UltraShareScreenMirrorPolicy.selectCaptureProfile(memMb, hub.activeViewerCount().coerceAtLeast(1))
@@ -672,14 +680,20 @@ internal class AndroidScreenMirrorCapturer(
                 "DISPLAY_SIZE_CHANGED",
                 mapOf("old" to "${activeWidth}x${activeHeight}", "new" to "${expected.first}x${expected.second}")
             )
-            val updated = synchronized(encoderRestartLock) {
-                if (stopped.get()) return
-                runCatching { virtualDisplay?.surface = null }
-                releaseVideoEncoderOnly()
-                startVideoPipeline().copy(audioEnabled = activeAudioRunning)
+            runCatching {
+                val updated = synchronized(encoderRestartLock) {
+                    if (stopped.get()) return
+                    runCatching { virtualDisplay?.surface = null }
+                    releaseVideoEncoderOnly()
+                    startVideoPipeline().copy(audioEnabled = activeAudioRunning)
+                }
+                currentConfig = updated
+                onConfigChanged(updated)
+            }.onFailure { err ->
+                UltraShareDiagnostics.failure("SCREEN_MIRROR_RESIZE", err)
+                stop()
+                onProjectionStopped(err.localizedMessage ?: "تعذر إعادة ضبط دقة البث بعد تدوير الشاشة.")
             }
-            currentConfig = updated
-            onConfigChanged(updated)
         }
     }
 
@@ -764,18 +778,26 @@ internal class AndroidScreenMirrorCapturer(
             val outInfo = MediaCodec.BufferInfo()
             while (!stopped.get() && audioEncoder === activeAac) {
                 val readBytes = record.read(pcm, 0, pcm.size)
-                if (readBytes > 0) {
+                var offset = 0
+                val alignedTotal = (readBytes / 4) * 4
+                while (offset < alignedTotal && !stopped.get() && audioEncoder === activeAac) {
                     val inIdx = runCatching { activeAac.dequeueInputBuffer(10_000L) }.getOrDefault(-1)
-                    if (inIdx >= 0) {
-                        val inBuf = activeAac.getInputBuffer(inIdx)
-                        if (inBuf != null) {
-                            inBuf.clear()
-                            val count = minOf(readBytes, inBuf.remaining())
-                            inBuf.put(pcm, 0, count)
-                            val ptsUs = System.nanoTime() / 1_000L
-                            activeAac.queueInputBuffer(inIdx, 0, count, ptsUs, 0)
-                        }
+                    if (inIdx < 0) break
+                    val inBuf = activeAac.getInputBuffer(inIdx)
+                    if (inBuf == null) {
+                        runCatching { activeAac.queueInputBuffer(inIdx, 0, 0, 0L, 0) }
+                        break
                     }
+                    inBuf.clear()
+                    val writable = ((minOf(alignedTotal - offset, inBuf.remaining())) / 4) * 4
+                    if (writable <= 0) {
+                        runCatching { activeAac.queueInputBuffer(inIdx, 0, 0, 0L, 0) }
+                        break
+                    }
+                    inBuf.put(pcm, offset, writable)
+                    val ptsUs = System.nanoTime() / 1_000L
+                    activeAac.queueInputBuffer(inIdx, 0, writable, ptsUs, 0)
+                    offset += writable
                 }
                 while (!stopped.get()) {
                     val outIdx = runCatching { activeAac.dequeueOutputBuffer(outInfo, 0L) }.getOrDefault(-1)
@@ -1123,7 +1145,7 @@ internal class AndroidScreenMirrorDecoder(
                             outBuf.position(info.offset)
                             outBuf.limit(info.offset + info.size)
                             val pcm = ByteArray(info.size).also { outBuf.get(it) }
-                            audioTrack?.write(pcm, 0, pcm.size)
+                            audioTrack?.write(pcm, 0, pcm.size, AudioTrack.WRITE_NON_BLOCKING)
                         }
                     } finally {
                         codec.releaseOutputBuffer(outIdx, false)

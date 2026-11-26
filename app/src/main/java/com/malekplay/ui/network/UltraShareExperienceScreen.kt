@@ -812,6 +812,8 @@ fun UltraShareExperienceScreen(
                     }
                     TextButton(
                         onClick = {
+                            viewModel.stopHostScreenMirroring()
+                            viewModel.leaveMirrorViewer()
                             (state.activePeers.map { it.host } + state.approvedSenderPeerHosts)
                                 .distinct()
                                 .forEach { viewModel.disconnectPeer(it) }
