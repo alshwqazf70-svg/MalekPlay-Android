@@ -1,16 +1,17 @@
 package com.malekplay.vault
 
 import android.content.ContentResolver
-import android.content.Context
 import android.content.ContentUris
-import android.provider.MediaStore
+import android.content.Context
 import android.net.Uri
 import android.provider.DocumentsContract
+import android.provider.MediaStore
 import android.provider.OpenableColumns
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
+import java.io.OutputStream
 import java.util.UUID
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
@@ -40,13 +41,15 @@ data class VaultBrowserItem(
     val mimeType: String,
     val isDirectory: Boolean,
     val sizeBytes: Long,
-    val lastModified: Long
+    val lastModified: Long,
+    val childCount: Int? = null
 )
 
-/** SAF folder archive import/export. Archive paths remain inside authenticated ciphertext. */
+/** SAF folder archive import/export and verified file/folder transfers. */
 class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultRepository) {
     private val appContext = context.applicationContext
     private val resolver: ContentResolver = appContext.contentResolver
+
     init {
         // These are app-private plaintext ZIP work files. A new support instance
         // is created when entering the vault; remove leftovers from killed sessions.
@@ -54,6 +57,7 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
             it.name.startsWith(".malek-vault-") || it.name.startsWith(".malek-restore-")
         }?.forEach { it.delete() }
     }
+
     private data class Node(val uri: Uri, val name: String, val relativePath: String, val directory: Boolean)
 
     fun importFolder(treeUri: Uri, password: CharArray, moveSource: Boolean): VaultFolderResult {
@@ -69,11 +73,21 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
         treeUri: Uri,
         session: PrivateVaultSession,
         moveSource: Boolean,
+        rootDocumentId: String? = null,
+        sourceParentDocumentId: String? = null,
+        sourceDisplayPath: String? = null,
         onProgress: ((current: Int, total: Int, label: String) -> Unit)? = null
     ): VaultFolderResult {
-        val nodes = enumerate(treeUri)
+        val targetRootDocId = rootDocumentId ?: DocumentsContract.getTreeDocumentId(treeUri)
+        val rootUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, targetRootDocId)
+        val nodes = enumerate(treeUri, rootUri)
         val files = nodes.filterNot { it.directory }
-        val rootName = queryDisplayName(rootDocumentUri(treeUri)).ifBlank { "مجلد خاص" }
+        val rootName = queryDisplayName(rootUri).ifBlank { "Private folder" }
+        val origin = VaultSourceOrigin(
+            treeUri = treeUri.toString(),
+            parentDocumentId = sourceParentDocumentId ?: DocumentsContract.getTreeDocumentId(treeUri),
+            displayPath = sourceDisplayPath ?: rootName
+        )
         val tempArchive = File(appContext.cacheDir, ".malek-vault-${UUID.randomUUID()}.zip")
         val stored = try {
             FileOutputStream(tempArchive).use { raw ->
@@ -88,90 +102,463 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
                     files.forEachIndexed { idx, node ->
                         onProgress?.invoke(idx + 1, files.size.coerceAtLeast(1), node.name)
                         val path = safeArchivePath(node.relativePath)
-                        require(path.isNotEmpty()) { "مسار ملف غير صالح." }
-                        val zipEntry = ZipEntry(path).apply { comment = resolver.getType(node.uri) ?: "application/octet-stream" }
+                        require(path.isNotEmpty()) { "Invalid file path in folder." }
+                        val zipEntry = ZipEntry(path).apply {
+                            comment = resolver.getType(node.uri) ?: "application/octet-stream"
+                        }
                         zip.putNextEntry(zipEntry)
                         resolver.openInputStream(node.uri)?.use { it.copyTo(zip) }
-                            ?: throw IOException("تعذرت قراءة ${node.name}")
+                            ?: throw IOException("Could not read ${node.name}")
                         zip.closeEntry()
                     }
                 }
             }
             FileInputStream(tempArchive).use {
-                vault.importStream(rootName, FOLDER_ARCHIVE_MIME, it, session)
+                vault.importStream(rootName, FOLDER_ARCHIVE_MIME, it, session, sourceOrigin = origin)
             }
         } finally {
             tempArchive.delete()
         }
-        val deletion = if (moveSource) deleteNodesAfterEncryption(nodes)
-            else SourceDeletionResult(emptyList(), 0)
+        val deletion = if (moveSource) {
+            val allToDelete = if (rootDocumentId != null) {
+                nodes + Node(rootUri, rootName, "", true)
+            } else {
+                nodes
+            }
+            deleteNodesAfterEncryption(allToDelete)
+        } else {
+            SourceDeletionResult(emptyList(), 0)
+        }
         return VaultFolderResult(
-            stored, files.size, deletion.mediaUris, nodes.size, deletion.deletedNodeCount
+            entry = stored,
+            fileCount = files.size,
+            deletedSourceUris = deletion.mediaUris,
+            sourceNodeCount = if (moveSource && rootDocumentId != null) nodes.size + 1 else nodes.size,
+            deletedSourceNodeCount = deletion.deletedNodeCount
         )
     }
 
-    fun restoreFolder(entry: PrivateVaultEntry, destinationTree: Uri, password: CharArray) {
+    /**
+     * Imports a list of selected browser files/folders into the vault.
+     * Supports copying or verified moving without dropping items selected across multiple folders.
+     */
+    fun importBrowserSelection(
+        items: List<SelectedVaultBrowserItem>,
+        session: PrivateVaultSession,
+        moveSource: Boolean,
+        isCancelled: () -> Boolean = { false },
+        onItemProgress: ((current: Int, total: Int, displayName: String) -> Unit)? = null,
+        onBytesProgress: ((doneBytes: Long, totalBytes: Long) -> Unit)? = null
+    ): VaultImportBatchResult {
+        var importedCount = 0
+        var failedCount = 0
+        var movedCount = 0
+        var copiedOnlyCount = 0
+        val deletedSourceMediaIds = mutableListOf<String>()
+        val failures = mutableListOf<String>()
+        val total = items.size.coerceAtLeast(1)
+
+        for ((index, item) in items.withIndex()) {
+            if (isCancelled()) break
+            onItemProgress?.invoke(index + 1, total, item.displayName)
+            val outcome = runCatching {
+                if (item.isDirectory) {
+                    val folderRes = importFolder(
+                        treeUri = item.treeUri,
+                        session = session,
+                        moveSource = moveSource,
+                        rootDocumentId = item.documentId,
+                        sourceParentDocumentId = item.parentDocumentId,
+                        sourceDisplayPath = item.displayFolderPath,
+                        onProgress = { _, _, childName ->
+                            onItemProgress?.invoke(index + 1, total, "${item.displayName}/$childName")
+                        }
+                    )
+                    importedCount++
+                    if (moveSource) {
+                        deletedSourceMediaIds += folderRes.deletedSourceUris
+                        if (folderRes.sourceFullyMoved) movedCount++ else copiedOnlyCount++
+                    }
+                } else {
+                    val origin = VaultSourceOrigin(
+                        treeUri = item.treeUri.toString(),
+                        parentDocumentId = item.parentDocumentId,
+                        displayPath = item.displayFolderPath
+                    )
+                    vault.importUri(
+                        uri = item.uri,
+                        session = session,
+                        displayNameOverride = item.displayName,
+                        mimeTypeOverride = item.mimeType,
+                        sourceOrigin = origin,
+                        onProgress = { done ->
+                            onBytesProgress?.invoke(done, item.sizeBytes)
+                        }
+                    )
+                    importedCount++
+                    if (moveSource) {
+                        if (deleteSourceDocumentAndVerify(item.uri)) {
+                            movedCount++
+                            deletedSourceMediaIds += libraryMediaId(item.uri)
+                        } else {
+                            copiedOnlyCount++
+                        }
+                    }
+                }
+            }
+            if (outcome.isFailure) {
+                failedCount++
+                val msg = outcome.exceptionOrNull()?.localizedMessage ?: item.displayName
+                failures += "${item.displayName}: $msg"
+            }
+        }
+        return VaultImportBatchResult(
+            importedCount = importedCount,
+            failedCount = failedCount,
+            movedCount = movedCount,
+            copiedOnlyCount = copiedOnlyCount,
+            deletedSourceMediaIds = deletedSourceMediaIds,
+            failures = failures
+        )
+    }
+
+    fun restoreFolder(
+        entry: PrivateVaultEntry,
+        destinationTree: Uri,
+        password: CharArray
+    ): VaultFolderRestoreResult {
         val session = vault.openSession(password)
-        try {
+        return try {
             restoreFolder(entry, destinationTree, session)
         } finally {
             session.close()
         }
     }
 
-    fun restoreFolder(entry: PrivateVaultEntry, destinationTree: Uri, session: PrivateVaultSession) {
-        require(entry.mimeType == FOLDER_ARCHIVE_MIME) { "هذا العنصر ليس مجلداً." }
+    fun restoreFolder(
+        entry: PrivateVaultEntry,
+        destinationTree: Uri,
+        session: PrivateVaultSession,
+        targetParentDocumentId: String? = null,
+        isCancelled: () -> Boolean = { false },
+        onFileRestored: ((fileName: String) -> Unit)? = null
+    ): VaultFolderRestoreResult {
+        require(entry.mimeType == FOLDER_ARCHIVE_MIME) { "Entry is not a folder archive." }
         val tempArchive = File(appContext.cacheDir, ".malek-restore-${UUID.randomUUID()}.zip")
-        val createdDocuments = mutableListOf<Uri>()
+        val parentDocId = targetParentDocumentId ?: DocumentsContract.getTreeDocumentId(destinationTree)
+        val parentUri = DocumentsContract.buildDocumentUriUsingTree(destinationTree, parentDocId)
+        val existingRootNames = listChildNames(destinationTree, parentDocId)
+        val rootFolderName = resolveUniqueChildName(
+            desiredName = safeSegment(entry.displayName).ifBlank { "Restored folder" },
+            existingNames = existingRootNames,
+            isDirectory = true
+        )
+        var rootFolder: Uri? = null
+        var restoredFiles = 0
+        var failedFiles = 0
+        val failures = mutableListOf<String>()
+        val createdFileUris = mutableListOf<Uri>()
+        val dirCache = hashMapOf<String, Uri>()
+        val knownChildNames = hashMapOf<String, MutableSet<String>>()
+
         try {
             vault.exportToFile(entry.id, tempArchive, session)
-            val rootFolder = DocumentsContract.createDocument(
-                resolver, rootDocumentUri(destinationTree), DocumentsContract.Document.MIME_TYPE_DIR,
-                safeSegment(entry.displayName).ifBlank { "Restored folder" }
-            ) ?: error("تعذر إنشاء مجلد الاستعادة.")
-            createdDocuments += rootFolder
+            rootFolder = DocumentsContract.createDocument(
+                resolver,
+                parentUri,
+                DocumentsContract.Document.MIME_TYPE_DIR,
+                rootFolderName
+            ) ?: error("Could not create destination folder.")
+            dirCache[""] = rootFolder
+            knownChildNames[""] = mutableSetOf()
+
             FileInputStream(tempArchive).use { raw ->
                 ZipInputStream(raw).use { zip ->
                     while (true) {
+                        if (isCancelled()) {
+                            failedFiles++
+                            failures += "Cancelled before finishing all files."
+                            break
+                        }
                         val item = zip.nextEntry ?: break
-                        val path = safeArchivePath(item.name)
-                        if (path.isNotEmpty()) {
-                            val parts = path.split('/').filter { it.isNotEmpty() }
-                            var parent = rootFolder
-                            parts.forEachIndexed { index, part ->
+                        val path = safeArchivePathOrNull(item.name)
+                        if (path.isNullOrEmpty()) {
+                            zip.closeEntry()
+                            continue
+                        }
+                        val parts = path.split('/').filter { it.isNotEmpty() }
+                        val itemOutcome = runCatching {
+                            var currentParent = rootFolder!!
+                            var currentRelPath = ""
+                            parts.forEachIndexed { index, rawPart ->
                                 val isDirectory = item.isDirectory || index < parts.lastIndex
-                                val existing = findChild(parent, part, destinationTree)
-                                parent = if (existing != null) {
-                                    check(isDirectory) { "يوجد ملف بالاسم نفسه في مجلد الاستعادة: $part" }
-                                    existing
+                                val nextRelPath = if (currentRelPath.isEmpty()) rawPart else "$currentRelPath/$rawPart"
+                                if (isDirectory) {
+                                    val cached = dirCache[nextRelPath]
+                                    if (cached != null) {
+                                        currentParent = cached
+                                        currentRelPath = nextRelPath
+                                    } else {
+                                        val parentDoc = DocumentsContract.getDocumentId(currentParent)
+                                        val existing = findChild(currentParent, rawPart, destinationTree)
+                                        val createdDir = if (existing != null && isDirectoryDocument(existing)) {
+                                            existing
+                                        } else {
+                                            val usedNames = knownChildNames.getOrPut(currentRelPath) {
+                                                listChildNames(destinationTree, parentDoc).toMutableSet()
+                                            }
+                                            val uniqueDirName = resolveUniqueChildName(rawPart, usedNames, isDirectory = true)
+                                            usedNames += uniqueDirName
+                                            DocumentsContract.createDocument(
+                                                resolver,
+                                                currentParent,
+                                                DocumentsContract.Document.MIME_TYPE_DIR,
+                                                uniqueDirName
+                                            ) ?: error("Could not create folder $uniqueDirName")
+                                        }
+                                        dirCache[nextRelPath] = createdDir
+                                        currentParent = createdDir
+                                        currentRelPath = nextRelPath
+                                    }
                                 } else {
-                                    val created = DocumentsContract.createDocument(
-                                        resolver, parent,
-                                        if (isDirectory) DocumentsContract.Document.MIME_TYPE_DIR else item.comment ?: "application/octet-stream",
-                                        part
-                                    ) ?: error("تعذر إنشاء $part")
-                                    createdDocuments += created
-                                    created
-                                }
-                                if (!isDirectory && index == parts.lastIndex) {
-                                    resolver.openOutputStream(parent, "wt")?.use { zip.copyTo(it) }
-                                        ?: error("تعذرت كتابة $part")
+                                    val parentDoc = DocumentsContract.getDocumentId(currentParent)
+                                    val usedNames = knownChildNames.getOrPut(currentRelPath) {
+                                        listChildNames(destinationTree, parentDoc).toMutableSet()
+                                    }
+                                    val uniqueFileName = resolveUniqueChildName(rawPart, usedNames, isDirectory = false)
+                                    usedNames += uniqueFileName
+                                    val mime = item.comment?.takeIf { it.isNotBlank() } ?: "application/octet-stream"
+                                    val createdFile = DocumentsContract.createDocument(
+                                        resolver,
+                                        currentParent,
+                                        mime,
+                                        uniqueFileName
+                                    ) ?: error("Could not create file $uniqueFileName")
+                                    var writeSuccess = false
+                                    try {
+                                        val out = resolver.openOutputStream(createdFile, "wt")
+                                            ?: error("Could not write $uniqueFileName")
+                                        val expectedSize = item.size
+                                        var writtenBytes = 0L
+                                        out.use { rawOut ->
+                                            val counter = CountingSink(rawOut)
+                                            zip.copyTo(counter)
+                                            counter.flush()
+                                            if (rawOut is FileOutputStream) {
+                                                runCatching { rawOut.fd.sync() }
+                                            }
+                                            writtenBytes = counter.written
+                                        }
+                                        if (expectedSize >= 0L) {
+                                            check(writtenBytes == expectedSize) {
+                                                "Written size mismatch for $uniqueFileName ($writtenBytes != $expectedSize)"
+                                            }
+                                        }
+                                        writeSuccess = true
+                                        createdFileUris += createdFile
+                                        restoredFiles++
+                                        onFileRestored?.invoke(uniqueFileName)
+                                    } finally {
+                                        if (!writeSuccess) {
+                                            runCatching { DocumentsContract.deleteDocument(resolver, createdFile) }
+                                        }
+                                    }
                                 }
                             }
+                        }
+                        if (itemOutcome.isFailure) {
+                            failedFiles++
+                            val err = itemOutcome.exceptionOrNull()?.localizedMessage ?: path
+                            failures += "$path: $err"
                         }
                         zip.closeEntry()
                     }
                 }
             }
-        } catch (failure: Throwable) {
-            // Roll back only documents created by this restore attempt, deepest first.
-            createdDocuments.asReversed().forEach { uri ->
-                runCatching { DocumentsContract.deleteDocument(resolver, uri) }
-            }
-            throw failure
+            return VaultFolderRestoreResult(
+                restoredFiles = restoredFiles,
+                failedFiles = failedFiles,
+                rootFolderUri = rootFolder,
+                rootFolderName = rootFolderName,
+                failures = failures,
+                createdFileUris = createdFileUris
+            )
         } finally {
             tempArchive.delete()
         }
+    }
+
+    /**
+     * Restores (take out with verified delete) or exports (copy keeping vault item) one or many entries
+     * either to each item's original source folder or to a user-selected [destinationTree].
+     */
+    fun restoreEntries(
+        entries: List<PrivateVaultEntry>,
+        session: PrivateVaultSession,
+        destinationTree: Uri?,
+        useOriginalFolder: Boolean,
+        removeFromVaultAfterRestore: Boolean,
+        isCancelled: () -> Boolean = { false },
+        onItemProgress: ((current: Int, total: Int, displayName: String) -> Unit)? = null,
+        onBytesProgress: ((doneBytes: Long, totalBytes: Long) -> Unit)? = null
+    ): VaultBatchTransferSummary {
+        var succeededCount = 0
+        var failedCount = 0
+        var removedFromVaultCount = 0
+        var keptInVaultCount = 0
+        val failures = mutableListOf<String>()
+        val restoredPaths = mutableListOf<String>()
+        val total = entries.size.coerceAtLeast(1)
+
+        for ((index, entry) in entries.withIndex()) {
+            if (isCancelled()) {
+                keptInVaultCount += (entries.size - index)
+                break
+            }
+            onItemProgress?.invoke(index + 1, total, entry.displayName)
+            val resolvedTarget = resolveRestoreTarget(entry, destinationTree, useOriginalFolder)
+            if (resolvedTarget == null) {
+                failedCount++
+                keptInVaultCount++
+                failures += "${entry.displayName}: No valid destination folder."
+                continue
+            }
+            val (targetTree, targetParentId) = resolvedTarget
+
+            if (entry.mimeType == FOLDER_ARCHIVE_MIME) {
+                val folderOutcome = runCatching {
+                    restoreFolder(
+                        entry = entry,
+                        destinationTree = targetTree,
+                        session = session,
+                        targetParentDocumentId = targetParentId,
+                        isCancelled = isCancelled,
+                        onFileRestored = { name ->
+                            onItemProgress?.invoke(index + 1, total, "${entry.displayName}/$name")
+                        }
+                    )
+                }
+                val result = folderOutcome.getOrNull()
+                if (result == null) {
+                    failedCount++
+                    keptInVaultCount++
+                    failures += "${entry.displayName}: ${folderOutcome.exceptionOrNull()?.localizedMessage ?: "Restore failed"}"
+                } else if (!result.isCompleteSuccess) {
+                    // Partial folder restore: preserve encrypted archive in vault!
+                    failedCount++
+                    keptInVaultCount++
+                    failures += result.failures.ifEmpty { listOf("${entry.displayName}: Partial folder restore (${result.failedFiles} failed)") }
+                    result.createdFileUris.forEach { restoredPaths += it.toString() }
+                } else {
+                    succeededCount++
+                    result.createdFileUris.forEach { restoredPaths += it.toString() }
+                    if (removeFromVaultAfterRestore) {
+                        val deleted = runCatching { vault.delete(entry.id, session) }
+                        if (deleted.isSuccess) removedFromVaultCount++ else keptInVaultCount++
+                    } else {
+                        keptInVaultCount++
+                    }
+                }
+            } else {
+                var createdUri: Uri? = null
+                val restoreOutcome = runCatching {
+                    val parentUri = DocumentsContract.buildDocumentUriUsingTree(targetTree, targetParentId)
+                    val existingNames = listChildNames(targetTree, targetParentId)
+                    val uniqueName = resolveUniqueChildName(
+                        desiredName = safeSegment(entry.displayName).ifBlank { "Restored file" },
+                        existingNames = existingNames,
+                        isDirectory = false
+                    )
+                    val docUri = DocumentsContract.createDocument(
+                        resolver,
+                        parentUri,
+                        entry.mimeType.takeIf { it.isNotBlank() } ?: "application/octet-stream",
+                        uniqueName
+                    ) ?: error("Could not create $uniqueName in destination.")
+                    createdUri = docUri
+                    vault.exportToDocumentVerified(entry.id, docUri, session) { doneBytes ->
+                        onBytesProgress?.invoke(doneBytes, entry.sizeBytes)
+                    }
+                    docUri
+                }
+                if (restoreOutcome.isFailure) {
+                    createdUri?.let { partial ->
+                        runCatching { DocumentsContract.deleteDocument(resolver, partial) }
+                    }
+                    failedCount++
+                    keptInVaultCount++
+                    failures += "${entry.displayName}: ${restoreOutcome.exceptionOrNull()?.localizedMessage ?: "Restore failed"}"
+                } else {
+                    succeededCount++
+                    restoreOutcome.getOrNull()?.let { restoredPaths += it.toString() }
+                    if (removeFromVaultAfterRestore) {
+                        val deleted = runCatching { vault.delete(entry.id, session) }
+                        if (deleted.isSuccess) removedFromVaultCount++ else keptInVaultCount++
+                    } else {
+                        keptInVaultCount++
+                    }
+                }
+            }
+        }
+
+        return VaultBatchTransferSummary(
+            succeededCount = succeededCount,
+            failedCount = failedCount,
+            removedFromVaultCount = removedFromVaultCount,
+            keptInVaultCount = keptInVaultCount,
+            failures = failures,
+            restoredFilePathsOrUris = restoredPaths
+        )
+    }
+
+    fun canRestoreAllToOriginalFolder(entries: List<PrivateVaultEntry>): Boolean =
+        entries.isNotEmpty() && entries.all { canRestoreToOriginalFolder(it) }
+
+    fun canRestoreToOriginalFolder(entry: PrivateVaultEntry): Boolean {
+        val rawTree = entry.sourceTreeUri ?: return false
+        val treeUri = runCatching { Uri.parse(rawTree) }.getOrNull() ?: return false
+        return isTreeFolderAccessible(treeUri, entry.sourceParentDocumentId)
+    }
+
+    fun isTreeFolderAccessible(treeUri: Uri, parentDocumentId: String? = null): Boolean {
+        val hasPersistedGrant = resolver.persistedUriPermissions.any {
+            it.uri == treeUri && it.isReadPermission && it.isWritePermission
+        }
+        if (!hasPersistedGrant && treeUri.scheme != "file") {
+            // Still probe query in case Robolectric / provider grants runtime permission without persisted list.
+            val docId = parentDocumentId ?: runCatching { DocumentsContract.getTreeDocumentId(treeUri) }.getOrNull()
+                ?: return false
+            val docUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
+            return runCatching {
+                resolver.query(
+                    docUri,
+                    arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID),
+                    null, null, null
+                )?.use { it.moveToFirst() } == true
+            }.getOrDefault(false)
+        }
+        val docId = parentDocumentId ?: runCatching { DocumentsContract.getTreeDocumentId(treeUri) }.getOrNull()
+            ?: return false
+        val docUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
+        return runCatching {
+            resolver.query(
+                docUri,
+                arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID),
+                null, null, null
+            )?.use { it.moveToFirst() } == true
+        }.getOrDefault(false)
+    }
+
+    fun isTreeReadable(treeUri: Uri): Boolean {
+        val docId = runCatching { DocumentsContract.getTreeDocumentId(treeUri) }.getOrNull() ?: return false
+        val docUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
+        return runCatching {
+            resolver.query(
+                docUri,
+                arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID),
+                null, null, null
+            )?.use { it.moveToFirst() } == true
+        }.getOrDefault(false)
     }
 
     /**
@@ -207,7 +594,7 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
             )
         } catch (_: Exception) {
             null
-        } ?: throw IOException("تعذر قراءة محتويات المجلد.")
+        } ?: throw IOException("Could not read folder contents.")
         cursor.use { cursor ->
             val idCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
             val nameCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
@@ -229,19 +616,66 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
                     sizeBytes = if (sizeCol >= 0 && !cursor.isNull(sizeCol)) cursor.getLong(sizeCol).takeIf { it >= 0L } ?: -1L else -1L,
                     lastModified = if (modifiedCol >= 0 && !cursor.isNull(modifiedCol)) cursor.getLong(modifiedCol) else 0L
                 )
-                require(result.size <= MAX_NODES) { "المجلد يحتوي على عناصر أكثر من الحد المسموح." }
+                require(result.size <= MAX_NODES) { "Folder contains more items than allowed." }
             }
         }
         return result.sortedWith(compareBy<VaultBrowserItem> { !it.isDirectory }.thenBy { it.displayName.lowercase() })
     }
 
-    private fun enumerate(treeUri: Uri): List<Node> {
+    /**
+     * Counts immediate children in a folder without deep traversal. Returns null if provider
+     * rejects the query so UI stays fast and responsive.
+     */
+    fun countDirectChildren(treeUri: Uri, folderDocumentId: String): Int? = runCatching {
+        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, folderDocumentId)
+        resolver.query(
+            childrenUri,
+            arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID),
+            null, null, null
+        )?.use { cursor -> cursor.count }
+    }.getOrNull()
+
+    fun queryTreeRootLabel(treeUri: Uri): String {
+        val docId = runCatching { DocumentsContract.getTreeDocumentId(treeUri) }.getOrNull() ?: return ""
+        val rootDoc = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
+        return queryDisplayName(rootDoc)
+    }
+
+    /**
+     * Attempts source deletion and verifies via follow-up queries that the document actually
+     * disappeared. Never trusts DocumentsContract.deleteDocument's boolean return value alone.
+     */
+    fun deleteSourceDocumentAndVerify(uri: Uri): Boolean {
+        runCatching { DocumentsContract.deleteDocument(resolver, uri) }
+            .getOrElse { runCatching { resolver.delete(uri, null, null) }.getOrDefault(0) }
+        return !documentStillExists(uri)
+    }
+
+    private fun resolveRestoreTarget(
+        entry: PrivateVaultEntry,
+        fallbackTree: Uri?,
+        useOriginalFolder: Boolean
+    ): Pair<Uri, String>? {
+        if (useOriginalFolder && entry.sourceTreeUri != null) {
+            val treeUri = runCatching { Uri.parse(entry.sourceTreeUri) }.getOrNull()
+            if (treeUri != null && isTreeFolderAccessible(treeUri, entry.sourceParentDocumentId)) {
+                val parentId = entry.sourceParentDocumentId
+                    ?: runCatching { DocumentsContract.getTreeDocumentId(treeUri) }.getOrNull()
+                if (parentId != null) return treeUri to parentId
+            }
+        }
+        val dest = fallbackTree ?: return null
+        val rootDocId = runCatching { DocumentsContract.getTreeDocumentId(dest) }.getOrNull() ?: return null
+        return dest to rootDocId
+    }
+
+    private fun enumerate(treeUri: Uri, startDocumentUri: Uri = rootDocumentUri(treeUri)): List<Node> {
         val result = mutableListOf<Node>()
         val visitedDirectoryIds = mutableSetOf<String>()
         fun walk(parent: Uri, prefix: String, depth: Int) {
-            require(depth <= MAX_DEPTH) { "بنية المجلد أعمق من الحد المسموح." }
+            require(depth <= MAX_DEPTH) { "Folder hierarchy exceeds allowed depth." }
             val parentId = DocumentsContract.getDocumentId(parent)
-            require(visitedDirectoryIds.add(parentId)) { "اكتُشفت حلقة غير صالحة في بنية المجلد." }
+            require(visitedDirectoryIds.add(parentId)) { "Invalid folder cycle detected." }
             val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentId)
             val projection = arrayOf(
                 DocumentsContract.Document.COLUMN_DOCUMENT_ID,
@@ -253,7 +687,7 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
                 val nameCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
                 val mimeCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE)
                 while (cursor.moveToNext()) {
-                    require(result.size < MAX_NODES) { "المجلد يحتوي على عناصر أكثر من الحد المسموح." }
+                    require(result.size < MAX_NODES) { "Folder contains more items than allowed." }
                     val id = cursor.getString(idCol)?.takeIf { it.isNotBlank() } ?: continue
                     val name = safeSegment(cursor.getString(nameCol).orEmpty())
                     if (name.isBlank()) continue
@@ -261,14 +695,14 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
                     val uri = DocumentsContract.buildDocumentUriUsingTree(treeUri, id)
                     val relative = if (prefix.isBlank()) name else "$prefix/$name"
                     require(result.none { it.relativePath == relative }) {
-                        "يوجد اسمان متطابقان بعد معالجة أسماء الملفات داخل المجلد: $name"
+                        "Duplicate sanitized filename in folder: $name"
                     }
                     result += Node(uri, name, relative, directory)
                     if (directory) walk(uri, relative, depth + 1)
                 }
-            } ?: throw IOException("تعذر قراءة محتويات المجلد.")
+            } ?: throw IOException("Could not read folder contents.")
         }
-        walk(rootDocumentUri(treeUri), "", 0)
+        walk(startDocumentUri, "", 0)
         return result
     }
 
@@ -305,6 +739,35 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
             ?: true
     }
 
+    private fun listChildNames(treeUri: Uri, parentDocumentId: String): Set<String> {
+        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentDocumentId)
+        val names = mutableSetOf<String>()
+        runCatching {
+            resolver.query(
+                childrenUri,
+                arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME),
+                null, null, null
+            )?.use { cursor ->
+                val col = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+                if (col >= 0) {
+                    while (cursor.moveToNext()) {
+                        cursor.getString(col)?.takeIf { it.isNotBlank() }?.let(names::add)
+                    }
+                }
+            }
+        }
+        return names
+    }
+
+    private fun isDirectoryDocument(uri: Uri): Boolean = runCatching {
+        resolver.query(uri, arrayOf(DocumentsContract.Document.COLUMN_MIME_TYPE), null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val idx = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
+                idx >= 0 && cursor.getString(idx) == DocumentsContract.Document.MIME_TYPE_DIR
+            } else false
+        } ?: false
+    }.getOrDefault(false)
+
     private fun rootDocumentUri(tree: Uri) = DocumentsContract.buildDocumentUriUsingTree(
         tree, DocumentsContract.getTreeDocumentId(tree)
     )
@@ -337,16 +800,38 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
         return null
     }
 
-    private fun safeArchivePath(raw: String): String {
+    private fun safeArchivePath(raw: String): String =
+        safeArchivePathOrNull(raw) ?: throw IllegalArgumentException("Unsafe archive path.")
+
+    private fun safeArchivePathOrNull(raw: String): String? {
         val normalized = raw.replace('\\', '/')
-        require(!normalized.startsWith('/') && !normalized.contains(':')) { "مسار أرشيف غير آمن." }
+        if (normalized.startsWith('/') || normalized.contains(':')) return null
         val parts = normalized.trim('/').split('/').filter { it.isNotEmpty() }
-        require(parts.none { it == "." || it == ".." }) { "مسار أرشيف غير آمن." }
+        if (parts.any { it == "." || it == ".." }) return null
         return parts.joinToString("/") { safeSegment(it) }
     }
 
     private fun safeSegment(raw: String): String = raw.replace('/', '_').replace('\\', '_')
         .filter { it.code >= 32 }.take(240).takeUnless { it == "." || it == ".." }.orEmpty()
+
+    private class CountingSink(private val delegate: OutputStream) : OutputStream() {
+        var written: Long = 0L
+            private set
+
+        override fun write(value: Int) {
+            delegate.write(value)
+            written = Math.addExact(written, 1L)
+        }
+
+        override fun write(buffer: ByteArray, offset: Int, length: Int) {
+            delegate.write(buffer, offset, length)
+            written = Math.addExact(written, length.toLong())
+        }
+
+        override fun flush() {
+            delegate.flush()
+        }
+    }
 
     companion object {
         /** Converts Android's MediaDocumentsProvider IDs to the exact MediaStore URI used by the library. */

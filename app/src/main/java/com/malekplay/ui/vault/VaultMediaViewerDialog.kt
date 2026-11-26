@@ -344,6 +344,7 @@ private fun VaultInMemoryImageViewer(
     repository: PrivateVaultRepository,
     session: PrivateVaultSession
 ) {
+    val context = LocalContext.current
     var bitmap by remember(entry.id) { mutableStateOf<android.graphics.Bitmap?>(null) }
     var loading by remember(entry.id) { mutableStateOf(true) }
     var error by remember(entry.id) { mutableStateOf<String?>(null) }
@@ -359,7 +360,7 @@ private fun VaultInMemoryImageViewer(
                 val bytes = repository.readEntryBytes(entry, session, maxBytes = 32 * 1024 * 1024)
                 try {
                     BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                        ?: error("تعذر فك ترميز الصورة.")
+                        ?: error(context.getString(R.string.vault_viewer_image_decode_failed))
                 } finally {
                     bytes.fill(0)
                 }
@@ -431,6 +432,7 @@ private fun VaultInMemoryTextViewer(
     repository: PrivateVaultRepository,
     session: PrivateVaultSession
 ) {
+    val context = LocalContext.current
     var content by remember(entry.id) { mutableStateOf<String?>(null) }
     var loading by remember(entry.id) { mutableStateOf(true) }
     var error by remember(entry.id) { mutableStateOf<String?>(null) }
@@ -443,7 +445,7 @@ private fun VaultInMemoryTextViewer(
             setOf("txt", "srt", "ass", "vtt", "json", "xml", "log", "md", "csv")
         if (!isTextLike) {
             loading = false
-            error = "هذا النوع من الملفات (${entry.mimeType}) لا يدعم المعاينة المباشرة؛ يمكنك تصديره لفك تشفيره."
+            error = context.getString(R.string.vault_viewer_unsupported_preview, entry.mimeType)
             return@LaunchedEffect
         }
         val result = withContext(Dispatchers.IO) {

@@ -10,12 +10,21 @@ import android.provider.OpenableColumns
 import java.io.*
 import java.util.UUID
 
+data class VaultSourceOrigin(
+    val treeUri: String? = null,
+    val parentDocumentId: String? = null,
+    val displayPath: String? = null
+)
+
 data class PrivateVaultEntry(
     val id: String,
     val displayName: String,
     val mimeType: String,
     val sizeBytes: Long,
-    val addedAtMs: Long = 0L
+    val addedAtMs: Long = 0L,
+    val sourceTreeUri: String? = null,
+    val sourceParentDocumentId: String? = null,
+    val sourceDisplayPath: String? = null
 )
 
 /**
@@ -71,6 +80,7 @@ class PrivateVaultRepository(context: Context) {
     private val legacyIndexMagic = 0x4D4B5649
     private val indexMagicV1 = 0x4D4B564A
     private val indexMagicV2 = 0x4D4B564B
+    private val indexMagicV3 = 0x4D4B564C
     private val maxEntries = 20_000
 
     @Synchronized fun isConfigured() = indexFile.isFile && indexFile.length() > 0L
@@ -231,11 +241,12 @@ class PrivateVaultRepository(context: Context) {
         uri: Uri,
         password: CharArray,
         displayNameOverride: String? = null,
-        mimeTypeOverride: String? = null
+        mimeTypeOverride: String? = null,
+        sourceOrigin: VaultSourceOrigin? = null
     ): PrivateVaultEntry {
         val session = openSession(password)
         return try {
-            importUri(uri, session, displayNameOverride, mimeTypeOverride)
+            importUri(uri, session, displayNameOverride, mimeTypeOverride, sourceOrigin)
         } finally {
             session.close()
         }
@@ -246,13 +257,14 @@ class PrivateVaultRepository(context: Context) {
         session: PrivateVaultSession,
         displayNameOverride: String? = null,
         mimeTypeOverride: String? = null,
+        sourceOrigin: VaultSourceOrigin? = null,
         onProgress: ((Long) -> Unit)? = null
     ): PrivateVaultEntry {
         val name = displayNameOverride?.takeIf { it.isNotBlank() } ?: queryName(uri)
         val mime = mimeTypeOverride?.takeIf { it.isNotBlank() } ?: resolver.getType(uri) ?: "application/octet-stream"
         val thumbnailBytes = runCatching { generateThumbnailJpeg(uri, mime) }.getOrNull()
         val input = resolver.openInputStream(uri) ?: error("Cannot read selected file.")
-        return importStream(name, mime, input, session, thumbnailBytes, onProgress)
+        return importStream(name, mime, input, session, thumbnailBytes, sourceOrigin, onProgress)
     }
 
     /** Imports a private temporary stream without exposing it through a public document provider. */
@@ -260,11 +272,12 @@ class PrivateVaultRepository(context: Context) {
         displayName: String,
         mimeType: String,
         input: InputStream,
-        password: CharArray
+        password: CharArray,
+        sourceOrigin: VaultSourceOrigin? = null
     ): PrivateVaultEntry {
         val session = openSession(password)
         return try {
-            importStream(displayName, mimeType, input, session)
+            importStream(displayName, mimeType, input, session, sourceOrigin = sourceOrigin)
         } finally {
             session.close()
         }
@@ -276,6 +289,7 @@ class PrivateVaultRepository(context: Context) {
         input: InputStream,
         session: PrivateVaultSession,
         thumbnailBytes: ByteArray? = null,
+        sourceOrigin: VaultSourceOrigin? = null,
         onProgress: ((Long) -> Unit)? = null
     ): PrivateVaultEntry {
         val name = displayName.takeIf { it.isNotBlank() } ?: "Private file"
@@ -320,7 +334,16 @@ class PrivateVaultRepository(context: Context) {
             if (thumbnailBytes != null && thumbnailBytes.isNotEmpty()) {
                 runCatching { saveEncryptedThumbnail(id, thumbnailBytes, key) }
             }
-            val entry = PrivateVaultEntry(id, name, mime, originalSize, System.currentTimeMillis())
+            val entry = PrivateVaultEntry(
+                id = id,
+                displayName = name,
+                mimeType = mime,
+                sizeBytes = originalSize,
+                addedAtMs = System.currentTimeMillis(),
+                sourceTreeUri = sourceOrigin?.treeUri?.takeIf { it.isNotBlank() },
+                sourceParentDocumentId = sourceOrigin?.parentDocumentId?.takeIf { it.isNotBlank() },
+                sourceDisplayPath = sourceOrigin?.displayPath?.takeIf { it.isNotBlank() }
+            )
             persistIndexWithKey(current + entry, key)
             committed = true
             pending.delete()
@@ -351,19 +374,40 @@ class PrivateVaultRepository(context: Context) {
         session: PrivateVaultSession,
         onProgress: ((Long) -> Unit)? = null
     ) {
+        exportToDocumentVerified(id, destination, session, onProgress)
+    }
+
+    /**
+     * Decrypts, authenticates, writes to [destination], flushes, and verifies the exact written
+     * byte count before returning. Never deletes the encrypted vault entry.
+     */
+    @Synchronized fun exportToDocumentVerified(
+        id: String,
+        destination: Uri,
+        session: PrivateVaultSession,
+        onProgress: ((Long) -> Unit)? = null
+    ): Long {
         requireValidId(id)
         val key = session.requireMasterKey()
         val legacyPwd = session.legacyPasswordCopy()
         try {
-            check(readIndexInternal(key, legacyPwd).any { it.id == id }) { "Vault item not found." }
+            val entry = readIndexInternal(key, legacyPwd).firstOrNull { it.id == id }
+                ?: error("Vault item not found.")
             val file = payload(id)
             check(file.isFile) { "Encrypted file is missing." }
+            var writtenBytes = 0L
             if (PrivateVaultCrypto.isChunkedV2File(file)) {
                 // Chunked v2 files authenticate each 64 KB chunk via AEAD directly into the destination stream
                 // without duplicating gigabytes of plaintext in temporary storage.
                 val output = resolver.openOutputStream(destination, "wt") ?: error("Cannot write destination.")
-                output.use { sink ->
-                    PrivateVaultCrypto.decryptStreamAuto(file, sink, key, legacyPwd, onProgress)
+                output.use { rawSink ->
+                    val countingSink = CountingSinkOutputStream(rawSink)
+                    PrivateVaultCrypto.decryptStreamAuto(file, countingSink, key, legacyPwd, onProgress)
+                    countingSink.flush()
+                    if (rawSink is FileOutputStream) {
+                        runCatching { rawSink.fd.sync() }
+                    }
+                    writtenBytes = countingSink.bytesWritten
                 }
             } else {
                 val verified = File(directory, "restore-${UUID.randomUUID()}.tmp")
@@ -372,10 +416,34 @@ class PrivateVaultRepository(context: Context) {
                         PrivateVaultCrypto.decryptStreamAuto(file, sink, key, legacyPwd, onProgress)
                         sink.fd.sync()
                     }
+                    val expectedLegacySize = verified.length()
                     val output = resolver.openOutputStream(destination, "wt") ?: error("Cannot write destination.")
-                    output.use { sink -> FileInputStream(verified).use { source -> source.copyTo(sink) } }
+                    output.use { rawSink ->
+                        val countingSink = CountingSinkOutputStream(rawSink)
+                        FileInputStream(verified).use { source -> source.copyTo(countingSink) }
+                        countingSink.flush()
+                        if (rawSink is FileOutputStream) {
+                            runCatching { rawSink.fd.sync() }
+                        }
+                        writtenBytes = countingSink.bytesWritten
+                    }
+                    check(writtenBytes == expectedLegacySize) {
+                        "Destination write size mismatch ($writtenBytes != $expectedLegacySize)."
+                    }
                 } finally { verified.delete() }
             }
+            if (entry.sizeBytes >= 0L) {
+                check(writtenBytes == entry.sizeBytes) {
+                    "Restored byte count mismatch ($writtenBytes != ${entry.sizeBytes})."
+                }
+            }
+            val reportedSize = queryDestinationSize(destination)
+            if (reportedSize >= 0L && entry.sizeBytes >= 0L) {
+                check(reportedSize == entry.sizeBytes) {
+                    "Destination provider reported size mismatch ($reportedSize != ${entry.sizeBytes})."
+                }
+            }
+            return writtenBytes
         } finally {
             legacyPwd?.fill('\u0000')
         }
@@ -620,11 +688,13 @@ class PrivateVaultRepository(context: Context) {
             val (entries, needsSizeMigration) = DataInputStream(FileInputStream(plain)).use { input ->
                 val magic = input.readInt()
                 check(
-                    magic == indexMagicV2 || magic == indexMagicV1 || magic == legacyIndexMagic
+                    magic == indexMagicV3 || magic == indexMagicV2 ||
+                        magic == indexMagicV1 || magic == legacyIndexMagic
                 ) { "Invalid vault index." }
                 val count = input.readInt()
                 require(count in 0..maxEntries) { "Invalid vault index size." }
-                val hasTimestamp = magic == indexMagicV2
+                val hasTimestamp = magic == indexMagicV2 || magic == indexMagicV3
+                val hasSourceOrigin = magic == indexMagicV3
                 val entries = List(count) {
                     val id = input.readUTF()
                     requireValidId(id)
@@ -632,10 +702,22 @@ class PrivateVaultRepository(context: Context) {
                     val mimeType = input.readUTF()
                     val sizeBytes = input.readLong()
                     val addedAtMs = if (hasTimestamp) input.readLong() else 0L
+                    val sourceTreeUri = if (hasSourceOrigin) input.readUTF().takeIf { it.isNotBlank() } else null
+                    val sourceParentDocumentId = if (hasSourceOrigin) input.readUTF().takeIf { it.isNotBlank() } else null
+                    val sourceDisplayPath = if (hasSourceOrigin) input.readUTF().takeIf { it.isNotBlank() } else null
                     require(displayName.isNotBlank() && mimeType.isNotBlank() && sizeBytes >= -1L) {
                         "Invalid vault item metadata."
                     }
-                    PrivateVaultEntry(id, displayName, mimeType, sizeBytes, addedAtMs)
+                    PrivateVaultEntry(
+                        id = id,
+                        displayName = displayName,
+                        mimeType = mimeType,
+                        sizeBytes = sizeBytes,
+                        addedAtMs = addedAtMs,
+                        sourceTreeUri = sourceTreeUri,
+                        sourceParentDocumentId = sourceParentDocumentId,
+                        sourceDisplayPath = sourceDisplayPath
+                    )
                 }
                 require(entries.map { it.id }.toSet().size == entries.size) { "Duplicate vault item identifier." }
                 check(input.read() == -1) { "Unexpected vault index data." }
@@ -669,6 +751,20 @@ class PrivateVaultRepository(context: Context) {
         } finally { plain.delete() }
     }
 
+    private fun queryDestinationSize(destination: Uri): Long {
+        if (destination.scheme == "file") {
+            return destination.path?.let { File(it).takeIf(File::isFile)?.length() } ?: -1L
+        }
+        return runCatching {
+            resolver.query(destination, arrayOf(OpenableColumns.SIZE), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val idx = cursor.getColumnIndex(OpenableColumns.SIZE)
+                    if (idx >= 0 && !cursor.isNull(idx)) cursor.getLong(idx) else -1L
+                } else -1L
+            } ?: -1L
+        }.getOrDefault(-1L)
+    }
+
     private class CountingOutputStream : OutputStream() {
         var bytesWritten: Long = 0
             private set
@@ -678,10 +774,29 @@ class PrivateVaultRepository(context: Context) {
         }
     }
 
+    private class CountingSinkOutputStream(private val delegate: OutputStream) : OutputStream() {
+        var bytesWritten: Long = 0
+            private set
+
+        override fun write(value: Int) {
+            delegate.write(value)
+            bytesWritten = Math.addExact(bytesWritten, 1L)
+        }
+
+        override fun write(buffer: ByteArray, offset: Int, length: Int) {
+            delegate.write(buffer, offset, length)
+            bytesWritten = Math.addExact(bytesWritten, length.toLong())
+        }
+
+        override fun flush() {
+            delegate.flush()
+        }
+    }
+
     private fun persistIndexWithKey(entries: List<PrivateVaultEntry>, key: ByteArray) {
         val plain = ByteArrayOutputStream()
         DataOutputStream(plain).use { out ->
-            out.writeInt(indexMagicV2)
+            out.writeInt(indexMagicV3)
             out.writeInt(entries.size)
             entries.forEach {
                 out.writeUTF(it.id)
@@ -689,6 +804,9 @@ class PrivateVaultRepository(context: Context) {
                 out.writeUTF(it.mimeType.take(512))
                 out.writeLong(it.sizeBytes)
                 out.writeLong(it.addedAtMs)
+                out.writeUTF(it.sourceTreeUri.orEmpty().take(2048))
+                out.writeUTF(it.sourceParentDocumentId.orEmpty().take(1024))
+                out.writeUTF(it.sourceDisplayPath.orEmpty().take(1024))
             }
             out.flush()
         }

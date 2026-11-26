@@ -3,44 +3,96 @@ package com.malekplay.ui.vault
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.SystemClock
-import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.DriveFileMove
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.VideoFile
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -63,27 +115,23 @@ import com.malekplay.vault.PrivateVaultEntry
 import com.malekplay.vault.PrivateVaultRepository
 import com.malekplay.vault.PrivateVaultSession
 import com.malekplay.vault.PrivateVaultTreeSupport
-import com.malekplay.vault.VaultBrowserItem
+import com.malekplay.vault.SelectedVaultBrowserItem
+import com.malekplay.vault.VaultEntryFilter
+import com.malekplay.vault.VaultEntrySort
+import com.malekplay.vault.filterAndSortVaultEntries
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.util.Locale
+import java.text.DateFormat
+import java.util.Date
+import java.util.concurrent.atomic.AtomicBoolean
 
-private enum class VaultFilter(val labelRes: Int) {
-    ALL(R.string.vault_filter_all),
-    VIDEO(R.string.vault_filter_video),
-    AUDIO(R.string.vault_filter_audio),
-    IMAGE(R.string.vault_filter_image),
-    OTHER(R.string.vault_filter_other)
-}
-
-private enum class VaultSort(val labelRes: Int) {
-    NEWEST(R.string.vault_sort_newest),
-    NAME(R.string.vault_sort_name),
-    SIZE(R.string.vault_sort_size)
-}
+private data class PendingTransferRequest(
+    val entries: List<PrivateVaultEntry>,
+    val removeFromVault: Boolean
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -108,12 +156,14 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
     var viewingEntry by remember { mutableStateOf<PrivateVaultEntry?>(null) }
     var isMediaPlaying by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
-    var activeFilter by remember { mutableStateOf(VaultFilter.ALL) }
-    var activeSort by remember { mutableStateOf(VaultSort.NEWEST) }
+    var activeFilter by remember { mutableStateOf(VaultEntryFilter.ALL) }
+    var activeSort by remember { mutableStateOf(VaultEntrySort.NEWEST) }
+    var sortAscending by remember { mutableStateOf(false) }
     var showSortMenu by remember { mutableStateOf(false) }
     val selectedEntryIds = remember { mutableStateListOf<String>() }
     var showChangePasswordDialog by remember { mutableStateOf(false) }
     var showBatchDeleteConfirm by remember { mutableStateOf(false) }
+    var infoEntry by remember { mutableStateOf<PrivateVaultEntry?>(null) }
 
     // Security hardening: brute-force backoff + background/idle auto-lock
     var failedAttempts by remember { mutableIntStateOf(0) }
@@ -122,11 +172,14 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
     var lastInteractionElapsedMs by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
     var suppressNextBackgroundLock by remember { mutableStateOf(false) }
 
-    // SAF / operation state
-    var pendingExport by remember { mutableStateOf<PrivateVaultEntry?>(null) }
+    // SAF / transfer state
     var pendingDelete by remember { mutableStateOf<PrivateVaultEntry?>(null) }
-    var pendingFolderRestore by remember { mutableStateOf<PrivateVaultEntry?>(null) }
+    var transferSheetRequest by remember { mutableStateOf<PendingTransferRequest?>(null) }
+    var confirmOriginalRestoreRequest by remember { mutableStateOf<PendingTransferRequest?>(null) }
+    var customDestTransferRequest by remember { mutableStateOf<PendingTransferRequest?>(null) }
+    var pendingSingleCreateDocEntry by remember { mutableStateOf<PrivateVaultEntry?>(null) }
     var moveFolderSelection by remember { mutableStateOf(false) }
+
     val vaultPrefs = remember(context) {
         context.getSharedPreferences("private_vault_browser", Context.MODE_PRIVATE)
     }
@@ -134,33 +187,32 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
         mutableStateOf(vaultPrefs.getString("source_tree_uri", null)?.let(Uri::parse))
     }
     var browserOpen by remember { mutableStateOf(false) }
-    var browserLoading by remember { mutableStateOf(false) }
-    val browserPath = remember { mutableStateListOf<Pair<String, String>>() }
-    val browserItems = remember { mutableStateListOf<VaultBrowserItem>() }
-    val selectedUris = remember { mutableStateListOf<String>() }
 
     var importProgress by remember { mutableIntStateOf(0) }
     var importTotal by remember { mutableIntStateOf(0) }
     var progressDetail by remember { mutableStateOf<String?>(null) }
     var byteFraction by remember { mutableFloatStateOf(0f) }
+    var activeCancelFlag by remember { mutableStateOf<AtomicBoolean?>(null) }
 
     fun touchActivity() {
         lastInteractionElapsedMs = SystemClock.elapsedRealtime()
     }
 
     fun lockVault(reasonMessage: String? = null) {
+        activeCancelFlag?.set(true)
+        activeCancelFlag = null
         viewingEntry = null
         isMediaPlaying = false
         showChangePasswordDialog = false
         showBatchDeleteConfirm = false
-        pendingExport = null
+        infoEntry = null
         pendingDelete = null
-        pendingFolderRestore = null
+        transferSheetRequest = null
+        confirmOriginalRestoreRequest = null
+        customDestTransferRequest = null
+        pendingSingleCreateDocEntry = null
         selectedEntryIds.clear()
         browserOpen = false
-        browserItems.clear()
-        browserPath.clear()
-        selectedUris.clear()
         entries.clear()
         password = ""
         confirmation = ""
@@ -229,29 +281,10 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
         }
     }
 
-    BackHandler(enabled = viewingEntry != null || browserOpen || selectedEntryIds.isNotEmpty()) {
+    BackHandler(enabled = viewingEntry != null || selectedEntryIds.isNotEmpty()) {
         when {
             viewingEntry != null -> viewingEntry = null
             selectedEntryIds.isNotEmpty() -> selectedEntryIds.clear()
-            browserPath.isNotEmpty() -> {
-                browserPath.removeAt(browserPath.lastIndex)
-                val uri = browserTreeUri
-                if (uri != null) {
-                    scope.launch {
-                        browserLoading = true
-                        runCatching {
-                            withContext(Dispatchers.IO) {
-                                treeSupport.listBrowserChildren(uri, browserPath.lastOrNull()?.first)
-                            }
-                        }.onSuccess {
-                            browserItems.clear()
-                            browserItems.addAll(it)
-                        }.onFailure { message = it.localizedMessage }
-                        browserLoading = false
-                    }
-                }
-            }
-            else -> browserOpen = false
         }
     }
 
@@ -261,27 +294,95 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
         entries.addAll(loaded)
     }
 
-    fun openBrowserFolder(treeUri: Uri, folderId: String?, folderName: String?) {
-        touchActivity()
+    fun executeRestoreBatch(
+        targetEntries: List<PrivateVaultEntry>,
+        destinationTree: Uri?,
+        useOriginalFolder: Boolean,
+        removeFromVault: Boolean
+    ) {
+        val session = vaultSession ?: return
+        if (targetEntries.isEmpty()) return
+        val cancelFlag = AtomicBoolean(false)
+        activeCancelFlag = cancelFlag
         scope.launch {
-            browserLoading = true
+            busy = true
+            importProgress = 0
+            importTotal = targetEntries.size
+            byteFraction = 0f
+            progressDetail = null
+            message = null
             runCatching {
-                withContext(Dispatchers.IO) { treeSupport.listBrowserChildren(treeUri, folderId) }
-            }.onSuccess {
-                if (folderId != null && folderName != null) browserPath.add(folderId to folderName)
-                browserItems.clear()
-                browserItems.addAll(it)
-                browserOpen = true
-            }.onFailure { message = it.localizedMessage }
-            browserLoading = false
+                val summary = withContext(Dispatchers.IO) {
+                    treeSupport.restoreEntries(
+                        entries = targetEntries,
+                        destinationTree = destinationTree,
+                        session = session,
+                        useOriginalFolderWhenAvailable = useOriginalFolder,
+                        removeFromVaultAfterRestore = removeFromVault,
+                        isCancelled = { cancelFlag.get() },
+                        onItemProgress = { current, total, name ->
+                            importProgress = current
+                            importTotal = total
+                            progressDetail = name
+                            byteFraction = 0f
+                        },
+                        onBytesProgress = { done, total ->
+                            if (total > 0L) {
+                                byteFraction = (done.toFloat() / total.toFloat()).coerceIn(0f, 1f)
+                            }
+                        }
+                    )
+                }
+                refreshEntries(session)
+                if (summary.succeededCount > 0) {
+                    libraryViewModel.refresh(force = true)
+                }
+                summary
+            }.onSuccess { summary ->
+                if (removeFromVault) {
+                    selectedEntryIds.clear()
+                }
+                message = if (removeFromVault) {
+                    if (summary.failedCount == 0) {
+                        context.getString(R.string.vault_take_out_result_success, summary.succeededCount)
+                    } else {
+                        context.getString(
+                            R.string.vault_take_out_result_partial,
+                            summary.succeededCount,
+                            summary.failedCount
+                        )
+                    }
+                } else {
+                    if (summary.failedCount == 0) {
+                        context.getString(R.string.vault_export_copy_result_success, summary.succeededCount)
+                    } else {
+                        context.getString(
+                            R.string.vault_export_copy_result_partial,
+                            summary.succeededCount,
+                            summary.failedCount
+                        )
+                    }
+                }
+            }.onFailure { err ->
+                runCatching { refreshEntries(session) }
+                message = err.localizedMessage ?: context.getString(R.string.vault_single_export_failed)
+            }
+            activeCancelFlag = null
+            importProgress = 0
+            importTotal = 0
+            progressDetail = null
+            byteFraction = 0f
+            busy = false
         }
     }
 
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+    val systemPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         suppressNextBackgroundLock = false
         touchActivity()
         val session = vaultSession ?: return@rememberLauncherForActivityResult
         if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        val cancelFlag = AtomicBoolean(false)
+        activeCancelFlag = cancelFlag
         scope.launch {
             busy = true
             importProgress = 0
@@ -292,6 +393,7 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
             runCatching {
                 withContext(Dispatchers.IO) {
                     uris.forEachIndexed { idx, uri ->
+                        if (cancelFlag.get()) return@withContext
                         val totalBytes = queryUriSize(context, uri)
                         val display = queryUriName(context, uri)
                         progressDetail = display
@@ -307,11 +409,17 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                 }
                 refreshEntries(session)
             }.onSuccess {
-                message = "تم استيراد $imported عنصر بأمان إلى الخزنة."
+                message = context.getString(R.string.vault_import_result_success, imported)
             }.onFailure {
                 runCatching { refreshEntries(session) }
-                message = "تم استيراد $imported من ${uris.size} قبل التوقف: ${it.localizedMessage}"
+                message = context.getString(
+                    R.string.vault_import_result_partial,
+                    imported,
+                    uris.size,
+                    it.localizedMessage.orEmpty()
+                )
             }
+            activeCancelFlag = null
             importProgress = 0
             importTotal = 0
             progressDetail = null
@@ -348,15 +456,20 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
             }.onSuccess { result ->
                 message = if (move) {
                     if (result.sourceFullyMoved) {
-                        "تم نقل المجلد (${result.fileCount} ملف) وحذف المصدر بنجاح."
+                        context.getString(R.string.vault_folder_import_moved, result.fileCount)
                     } else {
-                        "تم حفظ نسخة مشفرة (${result.fileCount} ملف)، وحُذف ${result.deletedSourceNodeCount} من أصل ${result.sourceNodeCount}."
+                        context.getString(
+                            R.string.vault_folder_import_partial_move,
+                            result.fileCount,
+                            result.deletedSourceNodeCount,
+                            result.sourceNodeCount
+                        )
                     }
                 } else {
-                    "تم نسخ المجلد مشفراً (${result.fileCount} ملف) إلى الخزنة."
+                    context.getString(R.string.vault_folder_import_copied, result.fileCount)
                 }
             }.onFailure {
-                message = it.localizedMessage ?: "تعذر استيراد المجلد."
+                message = it.localizedMessage ?: context.getString(R.string.vault_folder_import_failed)
             }
             importProgress = 0
             importTotal = 0
@@ -365,47 +478,37 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
         }
     }
 
-    val folderRestorePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { treeUri ->
+    val customDestRestorePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { treeUri ->
         suppressNextBackgroundLock = false
         touchActivity()
-        val session = vaultSession ?: return@rememberLauncherForActivityResult
-        val target = pendingFolderRestore ?: return@rememberLauncherForActivityResult
-        pendingFolderRestore = null
-        if (treeUri == null) return@rememberLauncherForActivityResult
-        scope.launch {
-            busy = true
-            message = null
-            runCatching {
-                withContext(Dispatchers.IO) { treeSupport.restoreFolder(target, treeUri, session) }
-            }.onSuccess {
-                message = "تمت استعادة المجلد ومحتوياته بنجاح."
-            }.onFailure {
-                message = it.localizedMessage ?: "تعذرت استعادة المجلد."
-            }
-            busy = false
-        }
+        val pending = customDestTransferRequest
+        customDestTransferRequest = null
+        if (treeUri == null || pending == null) return@rememberLauncherForActivityResult
+        executeRestoreBatch(
+            targetEntries = pending.entries,
+            destinationTree = treeUri,
+            useOriginalFolder = false,
+            removeFromVault = pending.removeFromVault
+        )
     }
 
     val browserSourcePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { treeUri ->
         suppressNextBackgroundLock = false
         touchActivity()
         if (treeUri == null) return@rememberLauncherForActivityResult
-        val flags = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
-            android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
         runCatching { context.contentResolver.takePersistableUriPermission(treeUri, flags) }
         vaultPrefs.edit().putString("source_tree_uri", treeUri.toString()).apply()
         browserTreeUri = treeUri
-        browserPath.clear()
-        selectedUris.clear()
-        openBrowserFolder(treeUri, null, null)
+        browserOpen = true
     }
 
-    val exporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("*/*")) { uri ->
+    val singleDocumentExporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("*/*")) { uri ->
         suppressNextBackgroundLock = false
         touchActivity()
         val session = vaultSession ?: return@rememberLauncherForActivityResult
-        val entry = pendingExport ?: return@rememberLauncherForActivityResult
-        pendingExport = null
+        val entry = pendingSingleCreateDocEntry ?: return@rememberLauncherForActivityResult
+        pendingSingleCreateDocEntry = null
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
             busy = true
@@ -414,16 +517,17 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
             message = null
             runCatching {
                 withContext(Dispatchers.IO) {
-                    repository.exportTo(entry.id, uri, session) { doneBytes ->
+                    repository.exportToDocumentVerified(entry.id, uri, session) { doneBytes ->
                         if (entry.sizeBytes > 0L) {
                             byteFraction = (doneBytes.toFloat() / entry.sizeBytes.toFloat()).coerceIn(0f, 1f)
                         }
                     }
                 }
+                libraryViewModel.refresh(force = true)
             }.onSuccess {
-                message = "تم تصدير النسخة المفكوكة بنجاح."
+                message = context.getString(R.string.vault_single_export_success)
             }.onFailure {
-                message = it.localizedMessage ?: "تعذر تصدير الملف."
+                message = it.localizedMessage ?: context.getString(R.string.vault_single_export_failed)
             }
             progressDetail = null
             byteFraction = 0f
@@ -431,33 +535,189 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
         }
     }
 
-    val filteredEntries = remember(entries.toList(), searchQuery, activeFilter, activeSort) {
-        val q = searchQuery.trim().lowercase(Locale.getDefault())
-        val base = entries.filter { entry ->
-            val matchesQuery = q.isEmpty() || entry.displayName.lowercase(Locale.getDefault()).contains(q)
-            val matchesType = when (activeFilter) {
-                VaultFilter.ALL -> true
-                VaultFilter.VIDEO -> entry.mimeType.startsWith("video/")
-                VaultFilter.AUDIO -> entry.mimeType.startsWith("audio/")
-                VaultFilter.IMAGE -> entry.mimeType.startsWith("image/")
-                VaultFilter.OTHER -> !entry.mimeType.startsWith("video/") &&
-                    !entry.mimeType.startsWith("audio/") &&
-                    !entry.mimeType.startsWith("image/")
+    fun openInternalBrowser() {
+        touchActivity()
+        scope.launch {
+            val candidate = browserTreeUri
+            val validUri = if (candidate != null) {
+                val readable = withContext(Dispatchers.IO) { treeSupport.isTreeReadable(candidate) }
+                if (readable) candidate else null
+            } else {
+                null
             }
-            matchesQuery && matchesType
+            if (validUri == null && candidate != null) {
+                browserTreeUri = null
+            }
+            browserOpen = true
         }
-        when (activeSort) {
-            VaultSort.NEWEST -> base.sortedByDescending { it.addedAtMs }
-            VaultSort.NAME -> base.sortedBy { it.displayName.lowercase(Locale.getDefault()) }
-            VaultSort.SIZE -> base.sortedByDescending { it.sizeBytes }
+    }
+
+    fun requestTransfer(targetEntries: List<PrivateVaultEntry>, removeFromVault: Boolean) {
+        if (targetEntries.isEmpty()) return
+        touchActivity()
+        transferSheetRequest = PendingTransferRequest(
+            entries = targetEntries,
+            removeFromVault = removeFromVault
+        )
+    }
+
+    fun importBrowserItems(selected: List<SelectedVaultBrowserItem>, move: Boolean) {
+        val session = vaultSession ?: return
+        if (selected.isEmpty()) return
+        browserOpen = false
+        val cancelFlag = AtomicBoolean(false)
+        activeCancelFlag = cancelFlag
+        scope.launch {
+            busy = true
+            importProgress = 0
+            importTotal = selected.size
+            byteFraction = 0f
+            progressDetail = null
+            message = null
+            runCatching {
+                val result = withContext(Dispatchers.IO) {
+                    treeSupport.importBrowserSelection(
+                        items = selected,
+                        session = session,
+                        moveSource = move,
+                        isCancelled = { cancelFlag.get() },
+                        onItemProgress = { current, total, name ->
+                            importProgress = current
+                            importTotal = total
+                            progressDetail = name
+                            byteFraction = 0f
+                        },
+                        onBytesProgress = { done, total ->
+                            if (total > 0L) {
+                                byteFraction = (done.toFloat() / total.toFloat()).coerceIn(0f, 1f)
+                            }
+                        }
+                    )
+                }
+                if (move && result.deletedSourceMediaIds.isNotEmpty()) {
+                    libraryViewModel.reconcileMovedMediaUris(result.deletedSourceMediaIds)
+                }
+                refreshEntries(session)
+                result
+            }.onSuccess { result ->
+                message = if (move) {
+                    if (result.copiedOnlyCount == 0 && result.failedCount == 0) {
+                        context.getString(R.string.vault_browser_move_result_success, result.movedCount)
+                    } else {
+                        context.getString(
+                            R.string.vault_browser_move_result_partial,
+                            result.importedCount,
+                            result.movedCount,
+                            result.copiedOnlyCount,
+                            result.failedCount
+                        )
+                    }
+                } else {
+                    if (result.failedCount == 0) {
+                        context.getString(R.string.vault_browser_copy_result_success, result.importedCount)
+                    } else {
+                        context.getString(
+                            R.string.vault_browser_copy_result_partial,
+                            result.importedCount,
+                            result.failedCount
+                        )
+                    }
+                }
+            }.onFailure { err ->
+                runCatching { refreshEntries(session) }
+                message = err.localizedMessage ?: context.getString(R.string.vault_folder_import_failed)
+            }
+            activeCancelFlag = null
+            importProgress = 0
+            importTotal = 0
+            progressDetail = null
+            byteFraction = 0f
+            busy = false
         }
+    }
+
+    fun importSubfolderFromBrowser(
+        treeUri: Uri,
+        folderDocId: String,
+        parentDocId: String?,
+        folderName: String,
+        displayPath: String,
+        move: Boolean
+    ) {
+        val session = vaultSession ?: return
+        browserOpen = false
+        scope.launch {
+            busy = true
+            importProgress = 0
+            importTotal = 0
+            progressDetail = folderName
+            message = null
+            runCatching {
+                val result = withContext(Dispatchers.IO) {
+                    treeSupport.importFolder(
+                        treeUri = treeUri,
+                        session = session,
+                        moveSource = move,
+                        rootDocumentId = folderDocId,
+                        sourceParentDocumentId = parentDocId,
+                        sourceDisplayPath = displayPath,
+                        onProgress = { current, total, name ->
+                            importProgress = current
+                            importTotal = total
+                            progressDetail = name
+                        }
+                    )
+                }
+                if (move && result.deletedSourceUris.isNotEmpty()) {
+                    libraryViewModel.reconcileMovedMediaUris(result.deletedSourceUris)
+                }
+                refreshEntries(session)
+                result
+            }.onSuccess { result ->
+                message = if (move) {
+                    if (result.sourceFullyMoved) {
+                        context.getString(R.string.vault_folder_import_moved, result.fileCount)
+                    } else {
+                        context.getString(
+                            R.string.vault_folder_import_partial_move,
+                            result.fileCount,
+                            result.deletedSourceNodeCount,
+                            result.sourceNodeCount
+                        )
+                    }
+                } else {
+                    context.getString(R.string.vault_folder_import_copied, result.fileCount)
+                }
+            }.onFailure { err ->
+                message = err.localizedMessage ?: context.getString(R.string.vault_folder_import_failed)
+            }
+            importProgress = 0
+            importTotal = 0
+            progressDetail = null
+            busy = false
+        }
+    }
+
+    val filteredEntries = remember(entries.toList(), searchQuery, activeFilter, activeSort, sortAscending) {
+        filterAndSortVaultEntries(
+            entries = entries.toList(),
+            query = searchQuery,
+            filter = activeFilter,
+            sort = activeSort,
+            ascending = sortAscending
+        )
     }
 
     val totalVaultBytes = remember(entries.toList()) {
         entries.sumOf { it.sizeBytes.coerceAtLeast(0L) }
     }
 
+    val allFilteredSelected = remember(filteredEntries, selectedEntryIds.toList()) {
+        filteredEntries.isNotEmpty() && filteredEntries.all { it.id in selectedEntryIds }
+    }
+
     Scaffold(
+        containerColor = Color(0xFF0D0D12),
         topBar = {
             TopAppBar(
                 title = {
@@ -481,6 +741,26 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                 actions = {
                     if (vaultSession != null) {
                         if (selectedEntryIds.isNotEmpty()) {
+                            IconButton(
+                                onClick = {
+                                    touchActivity()
+                                    if (allFilteredSelected) {
+                                        filteredEntries.forEach { selectedEntryIds.remove(it.id) }
+                                    } else {
+                                        filteredEntries.forEach { entry ->
+                                            if (entry.id !in selectedEntryIds) selectedEntryIds.add(entry.id)
+                                        }
+                                    }
+                                },
+                                enabled = !busy && filteredEntries.isNotEmpty()
+                            ) {
+                                Icon(
+                                    imageVector = if (allFilteredSelected) Icons.Filled.CheckBox else Icons.Filled.SelectAll,
+                                    contentDescription = stringResource(
+                                        if (allFilteredSelected) R.string.vault_deselect_all else R.string.vault_select_all
+                                    )
+                                )
+                            }
                             IconButton(
                                 onClick = { showBatchDeleteConfirm = true },
                                 enabled = !busy
@@ -511,13 +791,84 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
         floatingActionButton = {
             if (vaultSession != null && !busy && selectedEntryIds.isEmpty()) {
                 FloatingActionButton(
-                    onClick = {
-                        touchActivity()
-                        suppressNextBackgroundLock = true
-                        picker.launch(arrayOf("*/*"))
-                    }
+                    onClick = { openInternalBrowser() },
+                    containerColor = Color(0xFFA855F7),
+                    contentColor = Color.White
                 ) {
                     Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.vault_import_files))
+                }
+            }
+        },
+        bottomBar = {
+            if (vaultSession != null && selectedEntryIds.isNotEmpty()) {
+                val chosenEntries = remember(entries.toList(), selectedEntryIds.toList()) {
+                    entries.filter { it.id in selectedEntryIds }
+                }
+                Surface(
+                    color = Color(0xFF171724),
+                    tonalElevation = 8.dp,
+                    border = BorderStroke(1.dp, Color(0xFF2E2644)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Button(
+                            onClick = { requestTransfer(chosenEntries, removeFromVault = true) },
+                            enabled = !busy && chosenEntries.isNotEmpty(),
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFFA855F7),
+                                contentColor = Color.White
+                            )
+                        ) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.DriveFileMove,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                stringResource(R.string.vault_take_out),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        OutlinedButton(
+                            onClick = { requestTransfer(chosenEntries, removeFromVault = false) },
+                            enabled = !busy && chosenEntries.isNotEmpty(),
+                            modifier = Modifier.weight(1f),
+                            border = BorderStroke(1.dp, Color(0xFFA855F7))
+                        ) {
+                            Icon(
+                                Icons.Filled.ContentCopy,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                stringResource(R.string.vault_export_copy),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        IconButton(
+                            onClick = { showBatchDeleteConfirm = true },
+                            enabled = !busy
+                        ) {
+                            Icon(
+                                Icons.Filled.Delete,
+                                contentDescription = stringResource(R.string.vault_batch_delete_button),
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -537,150 +888,153 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                Surface(
-                    shape = RoundedCornerShape(22.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.42f),
-                    border = androidx.compose.foundation.BorderStroke(
-                        1.dp,
-                        MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    Surface(
+                        shape = RoundedCornerShape(22.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.42f),
+                        border = BorderStroke(
+                            1.dp,
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
+                        ),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(50.dp)
-                                .clip(androidx.compose.foundation.shape.CircleShape)
-                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)),
-                            contentAlignment = Alignment.Center
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Filled.Lock,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(26.dp)
-                            )
-                        }
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(
-                                text = stringResource(R.string.vault_title),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = stringResource(R.string.vault_shield_active),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(50.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Lock,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(26.dp)
+                                )
+                            }
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(
+                                    text = stringResource(R.string.vault_title),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = stringResource(R.string.vault_shield_active),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
                         }
                     }
-                }
-                Text(
-                    text = if (configured) {
-                        stringResource(R.string.vault_unlock_prompt)
-                    } else {
-                        stringResource(R.string.vault_create_prompt)
-                    },
-                    style = MaterialTheme.typography.bodyMedium
-                )
-                OutlinedTextField(
-                    value = password,
-                    onValueChange = { password = it },
-                    label = { Text(stringResource(R.string.vault_password_label)) },
-                    visualTransformation = PasswordVisualTransformation(),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                if (!configured) {
-                    PasswordStrengthRow(password)
+                    Text(
+                        text = if (configured) {
+                            stringResource(R.string.vault_unlock_prompt)
+                        } else {
+                            stringResource(R.string.vault_create_prompt)
+                        },
+                        style = MaterialTheme.typography.bodyMedium
+                    )
                     OutlinedTextField(
-                        value = confirmation,
-                        onValueChange = { confirmation = it },
-                        label = { Text(stringResource(R.string.vault_confirm_password_label)) },
+                        value = password,
+                        onValueChange = { password = it },
+                        label = { Text(stringResource(R.string.vault_password_label)) },
                         visualTransformation = PasswordVisualTransformation(),
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
-                }
-                if (remainingLockoutSeconds > 0) {
-                    Text(
-                        text = stringResource(R.string.vault_lockout_wait, remainingLockoutSeconds),
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-                Button(
-                    onClick = {
-                        scope.launch {
-                            busy = true
-                            message = null
-                            val pwdChars = password.toCharArray()
-                            val confirmChars = confirmation.toCharArray()
-                            val result = runCatching {
-                                if (!configured) {
-                                    require(pwdChars.size >= 8) {
-                                        context.getString(R.string.vault_password_too_short)
-                                    }
-                                    require(pwdChars.contentEquals(confirmChars)) {
-                                        context.getString(R.string.vault_password_mismatch)
-                                    }
-                                    withContext(Dispatchers.IO) {
-                                        val s = repository.create(pwdChars)
-                                        s to emptyList<PrivateVaultEntry>()
-                                    }
-                                } else {
-                                    withContext(Dispatchers.IO) {
-                                        val s = repository.openSession(pwdChars)
-                                        val list = repository.list(s)
-                                        s to list
+                    if (!configured) {
+                        PasswordStrengthRow(password)
+                        OutlinedTextField(
+                            value = confirmation,
+                            onValueChange = { confirmation = it },
+                            label = { Text(stringResource(R.string.vault_confirm_password_label)) },
+                            visualTransformation = PasswordVisualTransformation(),
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    if (remainingLockoutSeconds > 0) {
+                        Text(
+                            text = stringResource(R.string.vault_lockout_wait, remainingLockoutSeconds),
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                busy = true
+                                message = null
+                                val pwdChars = password.toCharArray()
+                                val confirmChars = confirmation.toCharArray()
+                                val result = runCatching {
+                                    if (!configured) {
+                                        require(pwdChars.size >= 8) {
+                                            context.getString(R.string.vault_password_too_short)
+                                        }
+                                        require(pwdChars.contentEquals(confirmChars)) {
+                                            context.getString(R.string.vault_password_mismatch)
+                                        }
+                                        withContext(Dispatchers.IO) {
+                                            val s = repository.create(pwdChars)
+                                            s to emptyList<PrivateVaultEntry>()
+                                        }
+                                    } else {
+                                        withContext(Dispatchers.IO) {
+                                            val s = repository.openSession(pwdChars)
+                                            val list = repository.list(s)
+                                            s to list
+                                        }
                                     }
                                 }
+                                pwdChars.fill('\u0000')
+                                confirmChars.fill('\u0000')
+                                result.onSuccess { (session, list) ->
+                                    configured = true
+                                    failedAttempts = 0
+                                    lockoutUntilElapsedMs = 0L
+                                    entries.clear()
+                                    entries.addAll(list)
+                                    vaultSession = session
+                                    password = ""
+                                    confirmation = ""
+                                    touchActivity()
+                                }.onFailure { err ->
+                                    failedAttempts++
+                                    if (configured && failedAttempts >= 3) {
+                                        val waitSec = when {
+                                            failedAttempts >= 6 -> 60L
+                                            failedAttempts == 5 -> 30L
+                                            failedAttempts == 4 -> 15L
+                                            else -> 5L
+                                        }
+                                        lockoutUntilElapsedMs = SystemClock.elapsedRealtime() + waitSec * 1_000L
+                                    }
+                                    message = if (configured) {
+                                        context.getString(R.string.vault_wrong_password)
+                                    } else {
+                                        err.localizedMessage ?: context.getString(R.string.vault_open_failed)
+                                    }
+                                }
+                                busy = false
                             }
-                            pwdChars.fill('\u0000')
-                            confirmChars.fill('\u0000')
-                            result.onSuccess { (session, list) ->
-                                configured = true
-                                failedAttempts = 0
-                                lockoutUntilElapsedMs = 0L
-                                entries.clear()
-                                entries.addAll(list)
-                                vaultSession = session
-                                password = ""
-                                confirmation = ""
-                                touchActivity()
-                            }.onFailure { err ->
-                                failedAttempts++
-                                if (configured && failedAttempts >= 3) {
-                                    val waitSec = when {
-                                        failedAttempts >= 6 -> 60L
-                                        failedAttempts == 5 -> 30L
-                                        failedAttempts == 4 -> 15L
-                                        else -> 5L
-                                    }
-                                    lockoutUntilElapsedMs = SystemClock.elapsedRealtime() + waitSec * 1_000L
-                                }
-                                message = if (configured) {
-                                    context.getString(R.string.vault_wrong_password)
-                                } else {
-                                    err.localizedMessage ?: context.getString(R.string.vault_open_failed)
-                                }
-                            }
-                            busy = false
-                        }
-                    },
-                    enabled = !busy && remainingLockoutSeconds == 0 && password.length >= 8 &&
-                        (configured || password == confirmation),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        if (configured) stringResource(R.string.vault_unlock_button)
-                        else stringResource(R.string.vault_create_button)
-                    )
-                }
+                        },
+                        enabled = !busy && remainingLockoutSeconds == 0 && password.length >= 8 &&
+                            (configured || password == confirmation),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            if (configured) stringResource(R.string.vault_unlock_button)
+                            else stringResource(R.string.vault_create_button)
+                        )
+                    }
+                    message?.let {
+                        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                    }
                 }
             } else {
                 val activeSession = vaultSession!!
@@ -703,7 +1057,7 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                                 text = stringResource(
                                     R.string.vault_summary_stats,
                                     entries.size,
-                                    formatSize(totalVaultBytes)
+                                    formatVaultBytes(context, totalVaultBytes)
                                 ),
                                 style = MaterialTheme.typography.labelLarge,
                                 color = MaterialTheme.colorScheme.primary
@@ -743,15 +1097,7 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                                 Text(stringResource(R.string.vault_move_folder), maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                             OutlinedButton(
-                                onClick = {
-                                    touchActivity()
-                                    val saved = browserTreeUri
-                                    if (saved != null) openBrowserFolder(saved, null, null)
-                                    else {
-                                        suppressNextBackgroundLock = true
-                                        browserSourcePicker.launch(null)
-                                    }
-                                },
+                                onClick = { openInternalBrowser() },
                                 enabled = !busy,
                                 modifier = Modifier.weight(1f)
                             ) {
@@ -775,6 +1121,13 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                         },
                         placeholder = { Text(stringResource(R.string.vault_search_hint)) },
                         leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                        trailingIcon = {
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(onClick = { searchQuery = "" }) {
+                                    Icon(Icons.Filled.Close, contentDescription = null)
+                                }
+                            }
+                        },
                         singleLine = true,
                         modifier = Modifier.weight(1f)
                     )
@@ -783,20 +1136,50 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                             Icon(Icons.Filled.Sort, contentDescription = stringResource(R.string.vault_sort_label))
                         }
                         DropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }) {
-                            VaultSort.entries.forEach { sortOption ->
+                            VaultEntrySort.entries.forEach { sortOption ->
+                                val labelRes = when (sortOption) {
+                                    VaultEntrySort.NEWEST -> R.string.vault_sort_newest
+                                    VaultEntrySort.NAME -> R.string.vault_sort_name
+                                    VaultEntrySort.SIZE -> R.string.vault_sort_size
+                                }
                                 DropdownMenuItem(
                                     text = {
                                         Text(
                                             (if (activeSort == sortOption) "✓ " else "") +
-                                                stringResource(sortOption.labelRes)
+                                                stringResource(labelRes)
                                         )
                                     },
                                     onClick = {
-                                        activeSort = sortOption
+                                        if (activeSort == sortOption) {
+                                            sortAscending = !sortAscending
+                                        } else {
+                                            activeSort = sortOption
+                                            sortAscending = sortOption == VaultEntrySort.NAME
+                                        }
                                         showSortMenu = false
                                     }
                                 )
                             }
+                            DropdownMenuItem(
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = if (sortAscending) Icons.Filled.ArrowUpward else Icons.Filled.ArrowDownward,
+                                        contentDescription = null
+                                    )
+                                },
+                                text = {
+                                    Text(
+                                        stringResource(
+                                            if (sortAscending) R.string.vault_browser_sort_ascending
+                                            else R.string.vault_browser_sort_descending
+                                        )
+                                    )
+                                },
+                                onClick = {
+                                    sortAscending = !sortAscending
+                                    showSortMenu = false
+                                }
+                            )
                         }
                     }
                 }
@@ -808,14 +1191,21 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                         .horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    VaultFilter.entries.forEach { filter ->
+                    VaultEntryFilter.entries.forEach { filter ->
+                        val labelRes = when (filter) {
+                            VaultEntryFilter.ALL -> R.string.vault_filter_all
+                            VaultEntryFilter.VIDEO -> R.string.vault_filter_video
+                            VaultEntryFilter.AUDIO -> R.string.vault_filter_audio
+                            VaultEntryFilter.IMAGE -> R.string.vault_filter_image
+                            VaultEntryFilter.OTHER -> R.string.vault_filter_other
+                        }
                         FilterChip(
                             selected = activeFilter == filter,
                             onClick = {
                                 touchActivity()
                                 activeFilter = filter
                             },
-                            label = { Text(stringResource(filter.labelRes)) }
+                            label = { Text(stringResource(labelRes)) }
                         )
                     }
                 }
@@ -835,17 +1225,29 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                         } else {
                             LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                         }
-                        val statusText = buildString {
-                            if (importTotal > 0) append("$importProgress / $importTotal ")
-                            progressDetail?.let { append(it) }
-                        }.ifBlank { stringResource(R.string.vault_processing) }
-                        Text(
-                            text = statusText,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            val statusText = buildString {
+                                if (importTotal > 0) append("$importProgress / $importTotal ")
+                                progressDetail?.let { append(it) }
+                            }.ifBlank { stringResource(R.string.vault_processing) }
+                            Text(
+                                text = statusText,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+                            activeCancelFlag?.let { flag ->
+                                TextButton(onClick = { flag.set(true) }) {
+                                    Text(stringResource(R.string.common_cancel))
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -855,7 +1257,9 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
 
                 if (filteredEntries.isEmpty()) {
                     Box(
-                        modifier = Modifier.fillMaxWidth().weight(1f),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
@@ -870,12 +1274,16 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                     }
                 } else {
                     LazyColumn(
-                        modifier = Modifier.fillMaxWidth().weight(1f),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
-                        contentPadding = PaddingValues(bottom = 80.dp)
+                        contentPadding = PaddingValues(bottom = 84.dp)
                     ) {
                         items(filteredEntries, key = { it.id }) { entry ->
                             val isSelected = entry.id in selectedEntryIds
+                            var rowMenuOpen by remember(entry.id) { mutableStateOf(false) }
+
                             ElevatedCard(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -885,9 +1293,7 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                                             if (isSelected) selectedEntryIds.remove(entry.id)
                                             else selectedEntryIds.add(entry.id)
                                         } else if (entry.mimeType == PrivateVaultTreeSupport.FOLDER_ARCHIVE_MIME) {
-                                            pendingFolderRestore = entry
-                                            suppressNextBackgroundLock = true
-                                            folderRestorePicker.launch(null)
+                                            requestTransfer(listOf(entry), removeFromVault = true)
                                         } else {
                                             viewingEntry = entry
                                         }
@@ -899,18 +1305,19 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                                         .padding(12.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    if (selectedEntryIds.isNotEmpty()) {
-                                        IconButton(
-                                            onClick = {
-                                                if (isSelected) selectedEntryIds.remove(entry.id)
-                                                else selectedEntryIds.add(entry.id)
-                                            }
-                                        ) {
-                                            Icon(
-                                                imageVector = if (isSelected) Icons.Filled.CheckBox else Icons.Filled.CheckBoxOutlineBlank,
-                                                contentDescription = null
-                                            )
-                                        }
+                                    IconButton(
+                                        onClick = {
+                                            touchActivity()
+                                            if (isSelected) selectedEntryIds.remove(entry.id)
+                                            else selectedEntryIds.add(entry.id)
+                                        },
+                                        enabled = !busy
+                                    ) {
+                                        Icon(
+                                            imageVector = if (isSelected) Icons.Filled.CheckBox else Icons.Filled.CheckBoxOutlineBlank,
+                                            contentDescription = stringResource(R.string.vault_select_item),
+                                            tint = if (isSelected) Color(0xFFA855F7) else MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
                                     }
                                     VaultEntryThumbnail(
                                         entry = entry,
@@ -925,11 +1332,12 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
                                         )
+                                        val sizeLabel = formatVaultBytes(context, entry.sizeBytes)
                                         Text(
                                             if (entry.mimeType == PrivateVaultTreeSupport.FOLDER_ARCHIVE_MIME) {
-                                                "مجلد مشفّر · ${formatSize(entry.sizeBytes)}"
+                                                stringResource(R.string.vault_encrypted_folder_subtitle, sizeLabel)
                                             } else {
-                                                "${entry.mimeType} · ${formatSize(entry.sizeBytes)}"
+                                                "${entry.mimeType} · $sizeLabel"
                                             },
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -938,46 +1346,64 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                                         )
                                     }
                                     if (selectedEntryIds.isEmpty()) {
-                                        IconButton(
-                                            onClick = {
-                                                touchActivity()
-                                                selectedEntryIds.add(entry.id)
-                                            },
-                                            enabled = !busy
-                                        ) {
-                                            Icon(
-                                                Icons.Filled.CheckBoxOutlineBlank,
-                                                contentDescription = stringResource(R.string.vault_select_item)
-                                            )
-                                        }
-                                        TextButton(
-                                            onClick = {
-                                                touchActivity()
-                                                if (entry.mimeType == PrivateVaultTreeSupport.FOLDER_ARCHIVE_MIME) {
-                                                    pendingFolderRestore = entry
-                                                    suppressNextBackgroundLock = true
-                                                    folderRestorePicker.launch(null)
-                                                } else {
-                                                    pendingExport = entry
-                                                    suppressNextBackgroundLock = true
-                                                    exporter.launch(entry.displayName)
-                                                }
-                                            },
-                                            enabled = !busy
-                                        ) {
-                                            Text(
-                                                if (entry.mimeType == PrivateVaultTreeSupport.FOLDER_ARCHIVE_MIME) "استعادة"
-                                                else "تصدير"
-                                            )
-                                        }
-                                        IconButton(
-                                            onClick = {
-                                                touchActivity()
-                                                pendingDelete = entry
-                                            },
-                                            enabled = !busy
-                                        ) {
-                                            Icon(Icons.Filled.Delete, contentDescription = null)
+                                        Box {
+                                            IconButton(
+                                                onClick = {
+                                                    touchActivity()
+                                                    rowMenuOpen = true
+                                                },
+                                                enabled = !busy
+                                            ) {
+                                                Icon(Icons.Filled.MoreVert, contentDescription = null)
+                                            }
+                                            DropdownMenu(
+                                                expanded = rowMenuOpen,
+                                                onDismissRequest = { rowMenuOpen = false }
+                                            ) {
+                                                DropdownMenuItem(
+                                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = null) },
+                                                    text = { Text(stringResource(R.string.vault_take_out)) },
+                                                    onClick = {
+                                                        rowMenuOpen = false
+                                                        requestTransfer(listOf(entry), removeFromVault = true)
+                                                    }
+                                                )
+                                                DropdownMenuItem(
+                                                    leadingIcon = { Icon(Icons.Filled.ContentCopy, contentDescription = null) },
+                                                    text = { Text(stringResource(R.string.vault_export_copy)) },
+                                                    onClick = {
+                                                        rowMenuOpen = false
+                                                        requestTransfer(listOf(entry), removeFromVault = false)
+                                                    }
+                                                )
+                                                DropdownMenuItem(
+                                                    leadingIcon = { Icon(Icons.Filled.Info, contentDescription = null) },
+                                                    text = { Text(stringResource(R.string.vault_file_info)) },
+                                                    onClick = {
+                                                        rowMenuOpen = false
+                                                        infoEntry = entry
+                                                    }
+                                                )
+                                                DropdownMenuItem(
+                                                    leadingIcon = {
+                                                        Icon(
+                                                            Icons.Filled.Delete,
+                                                            contentDescription = null,
+                                                            tint = MaterialTheme.colorScheme.error
+                                                        )
+                                                    },
+                                                    text = {
+                                                        Text(
+                                                            stringResource(R.string.common_delete),
+                                                            color = MaterialTheme.colorScheme.error
+                                                        )
+                                                    },
+                                                    onClick = {
+                                                        rowMenuOpen = false
+                                                        pendingDelete = entry
+                                                    }
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -987,6 +1413,190 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                 }
             }
         }
+    }
+
+    // Internal file browser modal (opened from + FAB or Browse button)
+    if (browserOpen && vaultSession != null) {
+        VaultInternalBrowserModal(
+            treeSupport = treeSupport,
+            rootTreeUri = browserTreeUri,
+            busy = busy,
+            onTouchActivity = ::touchActivity,
+            onPickRootFolder = {
+                suppressNextBackgroundLock = true
+                browserSourcePicker.launch(null)
+            },
+            onOpenSystemPickerFallback = {
+                browserOpen = false
+                suppressNextBackgroundLock = true
+                systemPicker.launch(arrayOf("*/*"))
+            },
+            onCopyOrMoveSelection = ::importBrowserItems,
+            onImportSubfolder = ::importSubfolderFromBrowser,
+            onDismiss = { browserOpen = false }
+        )
+    }
+
+    // Transfer destination & confirmation dialog (Take out vs Export copy)
+    transferSheetRequest?.let { req ->
+        val canRestoreOriginal = remember(req) {
+            treeSupport.canRestoreAllToOriginalFolder(req.entries)
+        }
+        val singleOriginLabel = remember(req) {
+            req.entries.singleOrNull()?.sourceDisplayPath?.takeIf { it.isNotBlank() }
+        }
+        AlertDialog(
+            onDismissRequest = { transferSheetRequest = null },
+            title = {
+                Text(
+                    stringResource(
+                        if (req.removeFromVault) R.string.vault_take_out_dialog_title
+                        else R.string.vault_export_copy_dialog_title
+                    )
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        stringResource(
+                            if (req.removeFromVault) R.string.vault_take_out_dialog_message
+                            else R.string.vault_export_copy_dialog_message,
+                            req.entries.size
+                        )
+                    )
+                    if (!canRestoreOriginal) {
+                        Text(
+                            text = stringResource(R.string.vault_restore_to_original_unavailable),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else if (singleOriginLabel != null) {
+                        Text(
+                            text = stringResource(R.string.vault_info_original_location, singleOriginLabel),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFFD8B4FE)
+                        )
+                    }
+                    if (canRestoreOriginal) {
+                        Button(
+                            onClick = {
+                                transferSheetRequest = null
+                                if (req.removeFromVault) {
+                                    confirmOriginalRestoreRequest = req
+                                } else {
+                                    executeRestoreBatch(
+                                        targetEntries = req.entries,
+                                        destinationTree = null,
+                                        useOriginalFolder = true,
+                                        removeFromVault = false
+                                    )
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFFA855F7),
+                                contentColor = Color.White
+                            )
+                        ) {
+                            Text(stringResource(R.string.vault_restore_to_original))
+                        }
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            transferSheetRequest = null
+                            val singleNonFolder = req.entries.singleOrNull()?.takeIf {
+                                !req.removeFromVault && it.mimeType != PrivateVaultTreeSupport.FOLDER_ARCHIVE_MIME
+                            }
+                            if (singleNonFolder != null && !canRestoreOriginal) {
+                                pendingSingleCreateDocEntry = singleNonFolder
+                                suppressNextBackgroundLock = true
+                                singleDocumentExporter.launch(singleNonFolder.displayName)
+                            } else {
+                                customDestTransferRequest = req
+                                suppressNextBackgroundLock = true
+                                customDestRestorePicker.launch(null)
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Filled.FolderOpen, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(stringResource(R.string.vault_restore_choose_folder))
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { transferSheetRequest = null }) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            }
+        )
+    }
+
+    // Explicit confirmation before removing decrypted files from vault
+    confirmOriginalRestoreRequest?.let { req ->
+        AlertDialog(
+            onDismissRequest = { confirmOriginalRestoreRequest = null },
+            title = { Text(stringResource(R.string.vault_confirm_take_out_title)) },
+            text = { Text(stringResource(R.string.vault_confirm_take_out_body, req.entries.size)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmOriginalRestoreRequest = null
+                        executeRestoreBatch(
+                            targetEntries = req.entries,
+                            destinationTree = null,
+                            useOriginalFolder = true,
+                            removeFromVault = true
+                        )
+                    }
+                ) {
+                    Text(stringResource(R.string.vault_confirm_action), color = Color(0xFFA855F7))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmOriginalRestoreRequest = null }) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            }
+        )
+    }
+
+    // File info dialog
+    infoEntry?.let { entry ->
+        val dateText = remember(entry.addedAtMs) {
+            DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(entry.addedAtMs))
+        }
+        AlertDialog(
+            onDismissRequest = { infoEntry = null },
+            title = { Text(stringResource(R.string.vault_file_info)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(stringResource(R.string.vault_info_name, entry.displayName))
+                    Text(stringResource(R.string.vault_info_type, entry.mimeType))
+                    Text(stringResource(R.string.vault_info_size, formatVaultBytes(context, entry.sizeBytes)))
+                    Text(stringResource(R.string.vault_info_added_at, dateText))
+                    Text(
+                        if (!entry.sourceDisplayPath.isNullOrBlank()) {
+                            stringResource(R.string.vault_info_original_location, entry.sourceDisplayPath)
+                        } else {
+                            stringResource(R.string.vault_info_original_unavailable)
+                        }
+                    )
+                    Text(
+                        stringResource(R.string.vault_info_encryption),
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { infoEntry = null }) {
+                    Text(stringResource(R.string.common_close))
+                }
+            }
+        )
     }
 
     // Isolated in-vault viewer (zero unencrypted files on disk!)
@@ -1117,7 +1727,7 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                                 selectedEntryIds.clear()
                                 message = context.getString(R.string.vault_batch_deleted, ids.size)
                             }.onFailure {
-                                message = it.localizedMessage ?: "تعذر حذف العناصر المحددة."
+                                message = it.localizedMessage ?: context.getString(R.string.vault_delete_failed)
                             }
                             importProgress = 0
                             importTotal = 0
@@ -1139,8 +1749,8 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
     pendingDelete?.let { entry ->
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
-            title = { Text("حذف من الخزنة") },
-            text = { Text("سيتم حذف النسخة المشفرة من \"${entry.displayName}\" نهائياً.") },
+            title = { Text(stringResource(R.string.vault_delete_single_title)) },
+            text = { Text(stringResource(R.string.vault_delete_single_message, entry.displayName)) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -1158,198 +1768,13 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                             }
                         }
                     }
-                ) { Text("حذف") }
+                ) { Text(stringResource(R.string.common_delete), color = MaterialTheme.colorScheme.error) }
             },
-            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("إلغاء") } }
-        )
-    }
-
-    // Read-only SAF source browser dialog
-    if (browserOpen && vaultSession != null) {
-        val activeSession = vaultSession!!
-        AlertDialog(
-            onDismissRequest = { if (!busy) browserOpen = false },
-            title = {
-                Column {
-                    Text(browserPath.lastOrNull()?.second ?: "متصفح الملفات")
-                    Text(
-                        "للقراءة فقط: اختر ملفات لنسخها أو نقلها إلى الخزنة",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+            dismissButton = {
+                TextButton(onClick = { pendingDelete = null }) {
+                    Text(stringResource(R.string.common_cancel))
                 }
-            },
-            text = {
-                Column(
-                    modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        if (browserPath.isNotEmpty()) {
-                            TextButton(
-                                onClick = {
-                                    browserPath.removeAt(browserPath.lastIndex)
-                                    browserTreeUri?.let { openBrowserFolder(it, browserPath.lastOrNull()?.first, null) }
-                                }
-                            ) { Text("رجوع") }
-                        }
-                        TextButton(
-                            onClick = {
-                                suppressNextBackgroundLock = true
-                                browserSourcePicker.launch(null)
-                            }
-                        ) { Text("تغيير المجلد") }
-                    }
-                    if (browserLoading) {
-                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                    }
-                    if (browserItems.isEmpty() && !browserLoading) {
-                        Text("هذا المجلد فارغ أو لم يمنح النظام صلاحية قراءته.")
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier.weight(1f, fill = false),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            items(browserItems, key = { it.documentId }) { item ->
-                                val key = item.uri.toString()
-                                val checked = key in selectedUris
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable {
-                                            if (item.isDirectory) {
-                                                browserTreeUri?.let { openBrowserFolder(it, item.documentId, item.displayName) }
-                                            } else {
-                                                if (checked) selectedUris.remove(key) else selectedUris.add(key)
-                                            }
-                                        }
-                                        .padding(vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    if (!item.isDirectory) {
-                                        Checkbox(
-                                            checked = checked,
-                                            onCheckedChange = {
-                                                if (it) selectedUris.add(key) else selectedUris.remove(key)
-                                            }
-                                        )
-                                    } else {
-                                        Icon(Icons.Filled.Folder, contentDescription = null)
-                                        Spacer(Modifier.width(8.dp))
-                                    }
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(item.displayName, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        if (!item.isDirectory) {
-                                            Text(
-                                                "${item.mimeType} · ${formatSize(item.sizeBytes)}",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(
-                        enabled = !busy && selectedUris.isNotEmpty(),
-                        onClick = {
-                            val chosen = browserItems.filter { it.uri.toString() in selectedUris }
-                            browserOpen = false
-                            scope.launch {
-                                busy = true
-                                importTotal = chosen.size
-                                importProgress = 0
-                                byteFraction = 0f
-                                var copied = 0
-                                runCatching {
-                                    withContext(Dispatchers.IO) {
-                                        chosen.forEachIndexed { idx, item ->
-                                            progressDetail = item.displayName
-                                            repository.importUri(
-                                                item.uri, activeSession, item.displayName, item.mimeType
-                                            ) { doneBytes ->
-                                                if (item.sizeBytes > 0L) {
-                                                    byteFraction = (doneBytes.toFloat() / item.sizeBytes.toFloat()).coerceIn(0f, 1f)
-                                                }
-                                            }
-                                            copied++
-                                            importProgress = idx + 1
-                                            byteFraction = 0f
-                                        }
-                                    }
-                                    refreshEntries(activeSession)
-                                    selectedUris.clear()
-                                }.onSuccess {
-                                    message = "تم نسخ $copied ملف إلى الخزنة."
-                                }.onFailure {
-                                    message = "تم نسخ $copied من ${chosen.size}: ${it.localizedMessage}"
-                                }
-                                importProgress = 0
-                                importTotal = 0
-                                progressDetail = null
-                                byteFraction = 0f
-                                busy = false
-                            }
-                        }
-                    ) { Text("نسخ إلى الخزنة") }
-                    TextButton(
-                        enabled = !busy && selectedUris.isNotEmpty(),
-                        onClick = {
-                            val chosen = browserItems.filter { it.uri.toString() in selectedUris }
-                            browserOpen = false
-                            scope.launch {
-                                busy = true
-                                importTotal = chosen.size
-                                importProgress = 0
-                                byteFraction = 0f
-                                var moved = 0
-                                val deletedIds = mutableListOf<String>()
-                                runCatching {
-                                    withContext(Dispatchers.IO) {
-                                        chosen.forEachIndexed { idx, item ->
-                                            progressDetail = item.displayName
-                                            repository.importUri(
-                                                item.uri, activeSession, item.displayName, item.mimeType
-                                            ) { doneBytes ->
-                                                if (item.sizeBytes > 0L) {
-                                                    byteFraction = (doneBytes.toFloat() / item.sizeBytes.toFloat()).coerceIn(0f, 1f)
-                                                }
-                                            }
-                                            val deleted = runCatching {
-                                                DocumentsContract.deleteDocument(context.contentResolver, item.uri)
-                                            }.getOrDefault(false)
-                                            if (deleted) {
-                                                deletedIds += PrivateVaultTreeSupport.libraryMediaId(item.uri)
-                                                moved++
-                                            }
-                                            importProgress = idx + 1
-                                            byteFraction = 0f
-                                        }
-                                    }
-                                    if (deletedIds.isNotEmpty()) libraryViewModel.reconcileMovedMediaUris(deletedIds)
-                                    refreshEntries(activeSession)
-                                    selectedUris.clear()
-                                }.onSuccess {
-                                    message = "تم نقل $moved من ${chosen.size} ملفاً إلى الخزنة."
-                                }.onFailure {
-                                    message = it.localizedMessage ?: "تعذر نقل بعض الملفات."
-                                }
-                                importProgress = 0
-                                importTotal = 0
-                                progressDetail = null
-                                byteFraction = 0f
-                                busy = false
-                            }
-                        }
-                    ) { Text("نقل إلى الخزنة") }
-                }
-            },
-            dismissButton = { TextButton(onClick = { browserOpen = false }) { Text("إغلاق") } }
+            }
         )
     }
 }
@@ -1377,7 +1802,9 @@ private fun PasswordStrengthRow(password: String) {
         LinearProgressIndicator(
             progress = { (score / 5f).coerceIn(0.15f, 1f) },
             color = color,
-            modifier = Modifier.fillMaxWidth().height(4.dp)
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(4.dp)
         )
         Text(
             text = stringResource(R.string.vault_password_strength_prefix, stringResource(labelRes)),
@@ -1462,16 +1889,6 @@ private fun queryUriSize(context: Context, uri: Uri): Long {
         }
     }
     return -1L
-}
-
-private fun formatSize(bytes: Long): String {
-    if (bytes < 0L) return "غير معروف"
-    return when {
-        bytes < 1024 -> "$bytes B"
-        bytes < 1024 * 1024 -> String.format(Locale.US, "%.1f KB", bytes / 1024f)
-        bytes < 1024L * 1024L * 1024L -> String.format(Locale.US, "%.1f MB", bytes / (1024f * 1024f))
-        else -> String.format(Locale.US, "%.2f GB", bytes / (1024f * 1024f * 1024f))
-    }
 }
 
 private tailrec fun Context.findVaultActivity(): Activity? = when (this) {
