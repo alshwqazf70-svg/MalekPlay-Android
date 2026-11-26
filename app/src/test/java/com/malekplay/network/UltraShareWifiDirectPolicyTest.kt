@@ -215,6 +215,15 @@ class UltraShareWifiDirectPolicyTest {
         assertFalse(isRetryableUltraSharePairingFailure(SecurityException("permission denied")))
     }
     @Test
+    fun silentConnectCallbacksUseTheSameBoundedRetryBudgetAsFrameworkErrors() {
+        assertTrue(shouldRetryWifiDirectConnectCallbackTimeout(0))
+        assertTrue(shouldRetryWifiDirectConnectCallbackTimeout(1))
+        assertTrue(shouldRetryWifiDirectConnectCallbackTimeout(2))
+        assertFalse(shouldRetryWifiDirectConnectCallbackTimeout(3))
+        assertFalse(shouldRetryWifiDirectConnectCallbackTimeout(-1))
+    }
+
+    @Test
     fun retriesTransientWifiDirectFrameworkErrorsAcrossAndroidVersions() {
         assertTrue(shouldRetryWifiDirectConnectFailure(0, 0)) // ERROR (reason 0)
         assertTrue(shouldRetryWifiDirectConnectFailure(2, 1)) // BUSY

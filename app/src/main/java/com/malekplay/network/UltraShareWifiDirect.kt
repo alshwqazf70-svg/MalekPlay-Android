@@ -1512,12 +1512,55 @@ object UltraShareWifiDirect {
                 groupOwnerIntent = wifiDirectNeutralGroupOwnerIntent(preferThisDeviceAsGroupOwner)
                 wps.setup = WpsInfo.PBC
             }
+            val callbackCompleted = java.util.concurrent.atomic.AtomicBoolean(false)
+            val callbackTimeout = Runnable {
+                if (callbackCompleted.compareAndSet(false, true) &&
+                    isCurrentWifiDirectConnectionAttempt(closed, connectionInProgress, connectionAttemptToken, token)
+                ) {
+                    connectionTimeout = null
+                    UltraShareDiagnostics.event(
+                        "WIFI_DIRECT",
+                        "CONNECT_REQUEST_CALLBACK_TIMEOUT",
+                        mapOf("attempt" to attempt, "timeoutMs" to 10_000)
+                    )
+                    // A missing ActionListener callback is different from an accepted
+                    // connect() whose group negotiation is still running. If Android has
+                    // already reported a formed group, let its independent 35s peer-
+                    // confirmation window finish instead of cancelling that live group.
+                    if (formedGroupObserved || wasConnected) {
+                        UltraShareDiagnostics.event(
+                            "WIFI_DIRECT",
+                            "CONNECT_CALLBACK_LATE_BUT_GROUP_ALREADY_FORMED",
+                            mapOf("attempt" to attempt)
+                        )
+                    } else if (shouldRetryWifiDirectConnectCallbackTimeout(attempt)) {
+                        recoverAndRetryConnect(
+                            deviceAddress = deviceAddress,
+                            preferThisDeviceAsGroupOwner = preferThisDeviceAsGroupOwner,
+                            token = token,
+                            attempt = attempt,
+                            reason = WifiP2pManager.ERROR
+                        )
+                    } else {
+                        connectionInProgress = false
+                        connectionAttemptToken++
+                        pairingTargetDeviceAddress = null
+                        cancelClientPeerConfirmation()
+                        reportError("لم يستجب نظام Android لطلب اتصال Wi-Fi Direct بعد محاولات متعددة.")
+                    }
+                }
+            }
+            connectionTimeout?.let(mainHandler::removeCallbacks)
+            connectionTimeout = callbackTimeout
+            mainHandler.postDelayed(callbackTimeout, 10_000L)
             try {
                 manager.connect(channel, config, object : WifiP2pManager.ActionListener {
                     override fun onSuccess() {
+                        if (!callbackCompleted.compareAndSet(false, true)) return
                         UltraShareDiagnostics.event("WIFI_DIRECT", "CONNECT_REQUEST_ACCEPTED_BY_FRAMEWORK", mapOf("attempt" to attempt))
                         if (!isCurrentWifiDirectConnectionAttempt(closed, connectionInProgress, connectionAttemptToken, token)) return
                         connectionTimeout?.let(mainHandler::removeCallbacks)
+                        connectionTimeout = null
                         val timeout = Runnable {
                             if (isCurrentWifiDirectConnectionAttempt(closed, connectionInProgress, connectionAttemptToken, token)) {
                                 connectionInProgress = false
@@ -1558,6 +1601,10 @@ object UltraShareWifiDirect {
                     }
 
                     override fun onFailure(reason: Int) {
+                        if (!callbackCompleted.compareAndSet(false, true)) return
+                        if (!isCurrentWifiDirectConnectionAttempt(closed, connectionInProgress, connectionAttemptToken, token)) return
+                        connectionTimeout?.let(mainHandler::removeCallbacks)
+                        connectionTimeout = null
                         UltraShareDiagnostics.event(
                             "WIFI_DIRECT",
                             "CONNECT_REQUEST_REJECTED_BY_FRAMEWORK",
@@ -1588,6 +1635,9 @@ object UltraShareWifiDirect {
                     }
                 })
             } catch (failure: SecurityException) {
+                if (!callbackCompleted.compareAndSet(false, true) ||
+                    !isCurrentWifiDirectConnectionAttempt(closed, connectionInProgress, connectionAttemptToken, token)
+                ) return
                 connectionInProgress = false
                 connectionTimeout?.let(mainHandler::removeCallbacks)
                 connectionTimeout = null
@@ -1596,6 +1646,9 @@ object UltraShareWifiDirect {
                 connectionAttemptToken++
                 reportError("يلزم إذن الأجهزة القريبة للاتصال عبر Wi-Fi Direct.")
             } catch (failure: RuntimeException) {
+                if (!callbackCompleted.compareAndSet(false, true) ||
+                    !isCurrentWifiDirectConnectionAttempt(closed, connectionInProgress, connectionAttemptToken, token)
+                ) return
                 connectionInProgress = false
                 connectionTimeout?.let(mainHandler::removeCallbacks)
                 connectionTimeout = null
@@ -2626,6 +2679,10 @@ internal fun isReadyWifiDirectOwnerGroup(
 internal fun shouldRetryWifiDirectConnectFailure(reason: Int, attempt: Int): Boolean =
     attempt in 0..2 &&
         (reason == WifiP2pManager.BUSY || reason == WifiP2pManager.ERROR)
+
+/** A silent connect() ActionListener is treated as a transient framework ERROR. */
+internal fun shouldRetryWifiDirectConnectCallbackTimeout(attempt: Int): Boolean =
+    shouldRetryWifiDirectConnectFailure(WifiP2pManager.ERROR, attempt)
 
 
 /** Converts the Android P2P radio extra to a stable diagnostic label. */

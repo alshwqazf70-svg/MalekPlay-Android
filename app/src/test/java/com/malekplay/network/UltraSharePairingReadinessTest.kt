@@ -133,6 +133,14 @@ class UltraSharePairingReadinessTest {
         assertFalse(allowed(hosts = listOf("8.8.8.8")))
     }
 
+    @Test fun receiverStartupFallbackDoesNotPreemptP2pGroupAndAdvertisementDeadlines() {
+        // stopInvitationDiscoveryChecked (5s) + createGroupAttempt (15s)
+        // + local invitation advertisement (10s), with a 5s scheduling margin.
+        assertTrue(
+            UltraSharePairingReadiness.WIFI_DIRECT_RECEIVER_STARTUP_FALLBACK_TIMEOUT_MS >= 35_000L
+        )
+    }
+
     @Test fun wifiDirectInvitationDiscoveryHasAnExplicitBoundedDeadline() {
         assertTrue(
             UltraSharePairingReadiness.WIFI_DIRECT_INVITATION_DISCOVERY_TIMEOUT_MS in 15_000L..30_000L

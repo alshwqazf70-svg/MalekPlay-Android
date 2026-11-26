@@ -109,7 +109,7 @@ class OnlineSubtitleLocalizationAndUiStateTest {
         assertEquals("Downloading & applying…", en.getValue("subtitle_downloading_and_applying"))
         assertEquals("جارٍ التنزيل والتطبيق…", ar.getValue("subtitle_downloading_and_applying"))
         assertNotEquals("جارٍ التطبيق…", ar.getValue("subtitle_downloading_and_applying"))
-        assertEquals("Downloading and applying the subtitle to the video…", en.getValue("subtitle_downloading_and_applying_status"))
+        assertEquals("Downloading subtitle file and applying it to the video…", en.getValue("subtitle_downloading_and_applying_status"))
         assertEquals("جارٍ تنزيل ملف الترجمة وتطبيقه على الفيديو…", ar.getValue("subtitle_downloading_and_applying_status"))
         assertEquals("Preview", en.getValue("subtitle_preview_button"))
         assertEquals("Previewing…", en.getValue("subtitle_preview_loading_button"))

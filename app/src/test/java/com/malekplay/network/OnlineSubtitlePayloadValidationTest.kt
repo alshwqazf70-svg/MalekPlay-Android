@@ -20,7 +20,14 @@ class OnlineSubtitlePayloadValidationTest {
         assertTrue(isValidSubtitlePayload("WEBVTT\n\n00:00:01.000 --> 00:00:02.000".toByteArray(), "vtt"))
         val ass = "[Script Info]\nTitle: test\nScriptType: v4.00+\n\n[V4+ Styles]\nFormat: Name, Fontname\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,Hello".toByteArray()
         assertTrue(isValidSubtitlePayload(ass, "ass"))
-        assertTrue(isValidSubtitlePayload(ass, "ssa"))
+        assertFalse("ASS v4.00+ content must not be mislabeled as SSA", isValidSubtitlePayload(ass, "ssa"))
+
+        val ssa = ass.toString(Charsets.UTF_8)
+            .replace("ScriptType: v4.00+", "ScriptType: v4.00")
+            .replace("[V4+ Styles]", "[V4 Styles]")
+            .toByteArray(Charsets.UTF_8)
+        assertTrue(isValidSubtitlePayload(ssa, "ssa"))
+        assertFalse("SSA v4.00 content must not be mislabeled as ASS", isValidSubtitlePayload(ssa, "ass"))
     }
 
     @Test

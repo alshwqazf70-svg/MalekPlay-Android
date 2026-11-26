@@ -101,7 +101,6 @@ import com.malekplay.network.UltraShareQrCode
 import com.malekplay.network.UltraSharePlatformCompatibility
 import com.malekplay.network.UltraShareNetworkRouting
 import com.malekplay.network.UltraShareCore
-import com.malekplay.network.UltraShareDiagnostics
 import com.malekplay.player.cast.CastMediaHttpServer
 import com.malekplay.player.cast.WebCastItem
 import com.malekplay.player.cast.WebCastRegistry
@@ -197,25 +196,6 @@ fun UltraShareExperienceScreen(
             else viewModel.exportReceived(uri)
         }
         pendingReceivedExport = null
-    }
-    val diagnosticsExportLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("text/plain")
-    ) { uri ->
-        if (uri != null) {
-            UltraShareDiagnostics.exportLogs(uri) { result ->
-                scope.launch(Dispatchers.Main) {
-                    result.onSuccess { count ->
-                        Toast.makeText(context, "تم تصدير سجل التشخيص ($count ملفات).", Toast.LENGTH_LONG).show()
-                    }.onFailure { failure ->
-                        Toast.makeText(
-                            context,
-                            failure.localizedMessage ?: "تعذر تصدير سجل التشخيص.",
-                            Toast.LENGTH_LONG
-                        ).show()
-                    }
-                }
-            }
-        }
     }
     val qrScanner = rememberLauncherForActivityResult(ScanContract()) { result ->
         result.contents?.takeIf { it.isNotBlank() }?.let(::handleQr)
@@ -1029,17 +1009,6 @@ fun UltraShareExperienceScreen(
                             Icon(Icons.Filled.History, null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(8.dp))
                             Text("سجل الإرسال والاستقبال")
-                        }
-                        OutlinedButton(
-                            onClick = {
-                                diagnosticsExportLauncher.launch("MalekPlayer-UltraShare-Diagnostics.jsonl")
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Icon(Icons.Filled.Download, null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("تصدير سجل تشخيص الأخطاء")
                         }
                     }
                 }

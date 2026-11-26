@@ -2588,42 +2588,17 @@ private fun forgetApprovedSenderTarget(host: String) {
                                 )
                                 return@stopInvitationDiscoveryChecked
                             }
+                            // The Wi-Fi Direct engine owns the complete connect lifecycle:
+                            // 10s for a missing ActionListener callback, 30s for each accepted
+                            // negotiation, bounded framework retries, and 35s peer confirmation.
+                            // Do not close this session with a shorter ViewModel watchdog.
                             session.connect(peer.deviceAddress, preferThisDeviceAsGroupOwner = false)
-                            // Guard against silent OEM WifiP2pManager.connect() stalls:
-                            // if group formation has not completed within the connect window,
-                            // fall back automatically to LAN.
-                            viewModelScope.launch {
-                                delay(UltraSharePairingReadiness.WIFI_DIRECT_CONNECT_FALLBACK_TIMEOUT_MS)
-                                val serviceState = UltraShareForegroundService.state.value
-                                val alreadyPaired = controlPairingInProgress ||
-                                    _state.value.receiving ||
-                                    serviceState.activePeers.isNotEmpty() ||
-                                    UltraShareForegroundService.approvedSendTargets().isNotEmpty()
-                                if (UltraSharePairingReadiness.isCurrentInvitationAttempt(pendingQrPairing, pairingAttempt) &&
-                                    qrP2pConnectStarted &&
-                                    !alreadyPaired &&
-                                    wifiDirectSession === session
-                                ) {
-                                    UltraShareDiagnostics.event("PAIRING", "P2P_CONNECT_TIMEOUT_FALLING_BACK_TO_LAN")
-                                    wifiDirectSession = null
-                                    runCatching { session.close() }
-                                    pendingQrPairing = null
-                                    qrP2pConnectStarted = false
-                                    fallbackAfterWifiDirectScanFailure(
-                                        secret = pairingAttempt.secret,
-                                        hosts = pairingAttempt.hosts,
-                                        pairing = fallbackPairing,
-                                        invitationId = invitationId,
-                                        reason = "p2p_connect_timeout"
-                                    )
-                                }
-                            }
                         }
                     }
                 }
             }
             // This deadline covers DNS-SD discovery only. Once a peer is found,
-            // the connect watchdog above bounds P2P negotiation before falling back to LAN.
+            // the Wi-Fi Direct session owns negotiation and terminal-failure fallback.
             viewModelScope.launch {
                 delay(UltraSharePairingReadiness.WIFI_DIRECT_INVITATION_DISCOVERY_TIMEOUT_MS)
                 val pending = pairingAttempt
