@@ -93,7 +93,7 @@ internal object SrtSubtitleParser {
         if (normalized.contains("[Events]", ignoreCase = true) &&
             normalized.lineSequence().any { it.trimStart().startsWith("Dialogue:", ignoreCase = true) }
         ) {
-            val isLegacySsa = Regex("""(?im)^\\s*ScriptType:\\s*v4\\.00\\s*$""").containsMatchIn(normalized)
+            val isLegacySsa = Regex("""(?im)^\s*ScriptType:\s*v4\.00\s*$""").containsMatchIn(normalized)
             return if (isLegacySsa) "ssa" else "ass"
         }
         if (!hasTimingLine(normalized)) return null
@@ -250,7 +250,7 @@ internal object SrtSubtitleParser {
 
     fun maskMarkup(text: String): Pair<String, List<String>> {
         val tags = mutableListOf<String>()
-        val protectedMarkup = Regex("""<[^>]+>|\\{\\\\[^}]*}|\\\\[NnHh]""")
+        val protectedMarkup = Regex("""<[^>]+>|\{\\[^}]*}|\\[NnHh]""")
         val masked = protectedMarkup.replace(text) { match ->
             val index = tags.size
             tags += match.value
