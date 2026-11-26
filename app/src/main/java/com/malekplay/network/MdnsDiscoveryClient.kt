@@ -23,6 +23,8 @@ internal fun classifyMdnsService(service: String): NetworkDeviceKind = when {
         service.contains("_samsungmsf._tcp", true) ||
         service.contains("_lge-smarttv._tcp", true) ||
         service.contains("_roku._tcp", true) ||
+        service.contains("_roku-ecp._tcp", true) ||
+        service.contains("_dial._tcp", true) ||
         service.contains("_dlna._tcp", true) -> NetworkDeviceKind.MEDIA_RENDERER
     else -> NetworkDeviceKind.NETWORK_DEVICE
 }
@@ -32,7 +34,9 @@ internal fun protocolsForMdnsService(service: String): Set<TvCastProtocol> = whe
         service.contains("_androidtvremote2._tcp", true) -> setOf(TvCastProtocol.CHROMECAST)
     service.contains("_airplay._tcp", true) ||
         service.contains("_raop._tcp", true) -> setOf(TvCastProtocol.AIRPLAY)
-    service.contains("_roku._tcp", true) -> setOf(TvCastProtocol.ROKU_ECP)
+    service.contains("_roku._tcp", true) ||
+        service.contains("_roku-ecp._tcp", true) -> setOf(TvCastProtocol.ROKU_ECP)
+    service.contains("_dial._tcp", true) -> setOf(TvCastProtocol.DIAL)
     service.contains("_dlna._tcp", true) ||
         service.contains("_samsungmsf._tcp", true) ||
         service.contains("_lge-smarttv._tcp", true) -> setOf(TvCastProtocol.DLNA)
@@ -270,6 +274,8 @@ internal class MdnsDiscoveryClient {
             "_airplay._tcp.local",
             "_raop._tcp.local",
             "_roku._tcp.local",
+            "_roku-ecp._tcp.local",
+            "_dial._tcp.local",
             "_dlna._tcp.local",
             "_samsungmsf._tcp.local",
             "_lge-smarttv._tcp.local",
