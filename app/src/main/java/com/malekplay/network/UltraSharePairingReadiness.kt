@@ -126,7 +126,7 @@ internal object UltraSharePairingReadiness {
     const val WIFI_DIRECT_INVITATION_DISCOVERY_TIMEOUT_MS = 25_000L
 
     /** Bound receiver-side Wi-Fi Direct group/advertisement startup before falling back to LAN automatically. */
-    const val WIFI_DIRECT_RECEIVER_STARTUP_FALLBACK_TIMEOUT_MS = 12_000L
+    const val WIFI_DIRECT_RECEIVER_STARTUP_FALLBACK_TIMEOUT_MS = 35_000L
 
     /** A delayed callback may mutate state only while its exact invitation attempt is current. */
     fun isCurrentInvitationAttempt(current: Any?, expected: Any): Boolean = current === expected
