@@ -711,10 +711,10 @@ class PlaybackService : MediaSessionService() {
         val previousCustom = videoCustomTuning
         videoEnhancementProfile = profile
         videoCustomTuning = false
-        // A quality preset is an explicit request to activate visible GPU detail enhancement.
-        if (!hasAnyVideoEnhancementEnabled() && isLocalClearVideoSession()) {
-            videoUpscalingEnabled = true
-        }
+        // Selecting a preset only changes the saved tuning. The master switch is
+        // the sole control that activates GPU processing, so browsing presets while
+        // enhancement is OFF must never attach a video-effect chain.
+        if (!hasAnyVideoEnhancementEnabled()) return true
         if (applyVideoEnhancements()) return true
         videoEnhancementProfile = previousProfile
         videoUpscalingEnabled = previousUpscaling
@@ -736,26 +736,14 @@ class PlaybackService : MediaSessionService() {
         val prevDetail = customDetailStrength
         val prevContrast = customContrastBoost
         val prevVibrance = customVibranceStrength
-        val prevUpscaling = videoUpscalingEnabled
-        val prevNoiseFlag = videoNoiseReductionEnabled
-        val prevVibranceFlag = videoVibranceEnabled
-        if (!hasAnyVideoEnhancementEnabled()) VideoEnhancementMetrics.resetPlaybackSession()
         videoCustomTuning = customMode
         customDenoiseStrength = denoiseStrength.coerceIn(0f, 0.60f)
         customDetailStrength = detailStrength.coerceIn(0f, 1.20f)
         customContrastBoost = contrastBoost.coerceIn(0f, 0.22f)
         customVibranceStrength = vibranceStrength.coerceIn(0f, 0.35f)
-        if (customMode) {
-            videoNoiseReductionEnabled = customDenoiseStrength > 0.01f
-            videoVibranceEnabled = customVibranceStrength > 0.005f
-            if (customDetailStrength > 0.01f || customContrastBoost > 0.005f) {
-                videoUpscalingEnabled = true
-            }
-        } else if (!hasAnyVideoEnhancementEnabled()) {
-            videoUpscalingEnabled = true
-            videoNoiseReductionEnabled = customDenoiseStrength > 0.01f
-            videoVibranceEnabled = customVibranceStrength > 0.005f
-        }
+        // Fine-tuning values are preferences, not an activation command. Keep
+        // every processing stage OFF until the user enables the master switch.
+        if (!hasAnyVideoEnhancementEnabled()) return true
         if (applyVideoEnhancements()) return true
         videoCustomTuning = prevCustom
         customDenoiseStrength = prevDenoise
