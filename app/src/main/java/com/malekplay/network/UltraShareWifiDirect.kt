@@ -1524,9 +1524,16 @@ object UltraShareWifiDirect {
                         mapOf("attempt" to attempt, "timeoutMs" to 10_000)
                     )
                     // A missing ActionListener callback is different from an accepted
-                    // connect() whose group negotiation is still running. Recover only
-                    // the silent request; never cut short the later 30-second negotiation.
-                    if (shouldRetryWifiDirectConnectCallbackTimeout(attempt)) {
+                    // connect() whose group negotiation is still running. If Android has
+                    // already reported a formed group, let its independent 35s peer-
+                    // confirmation window finish instead of cancelling that live group.
+                    if (formedGroupObserved || wasConnected) {
+                        UltraShareDiagnostics.event(
+                            "WIFI_DIRECT",
+                            "CONNECT_CALLBACK_LATE_BUT_GROUP_ALREADY_FORMED",
+                            mapOf("attempt" to attempt)
+                        )
+                    } else if (shouldRetryWifiDirectConnectCallbackTimeout(attempt)) {
                         recoverAndRetryConnect(
                             deviceAddress = deviceAddress,
                             preferThisDeviceAsGroupOwner = preferThisDeviceAsGroupOwner,
