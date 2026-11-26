@@ -68,8 +68,7 @@ internal object PrivateVaultRecovery {
                     }
                 }
                 file.name.endsWith(".edit.tmp") -> {
-                    val id = file.name.removeSuffix(".edit.tmp")
-                    if (validId.matches(id)) file.delete()
+                    file.delete()
                 }
                 file.name.endsWith(".tmp") -> {
                     val id = file.name.removeSuffix(".tmp")

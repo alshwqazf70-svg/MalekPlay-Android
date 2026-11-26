@@ -10,6 +10,7 @@ import android.os.StatFs
 import android.provider.OpenableColumns
 import java.io.*
 import java.security.MessageDigest
+import java.util.Collections
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
@@ -506,7 +507,14 @@ class PrivateVaultRepository(context: Context) {
 
     internal fun ensureAvailableInternalSpace(requiredBytes: Long) {
         if (requiredBytes <= 0L) return
-        val available = runCatching { StatFs(directory.absolutePath).availableBytes }.getOrDefault(Long.MAX_VALUE)
+        val statAvailable = runCatching { StatFs(directory.absolutePath).availableBytes }.getOrDefault(-1L)
+        val fileUsable = runCatching { directory.usableSpace }.getOrDefault(0L)
+        val available = when {
+            statAvailable > 0L -> statAvailable
+            fileUsable > 0L -> fileUsable
+            statAvailable == 0L -> 0L
+            else -> Long.MAX_VALUE
+        }
         if (available < requiredBytes) {
             throw VaultInsufficientStorageException(
                 "Insufficient internal storage space (required=$requiredBytes, available=$available)."
@@ -963,7 +971,8 @@ class PrivateVaultRepository(context: Context) {
     }
 
     companion object {
-        private val activeTempNames: MutableSet<String> = ConcurrentHashMap.newKeySet()
+        private val activeTempNames: MutableSet<String> =
+            Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
     }
 
     private fun persistIndexWithKey(entries: List<PrivateVaultEntry>, key: ByteArray) {

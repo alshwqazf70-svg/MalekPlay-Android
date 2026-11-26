@@ -1,6 +1,7 @@
 package com.malekplay.vault
 
 import android.net.Uri
+import java.util.Collections
 import java.util.Locale
 
 enum class VaultBrowserSort {
@@ -145,7 +146,7 @@ fun filterAndSortBrowserItems(
             it.lastModified
         }.thenBy { it.displayName.lowercase(Locale.getDefault()) }
     }
-    val ordered = if (ascending) itemComparator else itemComparator.reversed()
+    val ordered = if (ascending) itemComparator else Collections.reverseOrder(itemComparator)
     // Keep directories grouped before files like MX Player does.
     return filtered.sortedWith(compareBy<VaultBrowserItem> { !it.isDirectory }.then(ordered))
 }
@@ -180,7 +181,7 @@ fun filterAndSortVaultEntries(
         VaultEntrySort.SIZE -> compareBy<PrivateVaultEntry> { it.sizeBytes.coerceAtLeast(0L) }
             .thenBy { it.displayName.lowercase(Locale.getDefault()) }
     }
-    return base.sortedWith(if (ascending) comparator else comparator.reversed())
+    return base.sortedWith(if (ascending) comparator else Collections.reverseOrder(comparator))
 }
 
 /**
@@ -281,7 +282,7 @@ fun filterAndSortArchiveItems(
             it.lastModifiedMs
         }.thenBy { it.name.lowercase(Locale.getDefault()) }
     }
-    val ordered = if (ascending) comparator else comparator.reversed()
+    val ordered = if (ascending) comparator else Collections.reverseOrder(comparator)
     return filtered.sortedWith(compareBy<VaultArchiveListingItem> { !it.isDirectory }.then(ordered))
 }
 
