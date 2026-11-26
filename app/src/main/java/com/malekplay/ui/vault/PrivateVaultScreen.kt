@@ -317,7 +317,7 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                         entries = targetEntries,
                         destinationTree = destinationTree,
                         session = session,
-                        useOriginalFolderWhenAvailable = useOriginalFolder,
+                        useOriginalFolder = useOriginalFolder,
                         removeFromVaultAfterRestore = removeFromVault,
                         isCancelled = { cancelFlag.get() },
                         onItemProgress = { current, total, name ->
@@ -335,7 +335,7 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                 }
                 refreshEntries(session)
                 if (summary.succeededCount > 0) {
-                    libraryViewModel.refresh(force = true)
+                    libraryViewModel.refresh()
                 }
                 summary
             }.onSuccess { summary ->
@@ -523,7 +523,7 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                         }
                     }
                 }
-                libraryViewModel.refresh(force = true)
+                libraryViewModel.refresh()
             }.onSuccess {
                 message = context.getString(R.string.vault_single_export_success)
             }.onFailure {

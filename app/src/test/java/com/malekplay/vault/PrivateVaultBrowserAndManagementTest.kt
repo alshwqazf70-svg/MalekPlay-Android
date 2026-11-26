@@ -351,7 +351,7 @@ class PrivateVaultBrowserAndManagementTest {
                 entries = listOf(vaultEntries.first { it.displayName == "vacation.jpg" }),
                 destinationTree = null,
                 session = session,
-                useOriginalFolderWhenAvailable = true,
+                useOriginalFolder = true,
                 removeFromVaultAfterRestore = false
             )
             assertEquals(1, copySummary.succeededCount)
@@ -367,7 +367,7 @@ class PrivateVaultBrowserAndManagementTest {
                 entries = vaultEntries,
                 destinationTree = customDestTree,
                 session = session,
-                useOriginalFolderWhenAvailable = false,
+                useOriginalFolder = false,
                 removeFromVaultAfterRestore = true
             )
             assertEquals(2, moveOutSummary.succeededCount)
@@ -411,7 +411,7 @@ class PrivateVaultBrowserAndManagementTest {
                 entries = listOf(folderResult.entry),
                 destinationTree = restoreTree,
                 session = session,
-                useOriginalFolderWhenAvailable = false,
+                useOriginalFolder = false,
                 removeFromVaultAfterRestore = true
             )
 

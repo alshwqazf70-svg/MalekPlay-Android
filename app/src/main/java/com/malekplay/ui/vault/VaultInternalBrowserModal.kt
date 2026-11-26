@@ -198,7 +198,7 @@ internal fun VaultInternalBrowserModal(
     // Recompute snapshots whenever selectionVersion updates
     val selectedSnapshot = remember(selectionVersion) { selectionManager.selectedItems() }
     val selectedCount = selectedSnapshot.size
-    val selectedTotalBytes = remember(selectionSnapshot) {
+    val selectedTotalBytes = remember(selectedSnapshot) {
         selectedSnapshot.sumOf { it.sizeBytes.coerceAtLeast(0L) }
     }
     val allCurrentFilesSelected = remember(currentFolderFiles, selectionVersion) {
