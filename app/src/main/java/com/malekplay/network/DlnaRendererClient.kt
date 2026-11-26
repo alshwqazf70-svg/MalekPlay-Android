@@ -20,7 +20,7 @@ import java.util.concurrent.ConcurrentHashMap
  * normal platform certificate validation. Credentials and fragments are never
  * forwarded to a renderer.
  */
-internal fun validateDlnaRendererMediaUrl(raw: String): URL {
+internal fun validateDlnaRendererMediaUrl(raw: String, allowLoopback: Boolean = false): URL {
     require(raw.length in 1..4096) { "رابط وسائط DLNA غير صالح." }
     val uri = URI(raw).normalize()
     require(uri.scheme.equals("http", true) || uri.scheme.equals("https", true)) {
@@ -32,7 +32,7 @@ internal fun validateDlnaRendererMediaUrl(raw: String): URL {
     require(uri.port == -1 || uri.port in 1..65535) { "منفذ وسائط DLNA غير صالح." }
     val cleanHost = uri.host.removePrefix("[").removeSuffix("]")
     if (uri.scheme.equals("http", true)) {
-        require(isPrivateLanHost(cleanHost)) {
+        require(isPrivateLanHost(cleanHost) || (allowLoopback && cleanHost == "127.0.0.1")) {
             "روابط HTTP مسموحة فقط لخادم البث المحلي على الشبكة الخاصة."
         }
     }
@@ -40,10 +40,16 @@ internal fun validateDlnaRendererMediaUrl(raw: String): URL {
 }
 
 /** Restrict UPnP description/control endpoints to the exact discovered LAN peer. */
-internal fun validateDlnaRendererEndpointUrl(raw: String, deviceHost: String): URL {
+internal fun validateDlnaRendererEndpointUrl(
+    raw: String,
+    deviceHost: String,
+    allowLoopback: Boolean = false
+): URL {
     require(raw.length in 1..4096) { "رابط جهاز DLNA غير صالح." }
     val cleanDeviceHost = deviceHost.trim().removePrefix("[").removeSuffix("]").substringBefore('%')
-    require(isPrivateLanHost(cleanDeviceHost)) { "عنوان جهاز DLNA ليس عنوان شبكة محلية." }
+    require(isPrivateLanHost(cleanDeviceHost) || (allowLoopback && cleanDeviceHost == "127.0.0.1")) {
+        "عنوان جهاز DLNA ليس عنوان شبكة محلية."
+    }
     val uri = URI(raw).normalize()
     require(uri.scheme.equals("http", true) || uri.scheme.equals("https", true)) {
         "بروتوكول رابط DLNA غير مدعوم."
@@ -53,7 +59,10 @@ internal fun validateDlnaRendererEndpointUrl(raw: String, deviceHost: String): U
     }
     require(uri.port == -1 || uri.port in 1..65535) { "منفذ DLNA غير صالح." }
     val cleanUriHost = uri.host.removePrefix("[").removeSuffix("]").substringBefore('%')
-    require(isPrivateLanHost(cleanUriHost) && cleanUriHost.equals(cleanDeviceHost, ignoreCase = true)) {
+    require(
+        (isPrivateLanHost(cleanUriHost) || (allowLoopback && cleanUriHost == "127.0.0.1")) &&
+            cleanUriHost.equals(cleanDeviceHost, ignoreCase = true)
+    ) {
         "تم رفض رابط DLNA خارج الجهاز المكتشف."
     }
     return uri.toURL()
@@ -71,13 +80,14 @@ class DlnaRendererClient internal constructor(
     private val connectTimeoutMs: Int = 5_000,
     private val readTimeoutMs: Int = 8_000,
     context: Context? = null,
-    private val rokuPort: Int = 8060
+    private val rokuPort: Int = 8060,
+    private val allowLoopbackForTest: Boolean = false
 ) {
     constructor(
         connectTimeoutMs: Int = 5_000,
         readTimeoutMs: Int = 8_000,
         context: Context? = null
-    ) : this(connectTimeoutMs, readTimeoutMs, context, 8060)
+    ) : this(connectTimeoutMs, readTimeoutMs, context, 8060, false)
     private val appContext: Context? = context?.applicationContext
     private val endpointCache = ConcurrentHashMap<String, RendererEndpoints>()
 
@@ -134,8 +144,8 @@ class DlnaRendererClient internal constructor(
         subtitleUrl: String? = null,
         sizeBytes: Long = -1L
     ) = withContext(Dispatchers.IO) {
-        validateDlnaRendererMediaUrl(mediaUrl)
-        subtitleUrl?.let { validateDlnaRendererMediaUrl(it) }
+        validateDlnaRendererMediaUrl(mediaUrl, allowLoopbackForTest)
+        subtitleUrl?.let { validateDlnaRendererMediaUrl(it, allowLoopbackForTest) }
 
         val isRoku = TvCastProtocol.ROKU_ECP in device.castProtocols
         val hasDlnaDescription = device.descriptionUrl != null &&
@@ -394,13 +404,16 @@ class DlnaRendererClient internal constructor(
             if (clean.contains(':')) "[$clean]" else clean
         }
 
+    private fun isAllowedTargetHost(host: String): Boolean =
+        isPrivateLanHost(host) || (allowLoopbackForTest && host == "127.0.0.1")
+
     private suspend fun playViaRokuEcp(
         device: DiscoveredNetworkDevice,
         mediaUrl: String,
         title: String,
         mimeType: String
     ) = withContext(Dispatchers.IO) {
-        require(isPrivateLanHost(device.host)) { "عنوان Roku خارج الشبكة المحلية." }
+        require(isAllowedTargetHost(device.host)) { "عنوان Roku خارج الشبكة المحلية." }
         val isAudio = mimeType.startsWith("audio/", true)
         val isImage = mimeType.startsWith("image/", true)
         val mediaType = when {
@@ -413,22 +426,22 @@ class DlnaRendererClient internal constructor(
         val urlHost = rokuUrlHost(device)
         // PlayOnRoku / Roku Media Player ECP input endpoint (15985 = PlayOnRoku).
         val target = URL("http://$urlHost:$rokuPort/input/15985?t=$mediaType&u=$encodedUrl&videoName=$encodedTitle&videoFormat=${guessRokuFormat(mediaUrl, mimeType)}")
-        val safeUrl = validateDlnaRendererEndpointUrl(target.toExternalForm(), device.host)
+        val safeUrl = validateDlnaRendererEndpointUrl(target.toExternalForm(), device.host, allowLoopbackForTest)
         postEmpty(safeUrl, "تعذر إرسال الوسائط إلى Roku TV. تأكد من تثبيت Roku Media Player أو تفعيل ECP.")
     }
 
     private suspend fun sendRokuKeypress(device: DiscoveredNetworkDevice, key: String) = withContext(Dispatchers.IO) {
-        require(isPrivateLanHost(device.host)) { "عنوان Roku خارج الشبكة المحلية." }
+        require(isAllowedTargetHost(device.host)) { "عنوان Roku خارج الشبكة المحلية." }
         val urlHost = rokuUrlHost(device)
-        val safeUrl = validateDlnaRendererEndpointUrl("http://$urlHost:$rokuPort/keypress/$key", device.host)
+        val safeUrl = validateDlnaRendererEndpointUrl("http://$urlHost:$rokuPort/keypress/$key", device.host, allowLoopbackForTest)
         postEmpty(safeUrl, "تعذر إرسال أمر التحكم إلى Roku TV.")
     }
 
     private fun queryRokuMediaPlayer(device: DiscoveredNetworkDevice): RokuMediaPlayerState? {
-        if (!isPrivateLanHost(device.host)) return null
+        if (!isAllowedTargetHost(device.host)) return null
         val urlHost = rokuUrlHost(device)
         val safeUrl = runCatching {
-            validateDlnaRendererEndpointUrl("http://$urlHost:$rokuPort/query/media-player", device.host)
+            validateDlnaRendererEndpointUrl("http://$urlHost:$rokuPort/query/media-player", device.host, allowLoopbackForTest)
         }.getOrNull() ?: return null
         val xml = runCatching { readUrl(safeUrl) }.getOrNull() ?: return null
         val parser = runCatching { newSafePullParser(xml) }.getOrNull() ?: return null
@@ -514,7 +527,7 @@ class DlnaRendererClient internal constructor(
         ) {
             "الجهاز المكتشف لا يعلن خدمة DLNA MediaRenderer."
         }
-        require(isPrivateLanHost(device.host)) {
+        require(isAllowedTargetHost(device.host)) {
             "أوامر DLNA مسموحة لأجهزة الشبكة المحلية فقط."
         }
         val description = device.descriptionUrl
@@ -523,7 +536,7 @@ class DlnaRendererClient internal constructor(
         // or description endpoint changes. Never reuse a control URL across hosts.
         val cacheKey = dlnaEndpointCacheKey(device.id, device.host, description)
         endpointCache[cacheKey]?.let { return it }
-        val descriptionUrl = validateDlnaRendererEndpointUrl(description, device.host)
+        val descriptionUrl = validateDlnaRendererEndpointUrl(description, device.host, allowLoopbackForTest)
         val xml = readUrl(descriptionUrl)
         val parser = newSafePullParser(xml)
         var serviceType: String? = null
@@ -547,7 +560,7 @@ class DlnaRendererClient internal constructor(
                     if (!type.isNullOrBlank() && !path.isNullOrBlank()) {
                         val resolved = URL(descriptionUrl, path)
                         val safeControlUrl = runCatching {
-                            validateDlnaRendererEndpointUrl(resolved.toExternalForm(), device.host)
+                            validateDlnaRendererEndpointUrl(resolved.toExternalForm(), device.host, allowLoopbackForTest)
                         }.getOrNull()
                         if (safeControlUrl != null) {
                             if (avTransport == null && type.matches(Regex("urn:schemas-upnp-org:service:AVTransport:[0-9]+", RegexOption.IGNORE_CASE))) {

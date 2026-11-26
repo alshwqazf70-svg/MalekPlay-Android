@@ -45,7 +45,7 @@ class DlnaRendererClientIntegrationTest {
         }
 
         try {
-            val client = DlnaRendererClient(rokuPort = server.localPort)
+            val client = DlnaRendererClient(rokuPort = server.localPort, allowLoopbackForTest = true)
             val roku = DiscoveredNetworkDevice(
                 id = "roku-1",
                 name = "Roku TV",
@@ -170,7 +170,7 @@ class DlnaRendererClientIntegrationTest {
         }
 
         try {
-            val client = DlnaRendererClient()
+            val client = DlnaRendererClient(allowLoopbackForTest = true)
             val tv = DiscoveredNetworkDevice(
                 id = "dlna-tv",
                 name = "Living Room TV",
@@ -206,7 +206,7 @@ class DlnaRendererClientIntegrationTest {
             200 to ""
         }
         try {
-            val client = DlnaRendererClient(rokuPort = server.localPort)
+            val client = DlnaRendererClient(rokuPort = server.localPort, allowLoopbackForTest = true)
             val airPlayOnly = DiscoveredNetworkDevice(
                 id = "airplay-only",
                 name = "Bedroom Apple TV",
