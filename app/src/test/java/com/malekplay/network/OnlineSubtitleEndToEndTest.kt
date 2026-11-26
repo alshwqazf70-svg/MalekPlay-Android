@@ -46,6 +46,7 @@ class OnlineSubtitleEndToEndTest {
             "1\n\u200E00:00:01,5 --> 00:00:03,2500\u200F\nمرحباً\n" to "srt",
             "1\n00:01:02 --> 00:01:05\nNo millis\n" to "srt",
             "1\n00:00:01:24 --> 00:00:03:10\nColon millis\n" to "srt",
+            "١\n٠٠:٠٠:٠١,٢٥٠ --> ٠٠:٠٠:٠٣,٥٠٠\nمرحباً بالعربية\n" to "srt",
             "WEBVTT\n\n00:01.250 --> 00:03.500 align:start\nShort VTT\n" to "vtt",
             "[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:01.00,0:00:02.50,Default,,0,0,0,,ASS cue\n" to "ass"
         )
@@ -224,6 +225,36 @@ class OnlineSubtitleEndToEndTest {
         assertEquals("vtt", vttFile.extension)
         val vttPreview = repo.previewSubtitleLines(vttSub, maxCues = 3)
         assertEquals(listOf("[00:01,000] First VTT line inside gzip"), vttPreview)
+    }
+
+    @Test
+    fun subdlEndToEndDownloadsAndPreviewsArabicIndicTimestampSrt() = runBlocking {
+        val arabicSrt = (
+            "١\r\n" +
+                "\u200E٠٠:٠٠:٠١,٢٥٠ --> ٠٠:٠٠:٠٣,٥٠٠\u200F\r\n" +
+                "مرحباً بكم في الحلقة\r\n"
+            ).toByteArray(Charsets.UTF_8)
+        val repo = createMockedRepository { request ->
+            val url = request.url.toString()
+            if (url.endsWith("/subtitles/arabic-digits")) {
+                textResponse(request, String(arabicSrt, Charsets.UTF_8), "text/plain; charset=utf-8")
+            } else {
+                error("Unexpected SubDL URL: $url")
+            }
+        }
+        val subtitle = OnlineSubtitle(
+            fileId = 0L,
+            language = "ar",
+            release = "Avatar.S01E02",
+            downloads = 0,
+            format = "srt",
+            sourceId = "/subtitles/arabic-digits",
+            provider = "subdl",
+            seasonNumber = 1,
+            episodeNumber = 2
+        )
+        val preview = repo.previewSubtitleLines(subtitle, maxCues = 3)
+        assertEquals(listOf("[00:00:01,250] مرحباً بكم في الحلقة"), preview)
     }
 
     @Test
