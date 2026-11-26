@@ -118,7 +118,9 @@ fun UltraShareExperienceScreen(
     contentPadding: PaddingValues,
     onBack: () -> Unit,
     initialUris: List<Uri> = emptyList(),
-    onInitialUrisConsumed: () -> Unit = {}
+    onInitialUrisConsumed: () -> Unit = {},
+    initialOpenScreenMirror: Boolean = false,
+    onScreenMirrorEntryConsumed: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val sensorManager = remember(context) { context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager }
@@ -131,7 +133,15 @@ fun UltraShareExperienceScreen(
     var pendingMediaType by remember { mutableStateOf(MediaType.VIDEO) }
     val state by viewModel.state.collectAsState()
     val scope = rememberCoroutineScope()
-    var page by remember { mutableStateOf(UltraSharePage.HOME) }
+    var page by remember {
+        mutableStateOf(if (initialOpenScreenMirror) UltraSharePage.TRANSFERS else UltraSharePage.HOME)
+    }
+    LaunchedEffect(initialOpenScreenMirror) {
+        if (initialOpenScreenMirror) {
+            page = UltraSharePage.TRANSFERS
+            onScreenMirrorEntryConsumed()
+        }
+    }
     var shakeToConnectArmed by remember { mutableStateOf(false) }
     var triggerShakeScan by remember { mutableStateOf(false) }
     var showDevicePicker by remember { mutableStateOf(false) }
@@ -1444,7 +1454,15 @@ fun UltraShareExperienceScreen(
                             }
                         },
                         onStopScreenMirror = viewModel::stopHostScreenMirroring,
-                        onJoinScreenMirror = viewModel::joinMirrorViewer
+                        onJoinScreenMirror = viewModel::joinMirrorViewer,
+                        onCreateMirrorGroup = {
+                            if (!state.receiving) startReceivingGroup()
+                            page = UltraSharePage.RECEIVE
+                        },
+                        onJoinMirrorGroup = {
+                            page = UltraSharePage.JOIN
+                            scanQr()
+                        }
                     )
                     val connectedHosts = (
                         state.activePeers.map { it.host } + state.approvedSenderPeerHosts

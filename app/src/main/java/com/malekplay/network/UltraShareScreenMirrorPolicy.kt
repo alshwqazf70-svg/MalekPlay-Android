@@ -57,6 +57,9 @@ object UltraShareScreenMirrorPolicy {
     fun supportsSystemAudioCapture(sdkInt: Int = Build.VERSION.SDK_INT): Boolean =
         sdkInt >= Build.VERSION_CODES.Q
 
+    fun supportsAudioPlaybackCapture(sdkInt: Int = Build.VERSION.SDK_INT): Boolean =
+        supportsSystemAudioCapture(sdkInt)
+
     fun hasAudioCapturePermission(context: Context, sdkInt: Int = Build.VERSION.SDK_INT): Boolean {
         if (!supportsSystemAudioCapture(sdkInt)) return false
         return ContextCompat.checkSelfPermission(

@@ -69,7 +69,9 @@ fun UltraShareSessionRoom(
     onToggleMirrorAudio: (Boolean) -> Unit = {},
     onStartScreenMirror: () -> Unit = {},
     onStopScreenMirror: () -> Unit = {},
-    onJoinScreenMirror: () -> Unit = {}
+    onJoinScreenMirror: () -> Unit = {},
+    onCreateMirrorGroup: () -> Unit = {},
+    onJoinMirrorGroup: () -> Unit = {}
 ) {
     val isSendingRoom = activeMode == "send"
     // Receiver-side approvals live in activePeers; sender-side approvals are
@@ -242,7 +244,9 @@ fun UltraShareSessionRoom(
                 onToggleMirrorAudio = onToggleMirrorAudio,
                 onStartScreenMirror = onStartScreenMirror,
                 onStopScreenMirror = onStopScreenMirror,
-                onJoinScreenMirror = onJoinScreenMirror
+                onJoinScreenMirror = onJoinScreenMirror,
+                onCreateMirrorGroup = onCreateMirrorGroup,
+                onJoinMirrorGroup = onJoinMirrorGroup
             )
             if (isSendingRoom && (state.sending || sendingPaused)) {
                 Row(
@@ -989,16 +993,14 @@ private fun GroupScreenMirrorCard(
     onToggleMirrorAudio: (Boolean) -> Unit,
     onStartScreenMirror: () -> Unit,
     onStopScreenMirror: () -> Unit,
-    onJoinScreenMirror: () -> Unit
+    onJoinScreenMirror: () -> Unit,
+    onCreateMirrorGroup: () -> Unit,
+    onJoinMirrorGroup: () -> Unit
 ) {
     val isHostRole = state.receiving && state.activePeers.isNotEmpty()
     val hostMirror = state.mirrorHostState
     val incomingOffer = state.incomingMirrorOffer
     val audioCaptureSupported = com.malekplay.network.UltraShareScreenMirrorPolicy.supportsAudioPlaybackCapture()
-
-    if (!connected && !hostMirror.active && !hostMirror.starting && incomingOffer == null) {
-        return
-    }
 
     Column(
         modifier = Modifier
@@ -1042,7 +1044,8 @@ private fun GroupScreenMirrorCard(
                         hostMirror.active -> "بث شاشة هذا الهاتف نشط الآن (${hostMirror.viewerCount} مشاهد)"
                         incomingOffer != null -> "بث مباشر متاح من ${incomingOffer.hostName}"
                         isHostRole -> "شارك شاشة هذا الهاتف مع جميع أجهزة المجموعة"
-                        else -> "بانتظار بدء الشاشة الجماعية من منشئ المجموعة"
+                        connected -> "بانتظار بدء الشاشة الجماعية من منشئ المجموعة"
+                        else -> "أنشئ مجموعة لمشاركة شاشتك أو امسح QR لمشاهدة شاشة المضيف"
                     },
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.labelSmall
@@ -1064,7 +1067,31 @@ private fun GroupScreenMirrorCard(
             }
         }
 
-        if (incomingOffer != null) {
+        if (!connected && !hostMirror.active && !hostMirror.starting && incomingOffer == null) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(
+                    onClick = onCreateMirrorGroup,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFB66CFF),
+                        contentColor = Color(0xFF190F22)
+                    )
+                ) {
+                    Text("إنشاء مجموعة وبث شاشتي", fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                OutlinedButton(
+                    onClick = onJoinMirrorGroup,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFD7A0FF)),
+                    border = BorderStroke(1.dp, Color(0xFF9A63C7))
+                ) {
+                    Text("انضمام بمسح QR", fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        } else if (incomingOffer != null) {
             Text(
                 "الدقة: ${incomingOffer.width}×${incomingOffer.height} • ${incomingOffer.fps} إطار/ث • " +
                     if (incomingOffer.audioEnabled) "صوت + صورة" else "فيديو فقط",

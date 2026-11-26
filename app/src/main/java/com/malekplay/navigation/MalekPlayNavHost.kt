@@ -136,7 +136,9 @@ fun MalekPlayNavHost(
     
     // متغير لحفظ الملفات القادمة من تطبيقات أخرى
     var pendingTransferUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    var pendingGroupScreenMirrorEntry by remember { mutableStateOf(false) }
     val openTransferForUris: (List<Uri>) -> Unit = { uris ->
+        pendingGroupScreenMirrorEntry = false
         pendingTransferUris = uris.distinct()
         if (pendingTransferUris.isNotEmpty()) navController.navigate(Screen.UltraShare.route)
     }
@@ -271,7 +273,14 @@ fun MalekPlayNavHost(
                     onOpenFavourites = { navController.navigate(Screen.Favourites.route) },
                     onOpenPlaylists = { navController.navigate(Screen.Playlists.route) },
                     onOpenNetwork = { navController.navigate(Screen.Network.route) },
-                    onOpenUltraShare = { navController.navigate(Screen.UltraShare.route) },
+                    onOpenUltraShare = {
+                        pendingGroupScreenMirrorEntry = false
+                        navController.navigate(Screen.UltraShare.route)
+                    },
+                    onOpenGroupScreenMirror = {
+                        pendingGroupScreenMirrorEntry = true
+                        navController.navigate(Screen.UltraShare.route)
+                    },
                     contentPadding = padding
                 )
             }
@@ -325,9 +334,12 @@ fun MalekPlayNavHost(
                     contentPadding = padding,
                     initialUris = pendingTransferUris,
                     onInitialUrisConsumed = { pendingTransferUris = emptyList() },
-                    onBack = { 
+                    initialOpenScreenMirror = pendingGroupScreenMirrorEntry,
+                    onScreenMirrorEntryConsumed = { pendingGroupScreenMirrorEntry = false },
+                    onBack = {
                         pendingTransferUris = emptyList()
-                        navController.popBackStack() 
+                        pendingGroupScreenMirrorEntry = false
+                        navController.popBackStack()
                     }
                 )
             }

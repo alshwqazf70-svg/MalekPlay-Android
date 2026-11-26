@@ -83,7 +83,8 @@ class ScreenMirrorViewerClient internal constructor(
 
         readerJob = scope.launch {
             var attempt = 0
-            var expectedMediaSeq = -1L
+            var expectedVideoSeq = -1L
+            var expectedAudioSeq = -1L
             var droppedTotal = 0L
             var audioCount = 0L
             while (!closed.get() && isActive) {
@@ -123,7 +124,8 @@ class ScreenMirrorViewerClient internal constructor(
                         )
                         socket.soTimeout = STREAM_READ_TIMEOUT_MS
                         attempt = 0
-                        expectedMediaSeq = -1L
+                        expectedVideoSeq = -1L
+                        expectedAudioSeq = -1L
                         _status.value = _status.value.copy(
                             phase = ConnectionPhase.STREAMING,
                             reconnectAttempt = 0,
@@ -139,11 +141,25 @@ class ScreenMirrorViewerClient internal constructor(
                             while (!closed.get() && isActive && !socket.isClosed) {
                                 val frame = session.readFrame(input)
                                 val hdr = frame.header
-                                if (hdr.frameType != UltraShareScreenMirrorProtocol.FrameType.HEARTBEAT) {
-                                    if (expectedMediaSeq >= 0L && hdr.mediaSeq > expectedMediaSeq) {
-                                        droppedTotal += (hdr.mediaSeq - expectedMediaSeq)
+                                val prevDropped = droppedTotal
+                                when (hdr.frameType) {
+                                    UltraShareScreenMirrorProtocol.FrameType.VIDEO_IDR,
+                                    UltraShareScreenMirrorProtocol.FrameType.VIDEO_DELTA -> {
+                                        if (expectedVideoSeq >= 0L && hdr.mediaSeq > expectedVideoSeq) {
+                                            droppedTotal += (hdr.mediaSeq - expectedVideoSeq)
+                                        }
+                                        expectedVideoSeq = hdr.mediaSeq + 1L
                                     }
-                                    expectedMediaSeq = hdr.mediaSeq + 1L
+                                    UltraShareScreenMirrorProtocol.FrameType.AUDIO_FRAME -> {
+                                        if (expectedAudioSeq >= 0L && hdr.mediaSeq > expectedAudioSeq) {
+                                            droppedTotal += (hdr.mediaSeq - expectedAudioSeq)
+                                        }
+                                        expectedAudioSeq = hdr.mediaSeq + 1L
+                                    }
+                                    else -> Unit
+                                }
+                                if (droppedTotal != prevDropped) {
+                                    _status.value = _status.value.copy(droppedMediaFrames = droppedTotal)
                                 }
                                 when (hdr.frameType) {
                                     UltraShareScreenMirrorProtocol.FrameType.SCREEN_PROTECTED -> {

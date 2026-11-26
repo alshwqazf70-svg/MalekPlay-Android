@@ -64,7 +64,9 @@ class ScreenMirrorBroadcasterHub internal constructor(
     private val running = AtomicBoolean(false)
     private val closed = AtomicBoolean(false)
     private val hubScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val nextMediaSeq = AtomicLong(0L)
+    private val nextVideoFrameSeq = AtomicLong(0L)
+    private val nextAudioFrameSeq = AtomicLong(0L)
+    private val nextControlSeq = AtomicLong(0L)
     private val droppedFramesCounter = AtomicLong(0L)
 
     @Volatile private var serverSocket: ServerSocket? = null
@@ -177,7 +179,7 @@ class ScreenMirrorBroadcasterHub internal constructor(
                         return QueuedFrame(
                             frameType = UltraShareScreenMirrorProtocol.FrameType.HEARTBEAT,
                             flags = 0,
-                            mediaSeq = nextMediaSeq.get(),
+                            mediaSeq = nextControlSeq.get(),
                             timestampUs = System.nanoTime() / 1_000L,
                             width = 0,
                             height = 0,
@@ -381,7 +383,7 @@ class ScreenMirrorBroadcasterHub internal constructor(
         val frame = QueuedFrame(
             frameType = UltraShareScreenMirrorProtocol.FrameType.VIDEO_CONFIG,
             flags = 0,
-            mediaSeq = nextMediaSeq.incrementAndGet(),
+            mediaSeq = nextControlSeq.incrementAndGet(),
             timestampUs = 0L,
             width = width,
             height = height,
@@ -398,7 +400,7 @@ class ScreenMirrorBroadcasterHub internal constructor(
         val frame = QueuedFrame(
             frameType = UltraShareScreenMirrorProtocol.FrameType.AUDIO_CONFIG,
             flags = 0,
-            mediaSeq = nextMediaSeq.incrementAndGet(),
+            mediaSeq = nextControlSeq.incrementAndGet(),
             timestampUs = 0L,
             width = 0,
             height = 0,
@@ -428,7 +430,7 @@ class ScreenMirrorBroadcasterHub internal constructor(
                 UltraShareScreenMirrorProtocol.FrameType.VIDEO_DELTA
             },
             flags = if (isKeyframe) UltraShareScreenMirrorProtocol.FLAG_KEYFRAME else 0,
-            mediaSeq = nextMediaSeq.incrementAndGet(),
+            mediaSeq = nextVideoFrameSeq.incrementAndGet(),
             timestampUs = timestampUs,
             width = width,
             height = height,
@@ -443,7 +445,7 @@ class ScreenMirrorBroadcasterHub internal constructor(
         val frame = QueuedFrame(
             frameType = UltraShareScreenMirrorProtocol.FrameType.AUDIO_FRAME,
             flags = 0,
-            mediaSeq = nextMediaSeq.incrementAndGet(),
+            mediaSeq = nextAudioFrameSeq.incrementAndGet(),
             timestampUs = timestampUs,
             width = 0,
             height = 0,
@@ -458,7 +460,7 @@ class ScreenMirrorBroadcasterHub internal constructor(
         val frame = QueuedFrame(
             frameType = UltraShareScreenMirrorProtocol.FrameType.SCREEN_PROTECTED,
             flags = if (active) UltraShareScreenMirrorProtocol.FLAG_PROTECTED else 0,
-            mediaSeq = nextMediaSeq.incrementAndGet(),
+            mediaSeq = nextControlSeq.incrementAndGet(),
             timestampUs = System.nanoTime() / 1_000L,
             width = 0,
             height = 0,

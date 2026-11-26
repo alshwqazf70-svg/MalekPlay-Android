@@ -25,12 +25,14 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Movie
@@ -107,11 +109,32 @@ private fun rememberGlassBorder(): Brush {
     }
 }
 
-private data class HomeAction(
+internal data class HomeAction(
     val title: String,
     val icon: ImageVector,
     val onClick: () -> Unit
 )
+
+internal const val HOME_GROUP_SCREEN_MIRROR_TITLE = "الشاشة الجماعية"
+
+internal fun buildHomeConnectionSharingActions(
+    ultraShareLabel: String,
+    computerLabel: String,
+    castLabel: String,
+    groupMirrorLabel: String = HOME_GROUP_SCREEN_MIRROR_TITLE,
+    onOpenUltraShare: (() -> Unit)?,
+    onOpenNetwork: (() -> Unit)?,
+    onOpenGroupScreenMirror: (() -> Unit)?
+): List<HomeAction> {
+    if (onOpenNetwork == null || onOpenUltraShare == null) return emptyList()
+    val mirrorAction = onOpenGroupScreenMirror ?: onOpenUltraShare
+    return listOf(
+        HomeAction(ultraShareLabel, Icons.Filled.PlayArrow, onOpenUltraShare),
+        HomeAction(computerLabel, Icons.Filled.Folder, onOpenNetwork),
+        HomeAction(castLabel, Icons.Filled.Tv, onOpenNetwork),
+        HomeAction(groupMirrorLabel, Icons.Filled.Cast, mirrorAction)
+    )
+}
 
 @Composable
 fun HomeScreen(
@@ -126,6 +149,7 @@ fun HomeScreen(
     onOpenPlaylists: (() -> Unit)? = null,
     onOpenNetwork: (() -> Unit)? = null,
     onOpenUltraShare: (() -> Unit)? = null,
+    onOpenGroupScreenMirror: (() -> Unit)? = null,
     viewModel: LibraryViewModel = hiltViewModel()
 ) {
     val stats by viewModel.stats.collectAsStateWithLifecycle()
@@ -161,17 +185,16 @@ fun HomeScreen(
     val computerLabel = stringResource(R.string.home_connect_computer)
     val castLabel = stringResource(R.string.home_cast_to_tv)
     val networkActions = remember(
-        ultraShareLabel, computerLabel, castLabel, onOpenUltraShare, onOpenNetwork
+        ultraShareLabel, computerLabel, castLabel, onOpenUltraShare, onOpenNetwork, onOpenGroupScreenMirror
     ) {
-        if (onOpenNetwork != null && onOpenUltraShare != null) {
-            listOf(
-                HomeAction(ultraShareLabel, Icons.Filled.PlayArrow, onOpenUltraShare),
-                HomeAction(computerLabel, Icons.Filled.Folder, onOpenNetwork),
-                HomeAction(castLabel, Icons.Filled.Tv, onOpenNetwork)
-            )
-        } else {
-            emptyList()
-        }
+        buildHomeConnectionSharingActions(
+            ultraShareLabel = ultraShareLabel,
+            computerLabel = computerLabel,
+            castLabel = castLabel,
+            onOpenUltraShare = onOpenUltraShare,
+            onOpenNetwork = onOpenNetwork,
+            onOpenGroupScreenMirror = onOpenGroupScreenMirror
+        )
     }
 
     val primary = MaterialTheme.colorScheme.primary
@@ -734,14 +757,14 @@ private fun ActionTile(action: HomeAction) {
     val onPrimaryContainer = MaterialTheme.colorScheme.onPrimaryContainer
     Column(
         modifier = Modifier
-            .width(102.dp)
+            .widthIn(min = 102.dp, max = 132.dp)
             .height(108.dp)
             .shadow(10.dp, shape, ambientColor = primary.copy(alpha = 0.14f))
             .clip(shape)
             .background(rememberGlassBrush())
             .border(1.dp, rememberGlassBorder(), shape)
             .clickable(role = Role.Button, onClick = action.onClick)
-            .padding(horizontal = 9.dp, vertical = 12.dp),
+            .padding(horizontal = 10.dp, vertical = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {

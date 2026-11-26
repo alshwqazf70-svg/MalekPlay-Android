@@ -69,6 +69,85 @@ data class IncomingMirrorOffer(
             "size=${width}x$height, fps=$fps, audio=$audioEnabled, rev=$revision, key=[REDACTED])"
 }
 
+/**
+ * Pure state-transition handler for incoming host-to-viewer MPSM control messages.
+ *
+ * Guarantees:
+ * - Never matches MIRROR_STOP by hostAddress alone.
+ * - Rejects stale MIRROR_STOP from an older sessionId or an older revision.
+ * - Rejects out-of-order MIRROR_START/MIRROR_UPDATE for already-stopped or newer-revision sessions.
+ */
+internal fun applyIncomingMirrorControlMessage(
+    currentOffer: IncomingMirrorOffer?,
+    hostAddress: String,
+    authorityId: String,
+    hostDisplayName: String,
+    message: UltraShareScreenMirrorProtocol.ControlMessage,
+    terminatedSessionRevisions: MutableMap<String, Long>? = null
+): IncomingMirrorOffer? {
+    val canonicalAuthority = UltraShareScreenMirrorProtocol.canonicalId(authorityId) ?: return currentOffer
+    val canonicalSender = UltraShareScreenMirrorProtocol.canonicalId(message.senderPeerId) ?: return currentOffer
+    if (canonicalSender != canonicalAuthority) return currentOffer
+    val canonicalSessionId = UltraShareScreenMirrorProtocol.canonicalId(message.sessionId) ?: return currentOffer
+
+    return when (message.type) {
+        UltraShareScreenMirrorProtocol.ControlType.MIRROR_START,
+        UltraShareScreenMirrorProtocol.ControlType.MIRROR_UPDATE -> {
+            val key = message.streamKey ?: return currentOffer
+            val cfg = message.config ?: return currentOffer
+            val port = message.streamPort
+            if (port !in 1024..65535) return currentOffer
+
+            val stoppedRev = terminatedSessionRevisions?.get(canonicalSessionId)
+            if (stoppedRev != null && message.revision <= stoppedRev) {
+                return currentOffer
+            }
+            if (currentOffer != null && currentOffer.sessionId == canonicalSessionId) {
+                val isStaleRevision = if (message.type == UltraShareScreenMirrorProtocol.ControlType.MIRROR_UPDATE) {
+                    message.revision <= currentOffer.revision
+                } else {
+                    message.revision < currentOffer.revision
+                }
+                if (isStaleRevision) return currentOffer
+            }
+            IncomingMirrorOffer(
+                sessionId = canonicalSessionId,
+                hostAddress = hostAddress,
+                hostPeerId = canonicalAuthority,
+                hostName = hostDisplayName,
+                streamPort = port,
+                streamKey = key.copyOf(),
+                width = cfg.width,
+                height = cfg.height,
+                fps = cfg.fps,
+                audioEnabled = cfg.audioEnabled,
+                revision = message.revision
+            )
+        }
+        UltraShareScreenMirrorProtocol.ControlType.MIRROR_STOP -> {
+            terminatedSessionRevisions?.let { map ->
+                val prev = map[canonicalSessionId]
+                if (prev == null || message.revision > prev) {
+                    map[canonicalSessionId] = message.revision
+                }
+                while (map.size > 64) {
+                    val firstKey = map.keys.firstOrNull() ?: break
+                    map.remove(firstKey)
+                }
+            }
+            if (currentOffer != null &&
+                currentOffer.sessionId == canonicalSessionId &&
+                message.revision >= currentOffer.revision
+            ) {
+                null
+            } else {
+                currentOffer
+            }
+        }
+        UltraShareScreenMirrorProtocol.ControlType.MIRROR_VIEWER_STATE -> currentOffer
+    }
+}
+
 data class UltraShareServiceState(
     val pairingSecret: String = "",
     val localAddresses: List<String> = emptyList(),
@@ -263,6 +342,7 @@ class UltraShareForegroundService : Service() {
     private val meshAuthorityMemberHosts = java.util.Collections.newSetFromMap(
         java.util.concurrent.ConcurrentHashMap<String, Boolean>()
     )
+    private val terminatedMirrorSessionRevisions = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
 
     override fun onCreate() {
@@ -1704,46 +1784,20 @@ class UltraShareForegroundService : Service() {
                     val bytes = UltraShareControlChannel.receiveClientApplicationMessage(host) ?: break
                     if (UltraShareScreenMirrorProtocol.isMirrorControlPayload(bytes)) {
                         val mirrorMsg = runCatching { UltraShareScreenMirrorProtocol.decodeControl(bytes) }.getOrNull()
-                        if (mirrorMsg != null && canonicalMeshPeerId(mirrorMsg.senderPeerId) == authorityId) {
-                            when (mirrorMsg.type) {
-                                UltraShareScreenMirrorProtocol.ControlType.MIRROR_START,
-                                UltraShareScreenMirrorProtocol.ControlType.MIRROR_UPDATE -> {
-                                    val key = mirrorMsg.streamKey
-                                    val cfg = mirrorMsg.config
-                                    val port = mirrorMsg.streamPort
-                                    if (key != null && cfg != null && port in 1024..65535) {
-                                        val hostDisplayName = currentState().activePeers
-                                            .firstOrNull { it.host == host }?.name ?: "منشئ الغرفة"
-                                        updateState { current ->
-                                            current.copy(
-                                                incomingMirrorOffer = IncomingMirrorOffer(
-                                                    sessionId = mirrorMsg.sessionId,
-                                                    hostAddress = host,
-                                                    hostPeerId = authorityId,
-                                                    hostName = hostDisplayName,
-                                                    streamPort = port,
-                                                    streamKey = key.copyOf(),
-                                                    width = cfg.width,
-                                                    height = cfg.height,
-                                                    fps = cfg.fps,
-                                                    audioEnabled = cfg.audioEnabled,
-                                                    revision = mirrorMsg.revision
-                                                )
-                                            )
-                                        }
-                                    }
-                                }
-                                UltraShareScreenMirrorProtocol.ControlType.MIRROR_STOP -> {
-                                    updateState { current ->
-                                        val existing = current.incomingMirrorOffer
-                                        if (existing != null &&
-                                            (existing.sessionId == mirrorMsg.sessionId || existing.hostAddress == host)
-                                        ) {
-                                            current.copy(incomingMirrorOffer = null)
-                                        } else current
-                                    }
-                                }
-                                UltraShareScreenMirrorProtocol.ControlType.MIRROR_VIEWER_STATE -> Unit
+                        if (mirrorMsg != null) {
+                            val hostDisplayName = currentState().activePeers
+                                .firstOrNull { it.host == host }?.name ?: "منشئ الغرفة"
+                            updateState { current ->
+                                val nextOffer = applyIncomingMirrorControlMessage(
+                                    currentOffer = current.incomingMirrorOffer,
+                                    hostAddress = host,
+                                    authorityId = authorityId,
+                                    hostDisplayName = hostDisplayName,
+                                    message = mirrorMsg,
+                                    terminatedSessionRevisions = terminatedMirrorSessionRevisions
+                                )
+                                if (nextOffer === current.incomingMirrorOffer) current
+                                else current.copy(incomingMirrorOffer = nextOffer)
                             }
                         }
                         continue
@@ -1839,6 +1893,7 @@ class UltraShareForegroundService : Service() {
 
     private fun closeMeshRoom() {
         UltraShareScreenMirrorService.stopMirroring(this)
+        terminatedMirrorSessionRevisions.clear()
         updateState { current -> current.copy(incomingMirrorOffer = null) }
         synchronized(meshDirectServerGuard) {
             meshDirectServerJob?.cancel()

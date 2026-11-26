@@ -222,4 +222,142 @@ class ScreenMirrorHubIntegrationTest {
             }
         }
     }
+
+    @Test fun interleavedAudioAndConfigsNeverBreakVideoMediaSeqOrTriggerFalseDrops() {
+        val authorized = setOf(viewerOneId)
+        val hub = ScreenMirrorBroadcasterHub(
+            sessionId = sessionId,
+            hostPeerId = hostPeerId,
+            streamKey = streamKey,
+            authorizedViewerIdsProvider = { authorized },
+            allowLoopbackForTest = true
+        )
+
+        hub.use { server ->
+            val port = server.start(0)
+            val received = Collections.synchronizedList(mutableListOf<UltraShareScreenMirrorProtocol.MediaFrame>())
+            val done = CountDownLatch(14) // 2 vConfig + 1 aConfig + 2 protected + 5 video + 4 audio
+            val tracker = VideoStreamSequenceTracker()
+            var falseKeyframes = 0
+
+            val client = ScreenMirrorViewerClient(
+                context = null,
+                hostAddress = "127.0.0.1",
+                streamPort = port,
+                sessionId = sessionId,
+                hostPeerId = hostPeerId,
+                localViewerPeerId = viewerOneId,
+                streamKey = streamKey,
+                allowLoopbackForTest = true,
+                maxReconnectAttempts = 1,
+                frameSink = { frame ->
+                    received.add(frame)
+                    if (frame.header.frameType == UltraShareScreenMirrorProtocol.FrameType.VIDEO_IDR ||
+                        frame.header.frameType == UltraShareScreenMirrorProtocol.FrameType.VIDEO_DELTA
+                    ) {
+                        val isIdr = frame.header.frameType == UltraShareScreenMirrorProtocol.FrameType.VIDEO_IDR
+                        val d = tracker.onVideoFrame(frame.header.mediaSeq, isIdr)
+                        if (d.shouldRequestKeyframe) falseKeyframes++
+                        assertTrue("Video frame must never be dropped when audio/config/protected frames are interleaved", d.shouldFeedToDecoder)
+                    }
+                    done.countDown()
+                }
+            )
+
+            client.use {
+                client.start()
+                val joinedDeadline = System.currentTimeMillis() + 3_000L
+                while (server.activeViewerCount() == 0 && System.currentTimeMillis() < joinedDeadline) {
+                    Thread.sleep(20L)
+                }
+
+                server.publishVideoConfig(byteArrayOf(0, 0, 0, 1, 0x67, 1), 720, 1280, 0)
+                server.publishAudioConfig(byteArrayOf(0x11, 0x90.toByte()))
+
+                // Interleave audio frames, mid-stream VIDEO_CONFIG, and SCREEN_PROTECTED between video frames.
+                server.publishVideoFrame(byteArrayOf(0, 0, 0, 1, 0x65, 1), isKeyframe = true, 1_000L, 720, 1280, 0)
+                server.publishAudioFrame(byteArrayOf(1, 2, 3), 2_000L)
+                server.publishAudioFrame(byteArrayOf(4, 5, 6), 3_000L)
+                server.publishVideoFrame(byteArrayOf(0, 0, 0, 1, 0x41, 2), isKeyframe = false, 33_000L, 720, 1280, 0)
+                server.publishVideoConfig(byteArrayOf(0, 0, 0, 1, 0x67, 2), 720, 1280, 90)
+                server.publishProtectedScreenState(true)
+                server.publishProtectedScreenState(false)
+                server.publishAudioFrame(byteArrayOf(7, 8, 9), 34_000L)
+                server.publishVideoFrame(byteArrayOf(0, 0, 0, 1, 0x41, 3), isKeyframe = false, 66_000L, 720, 1280, 90)
+                server.publishAudioFrame(byteArrayOf(10, 11, 12), 67_000L)
+                server.publishVideoFrame(byteArrayOf(0, 0, 0, 1, 0x41, 4), isKeyframe = false, 99_000L, 720, 1280, 90)
+                server.publishVideoFrame(byteArrayOf(0, 0, 0, 1, 0x41, 5), isKeyframe = false, 132_000L, 720, 1280, 90)
+
+                assertTrue(done.await(5, TimeUnit.SECONDS))
+                assertEquals(0, falseKeyframes)
+                assertEquals(0L, client.status.value.droppedMediaFrames)
+
+                val videoSeqs = received.filter {
+                    it.header.frameType == UltraShareScreenMirrorProtocol.FrameType.VIDEO_IDR ||
+                        it.header.frameType == UltraShareScreenMirrorProtocol.FrameType.VIDEO_DELTA
+                }.map { it.header.mediaSeq }
+                assertEquals(listOf(1L, 2L, 3L, 4L, 5L), videoSeqs)
+
+                val audioSeqs = received.filter {
+                    it.header.frameType == UltraShareScreenMirrorProtocol.FrameType.AUDIO_FRAME
+                }.map { it.header.mediaSeq }
+                assertEquals(listOf(1L, 2L, 3L, 4L), audioSeqs)
+            }
+        }
+    }
+
+    @Test fun videoOnlyStreamWithoutAudioMaintainsContinuousSequence() {
+        val authorized = setOf(viewerOneId)
+        val hub = ScreenMirrorBroadcasterHub(
+            sessionId = sessionId,
+            hostPeerId = hostPeerId,
+            streamKey = streamKey,
+            authorizedViewerIdsProvider = { authorized },
+            allowLoopbackForTest = true
+        )
+
+        hub.use { server ->
+            val port = server.start(0)
+            val videoSeqs = Collections.synchronizedList(mutableListOf<Long>())
+            val done = CountDownLatch(4)
+            val client = ScreenMirrorViewerClient(
+                context = null,
+                hostAddress = "127.0.0.1",
+                streamPort = port,
+                sessionId = sessionId,
+                hostPeerId = hostPeerId,
+                localViewerPeerId = viewerOneId,
+                streamKey = streamKey,
+                allowLoopbackForTest = true,
+                maxReconnectAttempts = 1,
+                frameSink = { frame ->
+                    if (frame.header.frameType == UltraShareScreenMirrorProtocol.FrameType.VIDEO_IDR ||
+                        frame.header.frameType == UltraShareScreenMirrorProtocol.FrameType.VIDEO_DELTA
+                    ) {
+                        videoSeqs.add(frame.header.mediaSeq)
+                        done.countDown()
+                    }
+                }
+            )
+
+            client.use {
+                client.start()
+                val joinedDeadline = System.currentTimeMillis() + 3_000L
+                while (server.activeViewerCount() == 0 && System.currentTimeMillis() < joinedDeadline) {
+                    Thread.sleep(20L)
+                }
+
+                server.publishVideoConfig(byteArrayOf(0, 0, 0, 1, 0x67, 1), 720, 1280, 0)
+                server.publishVideoFrame(byteArrayOf(0, 0, 0, 1, 0x65, 1), isKeyframe = true, 1_000L, 720, 1280, 0)
+                server.publishVideoFrame(byteArrayOf(0, 0, 0, 1, 0x41, 2), isKeyframe = false, 33_000L, 720, 1280, 0)
+                server.publishVideoFrame(byteArrayOf(0, 0, 0, 1, 0x41, 3), isKeyframe = false, 66_000L, 720, 1280, 0)
+                server.publishVideoFrame(byteArrayOf(0, 0, 0, 1, 0x41, 4), isKeyframe = false, 99_000L, 720, 1280, 0)
+
+                assertTrue(done.await(5, TimeUnit.SECONDS))
+                assertEquals(listOf(1L, 2L, 3L, 4L), videoSeqs)
+                assertEquals(0L, client.status.value.audioPacketsReceived)
+                assertEquals(0L, client.status.value.droppedMediaFrames)
+            }
+        }
+    }
 }
