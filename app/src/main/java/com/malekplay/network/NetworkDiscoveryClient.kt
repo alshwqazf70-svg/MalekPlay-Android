@@ -224,7 +224,7 @@ class NetworkDiscoveryClient {
                     )
                 }
 
-                if (!networkChanged) {
+                if (!networkChanged.get()) {
                     enrichDiscoveredDevices(found.values.toList(), app, lanNetwork)
                 }
 
