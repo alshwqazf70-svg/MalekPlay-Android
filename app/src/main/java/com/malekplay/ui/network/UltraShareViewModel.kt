@@ -29,6 +29,9 @@ import com.malekplay.network.UltraShareMultiRecipientCoordinator
 import com.malekplay.network.UltraShareWifiDirect
 import com.malekplay.network.UltraShareBluetoothDiscovery
 import com.malekplay.network.UltraShareBleDiscovery
+import com.malekplay.network.IncomingMirrorOffer
+import com.malekplay.network.UltraShareScreenMirrorProtocol
+import com.malekplay.network.UltraShareScreenMirrorService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
@@ -97,7 +100,12 @@ data class UltraShareUiState(
     val approvedSenderPeerHosts: List<String> = emptyList(),
     val reconnectableSenderPeerHosts: List<String> = emptyList(),
     val peerDeliveryEntries: List<com.malekplay.network.UltraSharePeerDeliveryEntry> = emptyList(),
-    val roomResetGeneration: Long = 0L
+    val roomResetGeneration: Long = 0L,
+    val mirrorHostState: UltraShareScreenMirrorService.MirrorHostState =
+        UltraShareScreenMirrorService.MirrorHostState(),
+    val incomingMirrorOffer: IncomingMirrorOffer? = null,
+    val watchingMirrorSession: IncomingMirrorOffer? = null,
+    val mirrorAudioRequested: Boolean = false
 )
 
 @HiltViewModel
@@ -202,10 +210,23 @@ class UltraShareViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
+            UltraShareScreenMirrorService.hostState.collect { hostState ->
+                _state.value = _state.value.copy(mirrorHostState = hostState)
+            }
+        }
+        viewModelScope.launch {
             UltraShareForegroundService.state.collect { serviceState ->
                 val current = _state.value
                 val received = serviceState.receivedFile
                 val roomPresentationWasReset = serviceState.roomResetGeneration != current.roomResetGeneration
+                val updatedWatching = when {
+                    current.watchingMirrorSession == null -> null
+                    serviceState.incomingMirrorOffer == null -> null
+                    serviceState.incomingMirrorOffer.sessionId == current.watchingMirrorSession.sessionId ->
+                        serviceState.incomingMirrorOffer
+                    else -> current.watchingMirrorSession
+                }
+                val stoppedWatchingNotice = current.watchingMirrorSession != null && updatedWatching == null
                 if (received?.publishedUri != null &&
                     received.file.absolutePath != current.receivedFile?.file?.absolutePath
                 ) {
@@ -225,7 +246,13 @@ class UltraShareViewModel @Inject constructor(
                     sendProgress = serviceState.sendProgress,
                     receiveProgress = serviceState.receiveProgress,
                     receivedFile = serviceState.receivedFile,
-                    status = if (roomPresentationWasReset) null else serviceState.status ?: current.status,
+                    status = if (stoppedWatchingNotice) {
+                        "انتهى بث الشاشة الجماعية من منشئ الغرفة."
+                    } else if (roomPresentationWasReset) {
+                        null
+                    } else {
+                        serviceState.status ?: current.status
+                    },
                     error = if (roomPresentationWasReset) null else serviceState.error,
                     queueCompleted = serviceState.queueCompleted,
                     queueTotal = serviceState.queueTotal,
@@ -256,7 +283,9 @@ class UltraShareViewModel @Inject constructor(
                     reconnectableSenderPeerHosts = serviceState.reconnectableSenderPeerHosts,
                     approvedPeerHost = current.approvedPeerHost?.takeIf { approved ->
                         serviceState.activePeers.any { it.host == approved }
-                    }
+                    },
+                    incomingMirrorOffer = serviceState.incomingMirrorOffer,
+                    watchingMirrorSession = updatedWatching
                 )
                 val pairedSessionActive = serviceState.activePeers.isNotEmpty() ||
                     serviceState.approvedSenderPeerHosts.isNotEmpty()
@@ -3094,6 +3123,50 @@ private fun forgetApprovedSenderTarget(host: String) {
 
     fun clearMessages() {
         _state.value = _state.value.copy(error = null, status = null)
+    }
+
+    fun setMirrorAudioRequested(enabled: Boolean) {
+        _state.value = _state.value.copy(mirrorAudioRequested = enabled)
+    }
+
+    fun startHostScreenMirroring(resultCode: Int, data: android.content.Intent) {
+        val current = _state.value
+        if (!current.receiving && current.activePeers.isEmpty()) {
+            _state.value = current.copy(error = "يجب أن تكون منشئ المجموعة ومتصلاً بالأجهزة أولاً.")
+            return
+        }
+        UltraShareScreenMirrorService.startMirroring(
+            context = context,
+            resultCode = resultCode,
+            data = data,
+            enableAudio = current.mirrorAudioRequested
+        )
+    }
+
+    fun stopHostScreenMirroring() {
+        UltraShareScreenMirrorService.stopMirroring(context)
+    }
+
+    fun joinMirrorViewer() {
+        val offer = _state.value.incomingMirrorOffer ?: return
+        _state.value = _state.value.copy(watchingMirrorSession = offer)
+        UltraShareForegroundService.sendMirrorViewerAction(
+            context = context,
+            hostAddress = offer.hostAddress,
+            sessionId = offer.sessionId,
+            action = UltraShareScreenMirrorProtocol.ViewerAction.JOINED
+        )
+    }
+
+    fun leaveMirrorViewer() {
+        val watching = _state.value.watchingMirrorSession ?: return
+        _state.value = _state.value.copy(watchingMirrorSession = null)
+        UltraShareForegroundService.sendMirrorViewerAction(
+            context = context,
+            hostAddress = watching.hostAddress,
+            sessionId = watching.sessionId,
+            action = UltraShareScreenMirrorProtocol.ViewerAction.LEFT
+        )
     }
 
     override fun onCleared() {

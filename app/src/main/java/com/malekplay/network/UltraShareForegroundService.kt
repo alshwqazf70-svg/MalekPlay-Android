@@ -45,10 +45,29 @@ internal fun resetRoomTransferPresentation(state: UltraShareServiceState): Ultra
     lastTransferMetrics = null,
     lastReceiveMetrics = null,
     peerTransfers = emptyList(),
+    incomingMirrorOffer = null,
     roomResetGeneration = if (state.roomResetGeneration == Long.MAX_VALUE) 1L else state.roomResetGeneration + 1L,
     status = null,
     error = null
 )
+
+data class IncomingMirrorOffer(
+    val sessionId: String,
+    val hostAddress: String,
+    val hostPeerId: String,
+    val hostName: String,
+    val streamPort: Int,
+    val streamKey: ByteArray,
+    val width: Int,
+    val height: Int,
+    val fps: Int,
+    val audioEnabled: Boolean,
+    val revision: Long
+) {
+    override fun toString(): String =
+        "IncomingMirrorOffer(sessionId=$sessionId, hostAddress=$hostAddress, port=$streamPort, " +
+            "size=${width}x$height, fps=$fps, audio=$audioEnabled, rev=$revision, key=[REDACTED])"
+}
 
 data class UltraShareServiceState(
     val pairingSecret: String = "",
@@ -89,7 +108,8 @@ data class UltraShareServiceState(
     /** Authenticated outbound MPC2 peers; distinct from inbound activePeers. */
     val approvedSenderPeerHosts: List<String> = emptyList(),
     /** Legacy UI compatibility only; always empty because disconnected peers are not retained. */
-    val reconnectableSenderPeerHosts: List<String> = emptyList()
+    val reconnectableSenderPeerHosts: List<String> = emptyList(),
+    val incomingMirrorOffer: IncomingMirrorOffer? = null
 )
 
 internal data class UltraShareApprovedSendTarget(
@@ -252,6 +272,21 @@ class UltraShareForegroundService : Service() {
         UltraShareDiagnostics.initialize(this)
         UltraShareDiagnostics.event("SERVICE", "CREATED")
         notificationHelper.ensureChannel()
+        UltraShareScreenMirrorService.authorizedViewersProvider = {
+            currentAuthorizedMirrorViewerIds()
+        }
+        UltraShareScreenMirrorService.onControlBroadcastRequired = { wireBytes ->
+            val targets = (meshServerJobs.keys + meshAuthorityMemberHosts).distinct()
+            serviceScope.launch {
+                targets.forEach { viewerHost ->
+                    if (UltraShareControlChannel.supportsServerApplicationFrames(viewerHost)) {
+                        runCatching {
+                            UltraShareControlChannel.sendServerApplicationMessage(viewerHost, wireBytes)
+                        }
+                    }
+                }
+            }
+        }
         // Refresh only stale speed values; no state emission occurs while rates are current.
         serviceScope.launch {
             while (true) {
@@ -317,6 +352,7 @@ class UltraShareForegroundService : Service() {
             ACTION_STOP_RECEIVING -> {
                 idleDisconnectJob?.cancel()
                 idleDisconnectJob = null
+                UltraShareScreenMirrorService.stopMirroring(this)
                 receiveJob?.cancel()
                 batchReceiveJob?.cancel()
                 advertisementJob?.cancel()
@@ -372,6 +408,7 @@ class UltraShareForegroundService : Service() {
             ACTION_STOP, ACTION_CANCEL -> {
                 idleDisconnectJob?.cancel()
                 idleDisconnectJob = null
+                UltraShareScreenMirrorService.stopMirroring(this)
                 if (sendJobsByPeer.isEmpty() && receiveJob == null && batchReceiveJob == null) startForegroundCompat()
                 sendJobsByPeer.values.toSet().forEach { it.cancel() }
                 receiveJob?.cancel()
@@ -950,6 +987,9 @@ class UltraShareForegroundService : Service() {
     override fun onDestroy() {
         idleDisconnectJob?.cancel()
         idleDisconnectJob = null
+        UltraShareScreenMirrorService.stopMirroring(this)
+        UltraShareScreenMirrorService.authorizedViewersProvider = { emptySet() }
+        UltraShareScreenMirrorService.onControlBroadcastRequired = null
         // Service destruction is a hard session boundary, regardless of whether this
         // device was the sender or receiver. Close both socket directions and wipe
         // session-scoped keys so no heartbeat or stale peer remains in process memory.
@@ -1379,6 +1419,14 @@ class UltraShareForegroundService : Service() {
                 }
                 meshServerHandshakeJobs.remove(host)
                 startMeshServerMessagePump(host)
+                // If Host is already sharing their screen, invite the newly joined viewer immediately.
+                val localHostId = canonicalMeshPeerId(UltraShareDiscovery.localPeerId(this@UltraShareForegroundService))
+                val mirrorOffer = localHostId?.let { UltraShareScreenMirrorService.currentOfferPayloadForHost(it) }
+                if (mirrorOffer != null) {
+                    runCatching {
+                        UltraShareControlChannel.sendServerApplicationMessage(host, mirrorOffer)
+                    }
+                }
                 roomJoined = true
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -1436,15 +1484,46 @@ class UltraShareForegroundService : Service() {
         }
     }
 
+    private fun currentAuthorizedMirrorViewerIds(): Set<String> {
+        val result = linkedSetOf<String>()
+        meshAuthorityMemberHosts.forEach { memberHost ->
+            canonicalMeshPeerId(UltraShareControlChannel.serverSessionIdentity(memberHost))?.let(result::add)
+        }
+        currentState().activePeers.forEach { peer ->
+            canonicalMeshPeerId(UltraShareControlChannel.serverSessionIdentity(peer.host))?.let(result::add)
+        }
+        meshRoomCoordinator?.state()?.members?.forEach { member ->
+            canonicalMeshPeerId(member.peerId)?.let(result::add)
+        }
+        canonicalMeshPeerId(UltraShareDiscovery.localPeerId(this))?.let { result.remove(it) }
+        return result
+    }
+
     private fun startMeshServerMessagePump(host: String) {
         val pump = serviceScope.launch(start = CoroutineStart.LAZY) {
             try {
                 while (UltraShareControlChannel.supportsServerApplicationFrames(host)) {
                     val bytes = UltraShareControlChannel.receiveServerApplicationMessage(host) ?: break
-                    val message = UltraShareMeshControlProtocol.decode(bytes) ?: continue
                     val authenticatedPeerId = canonicalMeshPeerId(
                         UltraShareControlChannel.serverSessionIdentity(host)
                     ) ?: break
+                    if (UltraShareScreenMirrorProtocol.isMirrorControlPayload(bytes)) {
+                        val mirrorMsg = runCatching { UltraShareScreenMirrorProtocol.decodeControl(bytes) }.getOrNull()
+                        if (mirrorMsg != null &&
+                            canonicalMeshPeerId(mirrorMsg.senderPeerId) == authenticatedPeerId &&
+                            mirrorMsg.type == UltraShareScreenMirrorProtocol.ControlType.MIRROR_VIEWER_STATE
+                        ) {
+                            when (mirrorMsg.viewerAction) {
+                                UltraShareScreenMirrorProtocol.ViewerAction.REQUEST_IDR ->
+                                    UltraShareScreenMirrorService.requestKeyframeFromViewer(authenticatedPeerId)
+                                UltraShareScreenMirrorProtocol.ViewerAction.LEFT ->
+                                    UltraShareScreenMirrorService.disconnectViewer(authenticatedPeerId)
+                                UltraShareScreenMirrorProtocol.ViewerAction.JOINED, null -> Unit
+                            }
+                        }
+                        continue
+                    }
+                    val message = UltraShareMeshControlProtocol.decode(bytes) ?: continue
                     if (canonicalMeshPeerId(message.senderPeerId) != authenticatedPeerId) {
                         UltraShareDiagnostics.event(
                             "MESH_ROOM", "IGNORED_UNBOUND_SERVER_MESSAGE",
@@ -1623,6 +1702,52 @@ class UltraShareForegroundService : Service() {
             try {
                 while (UltraShareControlChannel.supportsClientApplicationFrames(host)) {
                     val bytes = UltraShareControlChannel.receiveClientApplicationMessage(host) ?: break
+                    if (UltraShareScreenMirrorProtocol.isMirrorControlPayload(bytes)) {
+                        val mirrorMsg = runCatching { UltraShareScreenMirrorProtocol.decodeControl(bytes) }.getOrNull()
+                        if (mirrorMsg != null && canonicalMeshPeerId(mirrorMsg.senderPeerId) == authorityId) {
+                            when (mirrorMsg.type) {
+                                UltraShareScreenMirrorProtocol.ControlType.MIRROR_START,
+                                UltraShareScreenMirrorProtocol.ControlType.MIRROR_UPDATE -> {
+                                    val key = mirrorMsg.streamKey
+                                    val cfg = mirrorMsg.config
+                                    val port = mirrorMsg.streamPort
+                                    if (key != null && cfg != null && port in 1024..65535) {
+                                        val hostDisplayName = currentState().activePeers
+                                            .firstOrNull { it.host == host }?.name ?: "منشئ الغرفة"
+                                        updateState { current ->
+                                            current.copy(
+                                                incomingMirrorOffer = IncomingMirrorOffer(
+                                                    sessionId = mirrorMsg.sessionId,
+                                                    hostAddress = host,
+                                                    hostPeerId = authorityId,
+                                                    hostName = hostDisplayName,
+                                                    streamPort = port,
+                                                    streamKey = key.copyOf(),
+                                                    width = cfg.width,
+                                                    height = cfg.height,
+                                                    fps = cfg.fps,
+                                                    audioEnabled = cfg.audioEnabled,
+                                                    revision = mirrorMsg.revision
+                                                )
+                                            )
+                                        }
+                                    }
+                                }
+                                UltraShareScreenMirrorProtocol.ControlType.MIRROR_STOP -> {
+                                    updateState { current ->
+                                        val existing = current.incomingMirrorOffer
+                                        if (existing != null &&
+                                            (existing.sessionId == mirrorMsg.sessionId || existing.hostAddress == host)
+                                        ) {
+                                            current.copy(incomingMirrorOffer = null)
+                                        } else current
+                                    }
+                                }
+                                UltraShareScreenMirrorProtocol.ControlType.MIRROR_VIEWER_STATE -> Unit
+                            }
+                        }
+                        continue
+                    }
                     val message = UltraShareMeshControlProtocol.decode(bytes) ?: continue
                     if (message.type == UltraShareMeshControlProtocol.Type.ROSTER_UPDATE) {
                         val ack = coordinator.acceptRosterUpdate(authorityId, message)
@@ -1690,6 +1815,7 @@ class UltraShareForegroundService : Service() {
                     val update = coordinator.removeMember(remoteId)
                     if (update != null) broadcastMeshRosterUpdate(update)
                     reconcileMeshDirectLinks()
+                    UltraShareScreenMirrorService.pruneUnauthorizedViewers()
                     UltraShareDiagnostics.event(
                         "MESH_ROOM", "MEMBER_REMOVED",
                         mapOf("peerId" to remoteId, "revision" to coordinator.state().revision)
@@ -1703,9 +1829,17 @@ class UltraShareForegroundService : Service() {
                 }
             }
         }
+        updateState { current ->
+            if (current.incomingMirrorOffer?.hostAddress == host) {
+                current.copy(incomingMirrorOffer = null)
+            } else current
+        }
+        UltraShareScreenMirrorService.pruneUnauthorizedViewers()
     }
 
     private fun closeMeshRoom() {
+        UltraShareScreenMirrorService.stopMirroring(this)
+        updateState { current -> current.copy(incomingMirrorOffer = null) }
         synchronized(meshDirectServerGuard) {
             meshDirectServerJob?.cancel()
             meshDirectServerJob = null
@@ -3208,19 +3342,51 @@ class UltraShareForegroundService : Service() {
             UltraShareControlChannel.closeSession(host)
             UltraShareControlChannel.closeServerSession(host)
             removeApprovedSendTarget(host)
+            UltraShareScreenMirrorService.pruneUnauthorizedViewers()
             // A room is temporary. Once its final paired peer leaves, clear every
             // room-only result (completed, failed, pending and receive summaries).
             mutableState.update { current ->
                 val remainingPeers = current.activePeers.filterNot { it.host == host }
                 val roomEnded = remainingPeers.isEmpty() &&
                     approvedSendTargets().isEmpty() && sendJobsByPeer.isEmpty()
+                val clearedOffer = if (current.incomingMirrorOffer?.hostAddress == host) null else current.incomingMirrorOffer
                 val updated = current.copy(
                     activePeers = remainingPeers,
                     peerTransfers = if (roomEnded) emptyList() else current.peerTransfers.filterNot { it.host == host },
                     reconnectablePeers = emptyList(),
-                    reconnectableSenderPeerHosts = emptyList()
+                    reconnectableSenderPeerHosts = emptyList(),
+                    incomingMirrorOffer = clearedOffer
                 )
                 if (roomEnded) resetRoomTransferPresentation(updated) else updated
+            }
+        }
+
+        internal fun sendMirrorViewerAction(
+            context: Context,
+            hostAddress: String,
+            sessionId: String,
+            action: UltraShareScreenMirrorProtocol.ViewerAction
+        ) {
+            val localId = UltraShareScreenMirrorProtocol.canonicalId(
+                UltraShareDiscovery.localPeerId(context)
+            ) ?: return
+            val canonicalSession = UltraShareScreenMirrorProtocol.canonicalId(sessionId) ?: return
+            if (!UltraShareControlChannel.supportsClientApplicationFrames(hostAddress)) return
+            val wire = runCatching {
+                UltraShareScreenMirrorProtocol.encodeControl(
+                    UltraShareScreenMirrorProtocol.ControlMessage(
+                        type = UltraShareScreenMirrorProtocol.ControlType.MIRROR_VIEWER_STATE,
+                        sessionId = canonicalSession,
+                        senderPeerId = localId,
+                        revision = 1L,
+                        viewerAction = action
+                    )
+                )
+            }.getOrNull() ?: return
+            CoroutineScope(Dispatchers.IO).launch {
+                runCatching {
+                    UltraShareControlChannel.sendClientApplicationMessage(hostAddress, wire)
+                }
             }
         }
 

@@ -100,6 +100,7 @@ import com.malekplay.network.UltraShareQrCode
 import com.malekplay.network.UltraSharePlatformCompatibility
 import com.malekplay.network.UltraShareNetworkRouting
 import com.malekplay.network.UltraShareCore
+import com.malekplay.network.UltraShareScreenMirrorPolicy
 import com.malekplay.player.cast.CastMediaHttpServer
 import com.malekplay.player.cast.WebCastItem
 import com.malekplay.player.cast.WebCastRegistry
@@ -195,6 +196,38 @@ fun UltraShareExperienceScreen(
             else viewModel.exportReceived(uri)
         }
         pendingReceivedExport = null
+    }
+    val screenMirrorCaptureLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val data = result.data
+        if (result.resultCode == android.app.Activity.RESULT_OK && data != null) {
+            viewModel.startHostScreenMirroring(result.resultCode, data)
+        } else {
+            Toast.makeText(context, "تم إلغاء إذن مشاركة الشاشة.", Toast.LENGTH_SHORT).show()
+        }
+    }
+    fun launchMediaProjectionConsent() {
+        val mgr = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE)
+            as? android.media.projection.MediaProjectionManager
+        if (mgr == null) {
+            Toast.makeText(context, "ميزة مشاركة الشاشة غير مدعومة على هذا الجهاز.", Toast.LENGTH_LONG).show()
+            return
+        }
+        screenMirrorCaptureLauncher.launch(mgr.createScreenCaptureIntent())
+    }
+    val mirrorAudioPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (!granted) {
+            viewModel.setMirrorAudioRequested(false)
+            Toast.makeText(
+                context,
+                "لم يُمنح إذن الصوت؛ ستبدأ الشاشة الجماعية فيديو فقط.",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+        launchMediaProjectionConsent()
     }
     val qrScanner = rememberLauncherForActivityResult(ScanContract()) { result ->
         result.contents?.takeIf { it.isNotBlank() }?.let(::handleQr)
@@ -1392,11 +1425,26 @@ fun UltraShareExperienceScreen(
                             page = UltraSharePage.RECEIVE
                         },
                         onLeaveRoom = {
+                            viewModel.stopHostScreenMirroring()
+                            viewModel.leaveMirrorViewer()
                             (state.activePeers.map { it.host } + state.approvedSenderPeerHosts).distinct()
                                 .forEach(viewModel::forgetPeer)
                             stopReceivingGroup()
                             page = UltraSharePage.HOME
-                        }
+                        },
+                        onToggleMirrorAudio = viewModel::setMirrorAudioRequested,
+                        onStartScreenMirror = {
+                            if (state.mirrorAudioRequested &&
+                                UltraShareScreenMirrorPolicy.supportsAudioPlaybackCapture() &&
+                                !UltraShareScreenMirrorPolicy.hasAudioCapturePermission(context)
+                            ) {
+                                mirrorAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                            } else {
+                                launchMediaProjectionConsent()
+                            }
+                        },
+                        onStopScreenMirror = viewModel::stopHostScreenMirroring,
+                        onJoinScreenMirror = viewModel::joinMirrorViewer
                     )
                     val connectedHosts = (
                         state.activePeers.map { it.host } + state.approvedSenderPeerHosts
@@ -1628,6 +1676,12 @@ fun UltraShareExperienceScreen(
             state.error?.takeIf { page != UltraSharePage.SEND && page != UltraSharePage.NEARBY }?.let { ErrorPanel(it) }
         }
         Spacer(Modifier.height(12.dp))
+    }
+    state.watchingMirrorSession?.let { activeOffer ->
+        ScreenMirrorViewerModal(
+            offer = activeOffer,
+            onLeave = viewModel::leaveMirrorViewer
+        )
     }
     if (showWebCastDialog) {
         WebCastDialog(

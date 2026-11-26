@@ -27,6 +27,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Cast
+import androidx.compose.material.icons.filled.StopScreenShare
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Button
@@ -62,7 +65,11 @@ fun UltraShareSessionRoom(
     onCancelSending: () -> Unit,
     onPickAndSendFiles: () -> Unit,
     onShowGroupQr: () -> Unit,
-    onLeaveRoom: () -> Unit
+    onLeaveRoom: () -> Unit,
+    onToggleMirrorAudio: (Boolean) -> Unit = {},
+    onStartScreenMirror: () -> Unit = {},
+    onStopScreenMirror: () -> Unit = {},
+    onJoinScreenMirror: () -> Unit = {}
 ) {
     val isSendingRoom = activeMode == "send"
     // Receiver-side approvals live in activePeers; sender-side approvals are
@@ -229,6 +236,14 @@ fun UltraShareSessionRoom(
                     border = BorderStroke(1.dp, Color(0xFF9A63C7))
                 ) { Text("مغادرة الغرفة", fontWeight = FontWeight.SemiBold) }
             }
+            GroupScreenMirrorCard(
+                state = state,
+                connected = connected,
+                onToggleMirrorAudio = onToggleMirrorAudio,
+                onStartScreenMirror = onStartScreenMirror,
+                onStopScreenMirror = onStopScreenMirror,
+                onJoinScreenMirror = onJoinScreenMirror
+            )
             if (isSendingRoom && (state.sending || sendingPaused)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -966,3 +981,203 @@ private fun formatSessionTransferBytes(value: Long): String {
     }
     return String.format(java.util.Locale.US, "%.1f %s", amount, units[unitIndex])
 }
+
+@Composable
+private fun GroupScreenMirrorCard(
+    state: UltraShareUiState,
+    connected: Boolean,
+    onToggleMirrorAudio: (Boolean) -> Unit,
+    onStartScreenMirror: () -> Unit,
+    onStopScreenMirror: () -> Unit,
+    onJoinScreenMirror: () -> Unit
+) {
+    val isHostRole = state.receiving && state.activePeers.isNotEmpty()
+    val hostMirror = state.mirrorHostState
+    val incomingOffer = state.incomingMirrorOffer
+    val audioCaptureSupported = com.malekplay.network.UltraShareScreenMirrorPolicy.supportsAudioPlaybackCapture()
+
+    if (!connected && !hostMirror.active && !hostMirror.starting && incomingOffer == null) {
+        return
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                Brush.linearGradient(
+                    listOf(Color(0xFF281D38), Color(0xFF1D1528))
+                ),
+                RoundedCornerShape(14.dp)
+            )
+            .padding(13.dp),
+        verticalArrangement = Arrangement.spacedBy(9.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .background(MalekPlayColors.PurpleBright.copy(alpha = 0.18f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Filled.Cast,
+                    contentDescription = null,
+                    tint = MalekPlayColors.PurpleBright,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    "الشاشة الجماعية",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.ExtraBold,
+                    style = MaterialTheme.typography.titleSmall
+                )
+                Text(
+                    when {
+                        hostMirror.active -> "بث شاشة هذا الهاتف نشط الآن (${hostMirror.viewerCount} مشاهد)"
+                        incomingOffer != null -> "بث مباشر متاح من ${incomingOffer.hostName}"
+                        isHostRole -> "شارك شاشة هذا الهاتف مع جميع أجهزة المجموعة"
+                        else -> "بانتظار بدء الشاشة الجماعية من منشئ المجموعة"
+                    },
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelSmall
+                )
+            }
+            if (hostMirror.active || incomingOffer != null) {
+                Box(
+                    modifier = Modifier
+                        .background(Color(0xFF65D6A2).copy(alpha = 0.16f), RoundedCornerShape(14.dp))
+                        .padding(horizontal = 9.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        "مباشر",
+                        color = Color(0xFF65D6A2),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+
+        if (incomingOffer != null) {
+            Text(
+                "الدقة: ${incomingOffer.width}×${incomingOffer.height} • ${incomingOffer.fps} إطار/ث • " +
+                    if (incomingOffer.audioEnabled) "صوت + صورة" else "فيديو فقط",
+                color = Color(0xFFD5CBE2),
+                style = MaterialTheme.typography.labelSmall
+            )
+            Button(
+                onClick = onJoinScreenMirror,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF65D6A2),
+                    contentColor = Color(0xFF0E2018)
+                )
+            ) {
+                Icon(Icons.Filled.Cast, contentDescription = null, modifier = Modifier.size(18.dp))
+                Text(
+                    "مشاهدة الشاشة الجماعية",
+                    modifier = Modifier.padding(start = 7.dp),
+                    fontWeight = FontWeight.ExtraBold
+                )
+            }
+        } else if (isHostRole || hostMirror.active || hostMirror.starting) {
+            if (hostMirror.active || hostMirror.starting) {
+                hostMirror.statusMessage?.let { msg ->
+                    Text(
+                        msg,
+                        color = Color(0xFFD5CBE2),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                if (hostMirror.width > 0 && hostMirror.height > 0) {
+                    Text(
+                        "البث: ${hostMirror.width}×${hostMirror.height} • ${hostMirror.fps} إطار/ث • " +
+                            if (hostMirror.audioActive) "صوت الجهاز مفعّل" else "فيديو فقط",
+                        color = Color(0xFF65D6A2),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+                OutlinedButton(
+                    onClick = onStopScreenMirror,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFFB4A9)),
+                    border = BorderStroke(1.dp, Color(0xFFFFB4A9).copy(alpha = 0.65f))
+                ) {
+                    Icon(Icons.Filled.StopScreenShare, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Text(
+                        "إيقاف الشاشة الجماعية",
+                        modifier = Modifier.padding(start = 7.dp),
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            "مشاركة صوت الوسائط والتطبيقات",
+                            color = MaterialTheme.colorScheme.onSurface,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            if (audioCaptureSupported) {
+                                "يعمل على Android 10 فأعلى للتطبيقات التي تسمح بالتقاط الصوت"
+                            } else {
+                                "غير مدعوم على هذا الإصدار؛ سيعمل البث فيديو فقط تلقائياً"
+                            },
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
+                    Switch(
+                        checked = state.mirrorAudioRequested && audioCaptureSupported,
+                        onCheckedChange = onToggleMirrorAudio,
+                        enabled = audioCaptureSupported
+                    )
+                }
+                Button(
+                    onClick = onStartScreenMirror,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFB66CFF),
+                        contentColor = Color(0xFF190F22)
+                    )
+                ) {
+                    Icon(Icons.Filled.Cast, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Text(
+                        "بدء الشاشة الجماعية",
+                        modifier = Modifier.padding(start = 7.dp),
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                }
+            }
+        } else {
+            Text(
+                "منشئ المجموعة فقط يبدأ مشاركة شاشته؛ سيظهر لك زر المشاهدة تلقائياً فور بدء البث.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.labelSmall
+            )
+        }
+
+        hostMirror.error?.let { err ->
+            Text(
+                err,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+    }
+}
+
