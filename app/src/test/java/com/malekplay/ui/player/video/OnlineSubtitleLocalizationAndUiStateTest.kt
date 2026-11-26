@@ -171,7 +171,7 @@ class OnlineSubtitleLocalizationAndUiStateTest {
         )
         assertEquals(R.string.subtitle_download_and_apply, idleEnglish.primaryLabelRes)
         assertEquals(R.string.subtitle_preview_button, idleEnglish.previewLabelRes)
-        assertEquals(R.string.subtitle_download_and_translate_ai, idleEnglish.aiLabelRes)
+        assertEquals(R.string.subtitle_download_and_translate_ai as Int?, idleEnglish.aiLabelRes)
         assertTrue(idleEnglish.buttonsEnabled)
         assertTrue(idleEnglish.previewEnabled)
 
@@ -197,7 +197,7 @@ class OnlineSubtitleLocalizationAndUiStateTest {
         assertEquals(R.string.subtitle_downloading_and_applying, downloadingEnglish.primaryLabelRes)
         assertFalse(downloadingEnglish.buttonsEnabled)
         assertEquals(
-            R.string.subtitle_downloading_and_applying_status,
+            R.string.subtitle_downloading_and_applying_status as Int?,
             resolveSubtitleFooterStatusRes(loading = true, downloadingKey = "subdl:en-2", translationLoading = false)
         )
 
@@ -210,9 +210,9 @@ class OnlineSubtitleLocalizationAndUiStateTest {
             previewLines = emptyList()
         )
         assertEquals(R.string.subtitle_download_and_apply, translatingEnglish.primaryLabelRes)
-        assertEquals(R.string.subtitle_downloading_and_translating, translatingEnglish.aiLabelRes)
+        assertEquals(R.string.subtitle_downloading_and_translating as Int?, translatingEnglish.aiLabelRes)
         assertEquals(
-            R.string.subtitle_downloading_and_translating,
+            R.string.subtitle_downloading_and_translating as Int?,
             resolveSubtitleFooterStatusRes(loading = true, downloadingKey = "subdl:en-2:ai", translationLoading = true)
         )
 
