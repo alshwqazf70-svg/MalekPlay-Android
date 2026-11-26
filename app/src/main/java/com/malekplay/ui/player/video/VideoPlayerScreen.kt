@@ -1839,22 +1839,27 @@ fun VideoPlayerScreen(
                             text = remote?.name ?: "جهاز تلفزيون",
                             style = MaterialTheme.typography.titleSmall
                         )
+                        val isRokuDevice = remote != null &&
+                            com.malekplay.network.TvCastProtocol.ROKU_ECP in remote.castProtocols &&
+                            com.malekplay.network.TvCastProtocol.DLNA !in remote.castProtocols
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceEvenly,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            IconButton(onClick = { viewModel.stepDlnaVolume(false) }) {
-                                Icon(Icons.Filled.VolumeDown, contentDescription = "خفض صوت التلفزيون")
+                            if (isRokuDevice || caps.absoluteVolume != com.malekplay.network.DlnaRendererClient.CapabilitySupport.UNSUPPORTED) {
+                                IconButton(onClick = { viewModel.stepDlnaVolume(false) }) {
+                                    Icon(Icons.Filled.VolumeDown, contentDescription = "خفض صوت التلفزيون")
+                                }
+                                Text(
+                                    text = dlnaPlayback.volumePercent?.let { "الصوت: $it%" } ?: "صوت التلفزيون",
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                                IconButton(onClick = { viewModel.stepDlnaVolume(true) }) {
+                                    Icon(Icons.Filled.VolumeUp, contentDescription = "رفع صوت التلفزيون")
+                                }
                             }
-                            Text(
-                                text = dlnaPlayback.volumePercent?.let { "الصوت: $it%" } ?: "صوت التلفزيون",
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                            IconButton(onClick = { viewModel.stepDlnaVolume(true) }) {
-                                Icon(Icons.Filled.VolumeUp, contentDescription = "رفع صوت التلفزيون")
-                            }
-                            if (caps.supportsExplicitMute) {
+                            if (caps.explicitMute != com.malekplay.network.DlnaRendererClient.CapabilitySupport.UNSUPPORTED) {
                                 IconButton(onClick = { viewModel.toggleDlnaMute() }) {
                                     Icon(
                                         Icons.Filled.VolumeOff,
@@ -1864,9 +1869,24 @@ fun VideoPlayerScreen(
                                 }
                             }
                         }
-                        if (!caps.supportsSeek || !caps.supportsExplicitMute) {
+                        val capNotes = buildList {
+                            when (caps.seek) {
+                                com.malekplay.network.DlnaRendererClient.CapabilitySupport.UNSUPPORTED -> add("الانتقال الزمني غير مدعوم")
+                                com.malekplay.network.DlnaRendererClient.CapabilitySupport.UNKNOWN -> add("الانتقال الزمني غير مؤكد")
+                                com.malekplay.network.DlnaRendererClient.CapabilitySupport.SUPPORTED -> Unit
+                            }
+                            when (caps.explicitMute) {
+                                com.malekplay.network.DlnaRendererClient.CapabilitySupport.UNSUPPORTED -> add("الكتم الصريح غير مدعوم")
+                                com.malekplay.network.DlnaRendererClient.CapabilitySupport.UNKNOWN -> add("الكتم غير مؤكد")
+                                com.malekplay.network.DlnaRendererClient.CapabilitySupport.SUPPORTED -> Unit
+                            }
+                            if (!isRokuDevice && caps.absoluteVolume == com.malekplay.network.DlnaRendererClient.CapabilitySupport.UNSUPPORTED) {
+                                add("التحكم بالصوت غير مدعوم عبر DLNA")
+                            }
+                        }
+                        if (capNotes.isNotEmpty()) {
                             Text(
-                                text = "قدرات هذا الجهاز: يدعم التشغيل والإيقاف وتغيير مستوى الصوت، ولا يدعم الانتقال الزمني أو الكتم الصريح عبر الشبكة.",
+                                text = "قدرات هذا الجهاز: ${capNotes.joinToString(" • ")}.",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )

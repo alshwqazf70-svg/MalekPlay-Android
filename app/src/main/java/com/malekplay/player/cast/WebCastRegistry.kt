@@ -76,6 +76,7 @@ object WebCastRegistry {
 
     fun currentServer(): WebCastServer? = server
 
+    @Synchronized
     fun start(context: Context, requirePin: Boolean = true): WebCastUiState {
         val srv = getOrCreateServer(context)
         val result = srv.start(requirePin)
@@ -83,6 +84,7 @@ object WebCastRegistry {
         return result
     }
 
+    @Synchronized
     fun stop() {
         server?.stop()
         _state.value = WebCastUiState()

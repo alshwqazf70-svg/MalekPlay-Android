@@ -19,8 +19,12 @@
     <domain-config cleartextTrafficPermitted="false">
         <domain includeSubdomains="true">opensubtitles.org</domain>
         <domain includeSubdomains="true">opensubtitles.com</domain>
+        <domain includeSubdomains="true">subdl.com</domain>
+        <domain includeSubdomains="true">subtitles.website</domain>
         <domain includeSubdomains="true">subf2m.co</domain>
         <domain includeSubdomains="true">tvmaze.com</domain>
+        <domain includeSubdomains="true">googleapis.com</domain>
+        <domain includeSubdomains="true">gstatic.com</domain>
         <domain includeSubdomains="true">github.com</domain>
         <domain includeSubdomains="true">githubusercontent.com</domain>
     </domain-config>

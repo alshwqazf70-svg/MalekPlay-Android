@@ -201,9 +201,11 @@ fun DlnaDevicePickerDialog(
                         ) {
                             items(devices, key = { it.id }) { device ->
                                 val canDirectCast = device.supportsDirectPlayback()
+                                val rokuControlOnly = device.supportsRokuControlOnly()
                                 val isGoogleCast = device.hasGoogleCastRoute()
                                 val capabilityBadge = when {
                                     canDirectCast -> "جاهز للبث"
+                                    rokuControlOnly -> "تحكم Roku فقط (ثبّت Roku Media Player)"
                                     isGoogleCast -> "زر Cast أعلاه"
                                     else -> "مكتشف • بدون بث مباشر"
                                 }
@@ -307,7 +309,11 @@ fun DlnaDevicePickerDialog(
                                                 manualIpError = "لم يستجب التلفزيون على منافذ DLNA/Roku. جرّب تبويب الكمبيوتر والمتصفح!"
                                             } else if (!probed.supportsDirectPlayback() && !probed.hasGoogleCastRoute()) {
                                                 devices = (listOf(probed) + devices).distinctBy { it.host.lowercase() }
-                                                manualIpError = "تم اكتشاف الجهاز (${probed.name}) لكنه لا يدعم DLNA AVTransport أو Roku ECP."
+                                                manualIpError = if (probed.supportsRokuControlOnly()) {
+                                                    "تم اكتشاف (${probed.name}) عبر Roku ECP للتحكم فقط، ولم يُعثر على Roku Media Player لاستقبال البث المباشر. ثبّت التطبيق أو استخدم تبويب المتصفح!"
+                                                } else {
+                                                    "تم اكتشاف الجهاز (${probed.name}) لكنه لا يدعم DLNA AVTransport أو Roku Media Player."
+                                                }
                                             } else {
                                                 devices = (listOf(probed) + devices).distinctBy { it.host.lowercase() }
                                             }

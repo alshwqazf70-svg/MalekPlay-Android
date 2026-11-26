@@ -4,27 +4,34 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.wifi.WifiManager
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.net.DatagramPacket
+import java.net.Inet4Address
+import java.net.Inet6Address
 import java.net.InetAddress
+import java.net.InetSocketAddress
 import java.net.MulticastSocket
 import java.net.NetworkInterface
 import java.net.URI
 import java.net.URL
 import java.nio.charset.StandardCharsets
+import java.util.Collections
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 
-internal fun isSameDiscoveryHost(endpointHost: String?, packetHost: String): Boolean =
-    !endpointHost.isNullOrBlank() && endpointHost.equals(packetHost, ignoreCase = true)
+internal fun isSameDiscoveryHost(endpointHost: String?, packetHost: String): Boolean {
+    val cleanEndpoint = LanNetworkSupport.stripZone(endpointHost)
+    val cleanPacket = LanNetworkSupport.stripZone(packetHost)
+    return cleanEndpoint.isNotBlank() && cleanEndpoint.equals(cleanPacket, ignoreCase = true)
+}
 
 internal fun classifySsdpDevice(st: String, usn: String): NetworkDeviceKind = when {
     st.contains("mediaserver", true) || usn.contains("mediaserver", true) ||
@@ -64,11 +71,17 @@ data class DiscoveredNetworkDevice(
     val manufacturer: String? = null,
     val modelName: String? = null,
     val castProtocols: Set<TvCastProtocol> = emptySet(),
-    val playbackVerified: Boolean = false
+    val playbackVerified: Boolean = false,
+    val controlVerified: Boolean = false,
+    val alternateHosts: Set<String> = emptySet()
 ) {
-    /** True only when a concrete direct playback & control endpoint (DLNA AVTransport or Roku ECP) is confirmed. */
+    /** True only when a concrete direct playback & control endpoint (DLNA AVTransport or verified Roku Media Player) is confirmed. */
     fun supportsDirectPlayback(): Boolean =
         playbackVerified && (TvCastProtocol.DLNA in castProtocols || TvCastProtocol.ROKU_ECP in castProtocols)
+
+    /** True when Roku ECP control was verified, while media playback via Roku Media Player could not be confirmed. */
+    fun supportsRokuControlOnly(): Boolean =
+        TvCastProtocol.ROKU_ECP in castProtocols && controlVerified && !playbackVerified
 
     /** True when the device advertises Google Cast / Android TV Remote routing via Cast SDK. */
     fun hasGoogleCastRoute(): Boolean =
@@ -80,14 +93,28 @@ data class DiscoveredNetworkDevice(
             (kind == NetworkDeviceKind.MEDIA_RENDERER ||
                 TvCastProtocol.AIRPLAY in castProtocols ||
                 TvCastProtocol.DIAL in castProtocols ||
-                TvCastProtocol.DLNA in castProtocols)
+                TvCastProtocol.DLNA in castProtocols ||
+                TvCastProtocol.ROKU_ECP in castProtocols)
 }
 
 enum class NetworkDeviceKind { MEDIA_SERVER, MEDIA_RENDERER, WINDOWS_COMPUTER, NETWORK_DEVICE }
 
 /**
+ * Result of staged Roku verification separating discovery, ECP control readiness,
+ * and Roku Media Player (`/input/15985`) media playback readiness.
+ */
+internal data class RokuReadinessResult(
+    val reachable: Boolean,
+    val controlVerified: Boolean,
+    val playbackVerified: Boolean,
+    val friendlyName: String? = null,
+    val manufacturer: String? = null,
+    val modelName: String? = null
+)
+
+/**
  * Passive-scope LAN discovery using standard multicast advertisements:
- * SSDP/UPnP (including DLNA, DIAL, and Roku ECP) for media devices,
+ * SSDP/UPnP (IPv4 & IPv6, including DLNA, DIAL, and Roku ECP) for media devices,
  * WS-Discovery for Windows, and mDNS/DNS-SD for TVs, Apple devices, and file shares.
  *
  * Also supports Wi-Fi Hotspot / AP / Ethernet local interfaces and explicit
@@ -116,6 +143,29 @@ class NetworkDiscoveryClient {
                 throw IllegalStateException("اتصل بشبكة Wi-Fi أو فعّل نقطة الاتصال أولاً لاكتشاف الأجهزة المحلية.")
             }
 
+            val activeDiscoverySockets = Collections.newSetFromMap(ConcurrentHashMap<MulticastSocket, Boolean>())
+            @Volatile var networkChanged = false
+            val networkCallback = if (lanNetwork != null) {
+                object : ConnectivityManager.NetworkCallback() {
+                    override fun onLost(network: Network) {
+                        if (network == lanNetwork) {
+                            networkChanged = true
+                            activeDiscoverySockets.toList().forEach { sock -> runCatching { sock.close() } }
+                        }
+                    }
+                }
+            } else null
+
+            if (networkCallback != null) {
+                runCatching {
+                    val req = NetworkRequest.Builder()
+                        .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                        .addTransportType(NetworkCapabilities.TRANSPORT_ETHERNET)
+                        .build()
+                    connectivity.registerNetworkCallback(req, networkCallback)
+                }
+            }
+
             val wifi = app.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
             val lock = wifi?.createMulticastLock("MalekPlay:LAN-discovery")?.apply {
                 setReferenceCounted(false)
@@ -125,16 +175,23 @@ class NetworkDiscoveryClient {
                 // Run independent multicast protocols together to keep the initial scan responsive.
                 val (ssdpDevices, wsDiscoveryDevices, mdnsDevices) = coroutineScope {
                     val ssdp = async(Dispatchers.IO) {
-                        val activeCheck = { isActive }
-                        collectProtocolResults { results -> discoverSsdp(results, lanNetwork, activeCheck) }
+                        val activeCheck = { isActive && !networkChanged }
+                        collectProtocolResults { results ->
+                            discoverSsdp(results, lanNetwork, activeDiscoverySockets, activeCheck)
+                        }
                     }
                     val wsDiscovery = async(Dispatchers.IO) {
-                        val activeCheck = { isActive }
-                        collectProtocolResults { results -> discoverWsDiscovery(results, lanNetwork, activeCheck) }
+                        val activeCheck = { isActive && !networkChanged }
+                        collectProtocolResults { results ->
+                            discoverWsDiscovery(results, lanNetwork, activeDiscoverySockets, activeCheck)
+                        }
                     }
                     val mdns = async(Dispatchers.IO) {
                         try {
-                            MdnsDiscoveryClient().discover(lanNetwork)
+                            MdnsDiscoveryClient().discover(
+                                network = lanNetwork,
+                                onSocketOpened = { sock -> activeDiscoverySockets += sock }
+                            )
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (_: Exception) {
@@ -147,7 +204,7 @@ class NetworkDiscoveryClient {
                 (ssdpDevices + wsDiscoveryDevices + mdnsDevices).forEach { device ->
                     merge(
                         found,
-                        device.host.lowercase(Locale.ROOT),
+                        LanNetworkSupport.stripZone(device.host).lowercase(Locale.ROOT),
                         MutableDevice(
                             name = device.name,
                             host = device.host,
@@ -158,12 +215,16 @@ class NetworkDiscoveryClient {
                             modelName = device.modelName,
                             castProtocols = device.castProtocols.toMutableSet(),
                             candidateDescriptionUrls = listOfNotNull(device.descriptionUrl).toMutableSet(),
-                            playbackVerified = device.playbackVerified
+                            playbackVerified = device.playbackVerified,
+                            controlVerified = device.controlVerified,
+                            alternateHosts = device.alternateHosts.toMutableSet()
                         )
                     )
                 }
 
-                enrichDiscoveredDevices(found.values.toList(), app, lanNetwork)
+                if (!networkChanged) {
+                    enrichDiscoveredDevices(found.values.toList(), app, lanNetwork)
+                }
 
                 found.values
                     .filter { it.host.isNotBlank() }
@@ -171,29 +232,34 @@ class NetworkDiscoveryClient {
                     .sortedWith(
                         compareByDescending<DiscoveredNetworkDevice> { it.supportsDirectPlayback() }
                             .thenByDescending { it.hasGoogleCastRoute() }
+                            .thenByDescending { it.controlVerified }
                             .thenBy { it.kind.ordinal }
                             .thenByDescending { it.castProtocols.size }
                             .thenBy { it.name.lowercase(Locale.ROOT) }
                     )
             } finally {
+                activeDiscoverySockets.toList().forEach { sock -> runCatching { sock.close() } }
+                activeDiscoverySockets.clear()
+                if (networkCallback != null) {
+                    runCatching { connectivity.unregisterNetworkCallback(networkCallback) }
+                }
                 if (lock?.isHeld == true) runCatching { lock.release() }
             }
         }
 
     /**
-     * Probes a single user-entered LAN IPv4/IPv6 address for common Smart TV / DLNA / Roku / DIAL
-     * endpoints when router AP isolation or multicast filtering blocks SSDP discovery.
+     * Probes a single user-entered LAN IPv4/IPv6 address (preserving any IPv6 link-local Scope ID)
+     * for Smart TV / DLNA / Roku / DIAL endpoints when router AP isolation or multicast filtering blocks SSDP.
      */
     suspend fun probeDeviceByIp(rawHost: String, context: Context? = null): DiscoveredNetworkDevice? =
         withContext(Dispatchers.IO) {
-            val host = rawHost.trim().removePrefix("[").removeSuffix("]")
+            val host = LanNetworkSupport.decodeScopedHost(rawHost)
             if (!isPrivateLanHost(host)) {
                 throw IllegalArgumentException("أدخل عنوان IP خاص على نفس الشبكة المحلية (مثل 192.168.1.50).")
             }
-            val urlHost = if (host.contains(':')) "[$host]" else host
+            val urlHost = LanNetworkSupport.formatUriAuthorityHost(host)
             val boundNetwork = LanNetworkSupport.findLanNetworkForHost(context, host)
             val candidateUrls = listOf(
-                "http://$urlHost:8060/query/device-info", // Roku TV / Roku Stick ECP
                 "http://$urlHost:9197/dmr",               // Samsung Tizen / Smart TV DMR
                 "http://$urlHost:7676/smp_7_",            // Samsung Legacy AllShare
                 "http://$urlHost:52235/dmr/SamsungMRDesc.xml",
@@ -217,6 +283,9 @@ class NetworkDiscoveryClient {
             )
             var foundAny = false
             coroutineScope {
+                val rokuDeferred = async(Dispatchers.IO) {
+                    verifyRokuReadiness(host, rokuPort = 8060, network = boundNetwork)
+                }
                 val results = candidateUrls.map { urlString ->
                     async(Dispatchers.IO) {
                         runCatching {
@@ -226,22 +295,21 @@ class NetworkDiscoveryClient {
                     }
                 }.awaitAll().filterNotNull()
 
+                val roku = rokuDeferred.await()
+                if (roku.reachable) {
+                    foundAny = true
+                    discovered.kind = NetworkDeviceKind.MEDIA_RENDERER
+                    discovered.services += "Roku ECP"
+                    discovered.castProtocols += TvCastProtocol.ROKU_ECP
+                    discovered.controlVerified = discovered.controlVerified || roku.controlVerified
+                    discovered.playbackVerified = discovered.playbackVerified || roku.playbackVerified
+                    if (!roku.friendlyName.isNullOrBlank()) discovered.name = roku.friendlyName
+                    if (!roku.manufacturer.isNullOrBlank()) discovered.manufacturer = roku.manufacturer
+                    if (!roku.modelName.isNullOrBlank()) discovered.modelName = roku.modelName
+                }
+
                 for ((urlString, xml) in results) {
-                    if (urlString.contains(":8060/query/device-info") && xml.contains("<device-info", true)) {
-                        foundAny = true
-                        discovered.kind = NetworkDeviceKind.MEDIA_RENDERER
-                        discovered.services += "Roku ECP"
-                        discovered.castProtocols += TvCastProtocol.ROKU_ECP
-                        discovered.playbackVerified = true
-                        val friendly = extractXmlTag(xml, "friendly-device-name")
-                            ?: extractXmlTag(xml, "user-device-name")
-                            ?: extractXmlTag(xml, "model-name")
-                        val vendor = extractXmlTag(xml, "vendor-name")
-                        val model = extractXmlTag(xml, "model-name")
-                        if (!friendly.isNullOrBlank()) discovered.name = friendly
-                        if (!vendor.isNullOrBlank()) discovered.manufacturer = vendor
-                        if (!model.isNullOrBlank()) discovered.modelName = model
-                    } else if (xml.contains("<root", true) || xml.contains("AVTransport", true) || xml.contains("MediaRenderer", true) || xml.contains("ContentDirectory", true)) {
+                    if (xml.contains("<root", true) || xml.contains("AVTransport", true) || xml.contains("MediaRenderer", true) || xml.contains("ContentDirectory", true)) {
                         foundAny = true
                         applyDescriptionXml(discovered, urlString, xml)
                     }
@@ -249,6 +317,76 @@ class NetworkDiscoveryClient {
             }
             if (!foundAny) null else discovered.toPublic()
         }
+
+    /**
+     * Verifies Roku device readiness in explicit stages:
+     * 1) `/query/device-info` checks whether ECP control is reachable and not disabled.
+     * 2) `/query/apps` verifies whether Roku Media Player (channel id `2213` / PlayOnRoku) is installed
+     *    before setting `playbackVerified = true`. A device responding only to `/query/device-info`
+     *    remains `controlVerified = true, playbackVerified = false`.
+     */
+    internal fun verifyRokuReadiness(
+        host: String,
+        rokuPort: Int = 8060,
+        network: Network? = null,
+        allowLoopbackForTest: Boolean = false,
+        httpGet: ((String) -> String?)? = null
+    ): RokuReadinessResult {
+        val urlHost = LanNetworkSupport.formatUriAuthorityHost(host)
+        val fetch: (String) -> String? = httpGet ?: { rawUrl ->
+            runCatching {
+                readSafeLocalXml(
+                    rawUrl = rawUrl,
+                    expectedHost = host,
+                    timeoutMs = 950,
+                    network = network,
+                    allowLoopbackForTest = allowLoopbackForTest
+                )
+            }.getOrNull()
+        }
+
+        val infoXml = fetch("http://$urlHost:$rokuPort/query/device-info")
+        if (infoXml.isNullOrBlank() || !infoXml.contains("<device-info", ignoreCase = true)) {
+            return RokuReadinessResult(reachable = false, controlVerified = false, playbackVerified = false)
+        }
+
+        val friendly = extractXmlTag(infoXml, "friendly-device-name")
+            ?: extractXmlTag(infoXml, "user-device-name")
+            ?: extractXmlTag(infoXml, "model-name")
+        val vendor = extractXmlTag(infoXml, "vendor-name")
+        val model = extractXmlTag(infoXml, "model-name")
+        val ecpSettingMode = extractXmlTag(infoXml, "ecp-setting-mode")?.lowercase(Locale.ROOT)
+        val controlAllowed = ecpSettingMode == null ||
+            (ecpSettingMode != "disabled" && ecpSettingMode != "off")
+        if (!controlAllowed) {
+            return RokuReadinessResult(
+                reachable = true,
+                controlVerified = false,
+                playbackVerified = false,
+                friendlyName = friendly,
+                manufacturer = vendor,
+                modelName = model
+            )
+        }
+
+        val appsXml = fetch("http://$urlHost:$rokuPort/query/apps")
+        val playbackSupported = if (!appsXml.isNullOrBlank() && appsXml.contains("<app", ignoreCase = true)) {
+            ROKU_MEDIA_PLAYER_APP_REGEX.containsMatchIn(appsXml) ||
+                appsXml.contains("Roku Media Player", ignoreCase = true) ||
+                appsXml.contains("PlayOnRoku", ignoreCase = true)
+        } else {
+            false
+        }
+
+        return RokuReadinessResult(
+            reachable = true,
+            controlVerified = true,
+            playbackVerified = playbackSupported,
+            friendlyName = friendly,
+            manufacturer = vendor,
+            modelName = model
+        )
+    }
 
     private suspend fun enrichDiscoveredDevices(
         devices: List<MutableDevice>,
@@ -259,6 +397,7 @@ class NetworkDiscoveryClient {
             it.descriptionUrl != null ||
                 it.candidateDescriptionUrls.isNotEmpty() ||
                 "roku:ecp" in it.services ||
+                TvCastProtocol.ROKU_ECP in it.castProtocols ||
                 TvCastProtocol.DLNA in it.castProtocols ||
                 it.services.any { s -> s.contains("Port 8060") || s.contains("dial", true) }
         }
@@ -269,7 +408,7 @@ class NetworkDiscoveryClient {
                 candidates.map { device ->
                     async(Dispatchers.IO) {
                         val deviceNetwork = LanNetworkSupport.findLanNetworkForHost(context, device.host) ?: lanNetwork
-                        val urlHost = if (device.host.contains(':')) "[${device.host}]" else device.host
+                        val urlHost = LanNetworkSupport.formatUriAuthorityHost(device.host)
                         val urlsToInspect = synchronized(device) {
                             val existing = (device.candidateDescriptionUrls + listOfNotNull(device.descriptionUrl))
                                 .distinct()
@@ -293,26 +432,16 @@ class NetworkDiscoveryClient {
                             }
                         }
                         if ("roku:ecp" in device.services || TvCastProtocol.ROKU_ECP in device.castProtocols) {
-                            runCatching {
-                                val rokuInfo = readSafeLocalXml(
-                                    "http://$urlHost:8060/query/device-info",
-                                    device.host,
-                                    timeoutMs = 900,
-                                    network = deviceNetwork
-                                )
-                                if (rokuInfo.contains("<device-info", true)) {
-                                    val friendly = extractXmlTag(rokuInfo, "friendly-device-name")
-                                        ?: extractXmlTag(rokuInfo, "user-device-name")
-                                    val vendor = extractXmlTag(rokuInfo, "vendor-name")
-                                    val model = extractXmlTag(rokuInfo, "model-name")
-                                    synchronized(device) {
-                                        if (!friendly.isNullOrBlank()) device.name = friendly
-                                        if (!vendor.isNullOrBlank()) device.manufacturer = vendor
-                                        if (!model.isNullOrBlank()) device.modelName = model
-                                        device.kind = NetworkDeviceKind.MEDIA_RENDERER
-                                        device.castProtocols += TvCastProtocol.ROKU_ECP
-                                        device.playbackVerified = true
-                                    }
+                            val roku = verifyRokuReadiness(device.host, rokuPort = 8060, network = deviceNetwork)
+                            if (roku.reachable) {
+                                synchronized(device) {
+                                    if (!roku.friendlyName.isNullOrBlank()) device.name = roku.friendlyName
+                                    if (!roku.manufacturer.isNullOrBlank()) device.manufacturer = roku.manufacturer
+                                    if (!roku.modelName.isNullOrBlank()) device.modelName = roku.modelName
+                                    device.kind = NetworkDeviceKind.MEDIA_RENDERER
+                                    device.castProtocols += TvCastProtocol.ROKU_ECP
+                                    device.controlVerified = device.controlVerified || roku.controlVerified
+                                    device.playbackVerified = device.playbackVerified || roku.playbackVerified
                                 }
                             }
                         }
@@ -338,6 +467,7 @@ class NetworkDiscoveryClient {
                 device.castProtocols += TvCastProtocol.DLNA
                 if (hasAvTransport) {
                     device.playbackVerified = true
+                    device.controlVerified = true
                 }
                 if (device.descriptionUrl == null || !urlString.contains(":8008/")) {
                     device.descriptionUrl = urlString
@@ -366,9 +496,10 @@ class NetworkDiscoveryClient {
         rawUrl: String,
         expectedHost: String,
         timeoutMs: Int,
-        network: Network? = null
+        network: Network? = null,
+        allowLoopbackForTest: Boolean = false
     ): String {
-        val url: URL = validateDlnaRendererEndpointUrl(rawUrl, expectedHost)
+        val url: URL = validateDlnaRendererEndpointUrl(rawUrl, expectedHost, allowLoopbackForTest)
         val connection = LanNetworkSupport.openLanHttpConnection(
             url = url,
             network = network,
@@ -432,6 +563,7 @@ class NetworkDiscoveryClient {
     private fun discoverSsdp(
         found: MutableMap<String, MutableDevice>,
         network: Network?,
+        activeSockets: MutableSet<MulticastSocket>,
         shouldContinue: () -> Boolean
     ) {
         val requests = listOf(
@@ -444,25 +576,42 @@ class NetworkDiscoveryClient {
             "roku:ecp",
             "urn:schemas-upnp-org:device:MediaServer:1"
         )
-        MulticastSocket().use { socket ->
+        val socket = MulticastSocket()
+        activeSockets += socket
+        try {
             if (network != null) runCatching { network.bindSocket(socket) }
             socket.soTimeout = RECEIVE_TIMEOUT_MS
             socket.timeToLive = 3
-            val target = InetAddress.getByName(SSDP_GROUP)
+            val targetV4 = InetAddress.getByName(SSDP_GROUP)
+            val targetV6 = runCatching { InetAddress.getByName(SSDP_GROUP_V6) }.getOrNull()
             val interfaces = findActivePrivateMulticastInterfaces()
             requests.forEach { searchTarget ->
                 if (!shouldContinue()) return@forEach
-                val message = "M-SEARCH * HTTP/1.1\r\nHOST: $SSDP_GROUP:$SSDP_PORT\r\nMAN: \"ssdp:discover\"\r\nMX: 2\r\nST: $searchTarget\r\n\r\n"
-                val bytes = message.toByteArray(Charsets.US_ASCII)
+                val messageV4 = "M-SEARCH * HTTP/1.1\r\nHOST: $SSDP_GROUP:$SSDP_PORT\r\nMAN: \"ssdp:discover\"\r\nMX: 2\r\nST: $searchTarget\r\n\r\n"
+                val bytesV4 = messageV4.toByteArray(Charsets.US_ASCII)
+                val messageV6 = "M-SEARCH * HTTP/1.1\r\nHOST: [$SSDP_GROUP_V6]:$SSDP_PORT\r\nMAN: \"ssdp:discover\"\r\nMX: 2\r\nST: $searchTarget\r\n\r\n"
+                val bytesV6 = messageV6.toByteArray(Charsets.US_ASCII)
                 if (interfaces.isNotEmpty()) {
-                    interfaces.take(3).forEach { iface ->
-                        runCatching {
-                            socket.networkInterface = iface
-                            socket.send(DatagramPacket(bytes, bytes.size, target, SSDP_PORT))
+                    interfaces.take(4).forEach { iface ->
+                        val addrs = runCatching { iface.inetAddresses.toList() }.getOrDefault(emptyList())
+                        if (addrs.any { it is Inet4Address && !it.isLoopbackAddress }) {
+                            runCatching {
+                                socket.networkInterface = iface
+                                socket.send(DatagramPacket(bytesV4, bytesV4.size, targetV4, SSDP_PORT))
+                            }
+                        }
+                        if (targetV6 != null && addrs.any { it is Inet6Address && !it.isLoopbackAddress }) {
+                            runCatching {
+                                socket.networkInterface = iface
+                                val scopedTargetV6 = runCatching {
+                                    Inet6Address.getByAddress(null, targetV6.address, iface)
+                                }.getOrElse { targetV6 }
+                                socket.send(DatagramPacket(bytesV6, bytesV6.size, scopedTargetV6, SSDP_PORT))
+                            }
                         }
                     }
                 } else {
-                    runCatching { socket.send(DatagramPacket(bytes, bytes.size, target, SSDP_PORT)) }
+                    runCatching { socket.send(DatagramPacket(bytesV4, bytesV4.size, targetV4, SSDP_PORT)) }
                 }
             }
             receiveUntilQuiet(socket, SSDP_WINDOW_MS, shouldContinue) { payload, source ->
@@ -473,13 +622,24 @@ class NetworkDiscoveryClient {
                 val st = headers["st"].orEmpty()
                 val server = headers["server"].orEmpty()
                 val locationUri = location?.let { runCatching { URI(it) }.getOrNull() }
-                val host = source.hostAddress?.substringBefore('%') ?: return@receiveUntilQuiet
+                val host = LanNetworkSupport.formatHostPreservingScope(source) ?: return@receiveUntilQuiet
                 // Never trust a LOCATION host that differs from the actual LAN packet sender.
+                // For link-local IPv6 packets, preserve our local Scope ID in the resolved URL authority.
                 val description = locationUri?.takeIf {
                     (it.scheme == "http" || it.scheme == "https") &&
-                        isSameDiscoveryHost(it.host?.removePrefix("[")?.removeSuffix("]"), host)
-                }?.toString()
-                val identity = host.lowercase(Locale.ROOT)
+                        isSameDiscoveryHost(it.host, host)
+                }?.let { validUri ->
+                    if (host.contains('%')) {
+                        val scopedAuthority = LanNetworkSupport.formatUriAuthorityHost(host)
+                        val portPart = if (validUri.port in 1..65535) ":${validUri.port}" else ""
+                        val pathPart = validUri.rawPath.orEmpty()
+                        val queryPart = validUri.rawQuery?.let { "?$it" }.orEmpty()
+                        "${validUri.scheme}://$scopedAuthority$portPart$pathPart$queryPart"
+                    } else {
+                        validUri.toString()
+                    }
+                }
+                val identity = LanNetworkSupport.stripZone(host).lowercase(Locale.ROOT)
                 val kind = classifySsdpDevice(st, usn)
                 val protocols = mutableSetOf<TvCastProtocol>()
                 if (kind == NetworkDeviceKind.MEDIA_RENDERER) {
@@ -508,23 +668,30 @@ class NetworkDiscoveryClient {
                         services = mutableSetOf("SSDP/UPnP", st).filter { it.isNotBlank() }.toMutableSet(),
                         descriptionUrl = description,
                         castProtocols = protocols,
-                        playbackVerified = false
+                        playbackVerified = false,
+                        controlVerified = false
                     )
                 )
             }
+        } finally {
+            activeSockets.remove(socket)
+            runCatching { socket.close() }
         }
     }
 
     private fun discoverWsDiscovery(
         found: MutableMap<String, MutableDevice>,
         network: Network?,
+        activeSockets: MutableSet<MulticastSocket>,
         shouldContinue: () -> Boolean
     ) {
         val probe = """<?xml version="1.0" encoding="UTF-8"?>
 <e:Envelope xmlns:e="http://www.w3.org/2003/05/soap-envelope" xmlns:w="http://schemas.xmlsoap.org/ws/2004/08/addressing" xmlns:d="http://schemas.xmlsoap.org/ws/2005/04/discovery">
 <e:Header><w:MessageID>urn:uuid:malekplay-discovery</w:MessageID><w:To>urn:schemas-xmlsoap-org:ws:2005:04:discovery</w:To><w:Action>http://schemas.xmlsoap.org/ws/2005/04/discovery/Probe</w:Action></e:Header>
 <e:Body><d:Probe/></e:Body></e:Envelope>"""
-        MulticastSocket().use { socket ->
+        val socket = MulticastSocket()
+        activeSockets += socket
+        try {
             if (network != null) runCatching { network.bindSocket(socket) }
             socket.soTimeout = RECEIVE_TIMEOUT_MS
             socket.timeToLive = 2
@@ -547,16 +714,16 @@ class NetworkDiscoveryClient {
                 if (!xml.contains("ProbeMatch", true)) return@receiveUntilQuiet
                 val xaddr = XML_XADDR.find(xml)?.groupValues?.getOrNull(1)?.trim()
                 val uri = xaddr?.split(Regex("\\s+"))?.firstOrNull()?.let { runCatching { URI(it) }.getOrNull() }
-                val host = source.hostAddress?.substringBefore('%') ?: return@receiveUntilQuiet
+                val host = LanNetworkSupport.formatHostPreservingScope(source) ?: return@receiveUntilQuiet
                 // Accept service endpoints only when they point back to the responding LAN host.
                 val safeXAddr = uri?.takeIf {
                     (it.scheme == "http" || it.scheme == "https") &&
-                        it.host?.removePrefix("[")?.removeSuffix("]").equals(host, ignoreCase = true)
+                        isSameDiscoveryHost(it.host, host)
                 }?.toString()
                 val types = XML_TYPES.find(xml)?.groupValues?.getOrNull(1).orEmpty()
                 val scopes = XML_SCOPES.find(xml)?.groupValues?.getOrNull(1).orEmpty()
                 val computer = classifyWsDiscoveryDevice(types, scopes) == NetworkDeviceKind.WINDOWS_COMPUTER
-                val identity = host.lowercase(Locale.ROOT)
+                val identity = LanNetworkSupport.stripZone(host).lowercase(Locale.ROOT)
                 val label = if (computer) "كمبيوتر على الشبكة" else "جهاز WS-Discovery"
                 merge(
                     found,
@@ -570,26 +737,14 @@ class NetworkDiscoveryClient {
                     )
                 )
             }
+        } finally {
+            activeSockets.remove(socket)
+            runCatching { socket.close() }
         }
     }
 
-    private fun findActivePrivateMulticastInterfaces(): List<NetworkInterface> = runCatching {
-        NetworkInterface.getNetworkInterfaces()?.toList().orEmpty()
-            .filter { iface ->
-                iface.isUp && !iface.isLoopback && iface.supportsMulticast() &&
-                    iface.inetAddresses.toList().any { addr ->
-                        !addr.isLoopbackAddress && LanNetworkSupport.isAllowedLanPeerAddress(addr)
-                    }
-            }
-            .sortedBy { iface ->
-                val name = iface.name.lowercase(Locale.ROOT)
-                when {
-                    name.startsWith("wlan") || name.startsWith("ap") || name.startsWith("swlan") -> 0
-                    name.startsWith("eth") || name.startsWith("p2p") || name.startsWith("rndis") -> 1
-                    else -> 2
-                }
-            }
-    }.getOrDefault(emptyList())
+    private fun findActivePrivateMulticastInterfaces(): List<NetworkInterface> =
+        MdnsDiscoveryClient.findMulticastInterfaces()
 
     private fun receiveUntilQuiet(
         socket: MulticastSocket,
@@ -611,8 +766,9 @@ class NetworkDiscoveryClient {
                 val payload = String(packet.data, packet.offset, packet.length, Charsets.UTF_8)
                 runCatching { onPacket(payload, packet.address) }
             } catch (_: java.net.SocketTimeoutException) {
-                // Keep listening until the full discovery window expires; SSDP MX responses may be delayed.
                 continue
+            } catch (_: Exception) {
+                break
             }
         }
     }
@@ -625,14 +781,40 @@ class NetworkDiscoveryClient {
         }.toMap()
 
     private fun merge(found: MutableMap<String, MutableDevice>, key: String, device: MutableDevice) {
-        val existing = found[key]
+        val incomingHosts = (listOf(device.host) + device.alternateHosts)
+            .map { LanNetworkSupport.stripZone(it).lowercase(Locale.ROOT) }
+            .toSet()
+
+        val matchedKey = if (found.containsKey(key)) {
+            key
+        } else {
+            found.entries.firstOrNull { (_, existing) ->
+                val existingHosts = (listOf(existing.host) + existing.alternateHosts)
+                    .map { LanNetworkSupport.stripZone(it).lowercase(Locale.ROOT) }
+                    .toSet()
+                incomingHosts.any { it in existingHosts }
+            }?.key ?: key
+        }
+
+        val existing = found[matchedKey]
         if (existing == null) {
             device.descriptionUrl?.let { device.candidateDescriptionUrls += it }
-            found[key] = device
+            found[matchedKey] = device
         } else {
             existing.services.addAll(device.services)
             existing.castProtocols.addAll(device.castProtocols)
             existing.playbackVerified = existing.playbackVerified || device.playbackVerified
+            existing.controlVerified = existing.controlVerified || device.controlVerified
+            if (!device.host.equals(existing.host, ignoreCase = true)) {
+                existing.alternateHosts += device.host
+            }
+            existing.alternateHosts.addAll(device.alternateHosts)
+            // Prefer IPv4 host as primary when an existing entry only had IPv6.
+            if (existing.host.contains(':') && !device.host.contains(':')) {
+                existing.alternateHosts += existing.host
+                existing.host = device.host
+                existing.alternateHosts.removeAll { it.equals(existing.host, ignoreCase = true) }
+            }
             device.descriptionUrl?.let { incomingDesc ->
                 existing.candidateDescriptionUrls += incomingDesc
                 val existingIsDialOrGeneric = existing.descriptionUrl == null ||
@@ -656,7 +838,6 @@ class NetworkDiscoveryClient {
                     existing.name = device.name
                 }
             } else if (device.kind == NetworkDeviceKind.MEDIA_RENDERER && existing.kind == NetworkDeviceKind.MEDIA_SERVER) {
-                // Smart TVs often expose both MediaServer and MediaRenderer; retain MediaRenderer capability in services & protocols.
                 existing.services += "DLNA MediaRenderer"
                 existing.castProtocols += device.castProtocols
             }
@@ -672,7 +853,7 @@ class NetworkDiscoveryClient {
 
     private data class MutableDevice(
         var name: String,
-        val host: String,
+        var host: String,
         var kind: NetworkDeviceKind,
         val services: MutableSet<String>,
         var descriptionUrl: String?,
@@ -680,10 +861,12 @@ class NetworkDiscoveryClient {
         var modelName: String? = null,
         val castProtocols: MutableSet<TvCastProtocol> = mutableSetOf(),
         val candidateDescriptionUrls: MutableSet<String> = mutableSetOf(),
-        var playbackVerified: Boolean = false
+        var playbackVerified: Boolean = false,
+        var controlVerified: Boolean = false,
+        val alternateHosts: MutableSet<String> = mutableSetOf()
     ) {
         fun toPublic() = DiscoveredNetworkDevice(
-            id = "$host:${kind.name}:${services.sorted().joinToString()}",
+            id = "${LanNetworkSupport.stripZone(host)}:${kind.name}:${services.sorted().joinToString()}",
             name = name,
             host = host,
             kind = kind,
@@ -692,12 +875,15 @@ class NetworkDiscoveryClient {
             manufacturer = manufacturer,
             modelName = modelName,
             castProtocols = castProtocols.toSet(),
-            playbackVerified = playbackVerified
+            playbackVerified = playbackVerified,
+            controlVerified = controlVerified,
+            alternateHosts = alternateHosts.toSet()
         )
     }
 
     private companion object {
         const val SSDP_GROUP = "239.255.255.250"
+        const val SSDP_GROUP_V6 = "ff02::c"
         const val SSDP_PORT = 1900
         const val WSD_PORT = 3702
         const val RECEIVE_TIMEOUT_MS = 650
@@ -706,6 +892,7 @@ class NetworkDiscoveryClient {
         const val QUIET_WINDOW_MS = 2_100L
         const val ENRICH_TOTAL_TIMEOUT_MS = 1_800L
         const val MAX_RESPONSE_CHARS = 16_384
+        val ROKU_MEDIA_PLAYER_APP_REGEX = Regex("""<app[^>]*\bid\s*=\s*["']2213["'][^>]*>""", RegexOption.IGNORE_CASE)
         val XML_XADDR = Regex("<(?:[\\w.-]+:)?XAddrs[^>]*>(.*?)</(?:[\\w.-]+:)?XAddrs>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
         val XML_TYPES = Regex("<(?:[\\w.-]+:)?Types[^>]*>(.*?)</(?:[\\w.-]+:)?Types>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
         val XML_SCOPES = Regex("<(?:[\\w.-]+:)?Scopes[^>]*>(.*?)</(?:[\\w.-]+:)?Scopes>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))

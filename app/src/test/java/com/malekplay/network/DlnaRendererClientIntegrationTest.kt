@@ -16,6 +16,7 @@ import java.net.InetAddress
 import java.net.ServerSocket
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
 
@@ -225,6 +226,261 @@ class DlnaRendererClientIntegrationTest {
         } finally {
             server.close()
             worker.join(1000)
+        }
+    }
+
+    @Test
+    fun rokuDeviceInfoAloneMarksControlOnlyAndRequiresRokuMediaPlayerForPlayback() = runBlocking {
+        val hasMediaPlayer = AtomicReference(false)
+        val inputCalls = AtomicInteger(0)
+        val server = ServerSocket(0, 16, InetAddress.getByName("127.0.0.1"))
+        val port = server.localPort
+        val worker = startTinyHttpServer(server) { _, path, _, _ ->
+            when {
+                path == "/query/device-info" -> 200 to """
+                    <device-info>
+                      <friendly-device-name>Roku Living Room</friendly-device-name>
+                      <vendor-name>Roku</vendor-name>
+                      <model-name>Roku Express</model-name>
+                      <ecp-setting-mode>enabled</ecp-setting-mode>
+                    </device-info>
+                """.trimIndent()
+                path == "/query/apps" -> {
+                    val apps = if (hasMediaPlayer.get()) {
+                        """<apps><app id="12">Netflix</app><app id="2213">Roku Media Player</app></apps>"""
+                    } else {
+                        """<apps><app id="12">Netflix</app></apps>"""
+                    }
+                    200 to apps
+                }
+                path.startsWith("/input/15985") -> {
+                    inputCalls.incrementAndGet()
+                    200 to ""
+                }
+                else -> 404 to ""
+            }
+        }
+        try {
+            val controlOnlyReadiness = NetworkDiscoveryClient().verifyRokuReadiness(
+                host = "127.0.0.1",
+                rokuPort = port,
+                allowLoopbackForTest = true
+            )
+            assertTrue(controlOnlyReadiness.reachable)
+            assertTrue(controlOnlyReadiness.controlVerified)
+            assertFalse(controlOnlyReadiness.playbackVerified)
+
+            val controlOnlyDevice = DiscoveredNetworkDevice(
+                id = "roku-control-only",
+                name = controlOnlyReadiness.friendlyName ?: "Roku",
+                host = "127.0.0.1",
+                kind = NetworkDeviceKind.MEDIA_RENDERER,
+                services = setOf("Roku ECP"),
+                castProtocols = setOf(TvCastProtocol.ROKU_ECP),
+                playbackVerified = controlOnlyReadiness.playbackVerified,
+                controlVerified = controlOnlyReadiness.controlVerified
+            )
+            assertTrue(controlOnlyDevice.supportsRokuControlOnly())
+            assertFalse(controlOnlyDevice.supportsDirectPlayback())
+
+            val client = DlnaRendererClient(rokuPort = port, allowLoopbackForTest = true)
+            assertEquals(
+                DlnaRendererClient.CapabilitySupport.UNSUPPORTED,
+                client.capabilitiesFor(controlOnlyDevice).positionReporting
+            )
+            assertThrows(UnsupportedOperationException::class.java) {
+                runBlocking {
+                    client.play(controlOnlyDevice, "http://127.0.0.1:8080/v.mp4", "Test", "video/mp4")
+                }
+            }
+            assertEquals(0, inputCalls.get())
+
+            // Once Roku Media Player (2213) is installed, playbackVerified becomes true.
+            hasMediaPlayer.set(true)
+            val fullReadiness = NetworkDiscoveryClient().verifyRokuReadiness(
+                host = "127.0.0.1",
+                rokuPort = port,
+                allowLoopbackForTest = true
+            )
+            assertTrue(fullReadiness.controlVerified)
+            assertTrue(fullReadiness.playbackVerified)
+        } finally {
+            server.close()
+            worker.join(1000)
+        }
+    }
+
+    @Test
+    fun dlnaCapabilitiesInspectScpdAndSoapFaultsWithoutAssumingSupport() = runBlocking {
+        val seekCalls = AtomicInteger(0)
+        val posCalls = AtomicInteger(0)
+        val cmCalls = AtomicInteger(0)
+
+        val server = ServerSocket(0, 16, InetAddress.getByName("127.0.0.1"))
+        val port = server.localPort
+        val worker = startTinyHttpServer(server) { method, path, headers, _ ->
+            when {
+                method == "GET" && path == "/dmr-limited.xml" -> 200 to """
+                    <root xmlns="urn:schemas-upnp-org:device-1-0">
+                      <device>
+                        <deviceType>urn:schemas-upnp-org:device:MediaRenderer:1</deviceType>
+                        <friendlyName>Limited TV</friendlyName>
+                        <serviceList>
+                          <service>
+                            <serviceType>urn:schemas-upnp-org:service:AVTransport:1</serviceType>
+                            <controlURL>/upnp/control/AVT</controlURL>
+                            <SCPDURL>/upnp/scpd/AVT.xml</SCPDURL>
+                          </service>
+                          <service>
+                            <serviceType>urn:schemas-upnp-org:service:ConnectionManager:1</serviceType>
+                            <controlURL>/upnp/control/CM</controlURL>
+                          </service>
+                        </serviceList>
+                      </device>
+                    </root>
+                """.trimIndent()
+                method == "GET" && path == "/upnp/scpd/AVT.xml" -> 200 to """
+                    <scpd xmlns="urn:schemas-upnp-org:service-1-0">
+                      <actionList>
+                        <action><name>SetAVTransportURI</name></action>
+                        <action><name>Play</name></action>
+                        <action><name>Pause</name></action>
+                        <action><name>Stop</name></action>
+                      </actionList>
+                    </scpd>
+                """.trimIndent()
+                method == "POST" && path == "/upnp/control/CM" -> {
+                    cmCalls.incrementAndGet()
+                    200 to """<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body><u:GetProtocolInfoResponse xmlns:u="urn:schemas-upnp-org:service:ConnectionManager:1"><Source/><Sink>http-get:*:video/mp4:*</Sink></u:GetProtocolInfoResponse></s:Body></s:Envelope>"""
+                }
+                method == "GET" && path == "/dmr-no-scpd.xml" -> 200 to """
+                    <root xmlns="urn:schemas-upnp-org:device-1-0">
+                      <device>
+                        <deviceType>urn:schemas-upnp-org:device:MediaRenderer:1</deviceType>
+                        <friendlyName>Opaque TV</friendlyName>
+                        <serviceList>
+                          <service>
+                            <serviceType>urn:schemas-upnp-org:service:AVTransport:1</serviceType>
+                            <controlURL>/upnp/control/AVT</controlURL>
+                          </service>
+                        </serviceList>
+                      </device>
+                    </root>
+                """.trimIndent()
+                method == "POST" && path == "/upnp/control/AVT" -> {
+                    val action = headers["soapaction"].orEmpty()
+                    when {
+                        action.contains("Seek") -> {
+                            seekCalls.incrementAndGet()
+                            500 to """<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body><s:Fault><faultstring>UPnPError</faultstring><detail><UPnPError><errorCode>710</errorCode><errorDescription>Seek mode not supported</errorDescription></UPnPError></detail></s:Fault></s:Body></s:Envelope>"""
+                        }
+                        action.contains("GetPositionInfo") -> {
+                            posCalls.incrementAndGet()
+                            500 to """<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body><s:Fault><faultstring>UPnPError</faultstring><detail><UPnPError><errorCode>401</errorCode><errorDescription>Invalid Action</errorDescription></UPnPError></detail></s:Fault></s:Body></s:Envelope>"""
+                        }
+                        else -> 404 to ""
+                    }
+                }
+                else -> 404 to ""
+            }
+        }
+        try {
+            val client = DlnaRendererClient(allowLoopbackForTest = true)
+
+            // 1) Limited TV with explicit SCPD omitting Seek/GetPositionInfo and no RenderingControl
+            val limitedTv = DiscoveredNetworkDevice(
+                id = "limited-tv",
+                name = "Limited TV",
+                host = "127.0.0.1",
+                kind = NetworkDeviceKind.MEDIA_RENDERER,
+                services = setOf("DLNA MediaRenderer"),
+                descriptionUrl = "http://127.0.0.1:$port/dmr-limited.xml",
+                castProtocols = setOf(TvCastProtocol.DLNA),
+                playbackVerified = true
+            )
+            val limitedCaps = client.inspectCapabilities(limitedTv)
+            assertEquals(DlnaRendererClient.CapabilitySupport.UNSUPPORTED, limitedCaps.seek)
+            assertEquals(DlnaRendererClient.CapabilitySupport.UNSUPPORTED, limitedCaps.positionReporting)
+            assertEquals(DlnaRendererClient.CapabilitySupport.UNSUPPORTED, limitedCaps.absoluteVolume)
+            assertEquals(DlnaRendererClient.CapabilitySupport.UNSUPPORTED, limitedCaps.explicitMute)
+            assertTrue(limitedCaps.protocolInfoVerified)
+            assertEquals(1, cmCalls.get())
+
+            // Must throw/return null without sending Seek or GetPositionInfo SOAP requests
+            assertThrows(UnsupportedOperationException::class.java) {
+                runBlocking { client.seek(limitedTv, 10_000L) }
+            }
+            assertEquals(null, client.getPosition(limitedTv))
+            assertEquals(0, seekCalls.get())
+            assertEquals(0, posCalls.get())
+
+            // 2) TV without SCPD starts UNKNOWN, then transitions to UNSUPPORTED on 710 / 401 SOAP faults
+            val opaqueTv = DiscoveredNetworkDevice(
+                id = "opaque-tv",
+                name = "Opaque TV",
+                host = "127.0.0.1",
+                kind = NetworkDeviceKind.MEDIA_RENDERER,
+                services = setOf("DLNA MediaRenderer"),
+                descriptionUrl = "http://127.0.0.1:$port/dmr-no-scpd.xml",
+                castProtocols = setOf(TvCastProtocol.DLNA),
+                playbackVerified = true
+            )
+            val initialCaps = client.inspectCapabilities(opaqueTv)
+            assertEquals(DlnaRendererClient.CapabilitySupport.UNKNOWN, initialCaps.seek)
+            assertEquals(DlnaRendererClient.CapabilitySupport.UNKNOWN, initialCaps.positionReporting)
+
+            assertThrows(UnsupportedOperationException::class.java) {
+                runBlocking { client.seek(opaqueTv, 15_000L) }
+            }
+            val callsAfterFirstSeek = seekCalls.get()
+            assertTrue(callsAfterFirstSeek >= 1)
+            // Subsequent seek must be blocked locally without hitting the network again
+            assertThrows(UnsupportedOperationException::class.java) {
+                runBlocking { client.seek(opaqueTv, 20_000L) }
+            }
+            assertEquals(callsAfterFirstSeek, seekCalls.get())
+            assertEquals(
+                DlnaRendererClient.CapabilitySupport.UNSUPPORTED,
+                client.capabilitiesFor(opaqueTv).seek
+            )
+
+            assertEquals(null, client.getPosition(opaqueTv))
+            assertEquals(1, posCalls.get())
+            assertEquals(null, client.getPosition(opaqueTv))
+            assertEquals(1, posCalls.get())
+            assertEquals(
+                DlnaRendererClient.CapabilitySupport.UNSUPPORTED,
+                client.capabilitiesFor(opaqueTv).positionReporting
+            )
+        } finally {
+            server.close()
+            worker.join(1000)
+        }
+    }
+
+    @Test
+    fun productionDlnaClientRejectsLoopbackWithoutTestOptIn() {
+        val prodClient = DlnaRendererClient()
+        val loopbackTv = DiscoveredNetworkDevice(
+            id = "loopback-tv",
+            name = "Loopback TV",
+            host = "127.0.0.1",
+            kind = NetworkDeviceKind.MEDIA_RENDERER,
+            services = setOf("DLNA MediaRenderer"),
+            descriptionUrl = "http://127.0.0.1:8080/dmr.xml",
+            castProtocols = setOf(TvCastProtocol.DLNA),
+            playbackVerified = true
+        )
+        assertThrows(IllegalArgumentException::class.java) {
+            runBlocking {
+                prodClient.play(loopbackTv, "http://192.168.1.50:8080/video.mp4", "Test", "video/mp4")
+            }
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            validateDlnaRendererMediaUrl("http://127.0.0.1:8080/video.mp4")
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            validateDlnaRendererEndpointUrl("http://127.0.0.1:8080/dmr.xml", "127.0.0.1")
         }
     }
 

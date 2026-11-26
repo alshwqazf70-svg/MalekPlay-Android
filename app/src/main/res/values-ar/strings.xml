@@ -729,7 +729,7 @@
         <item quantity="other">%1$d تنزيل</item>
     </plurals>
     <string name="subtitle_preview_button">معاينة</string>
-    <string name="subtitle_preview_loading_button">جارٍ المعاينة…</string>
+    <string name="subtitle_preview_loading_button">جارٍ تحميل المعاينة…</string>
     <string name="subtitle_hide_preview_button">إخفاء المعاينة</string>
     <string name="subtitle_download_and_apply">تنزيل وتطبيق</string>
     <string name="subtitle_downloading_and_applying">جارٍ التنزيل والتطبيق…</string>

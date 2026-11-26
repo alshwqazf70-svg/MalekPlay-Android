@@ -93,12 +93,7 @@ data class DlnaPlaybackState(
     val errorMessage: String? = null,
     val volumePercent: Int? = null,
     val isMuted: Boolean = false,
-    val capabilities: DlnaRendererClient.RendererCapabilities = DlnaRendererClient.RendererCapabilities(
-        supportsSeek = true,
-        supportsAbsoluteVolume = true,
-        supportsExplicitMute = true,
-        supportsPositionReporting = true
-    )
+    val capabilities: DlnaRendererClient.RendererCapabilities = DlnaRendererClient.RendererCapabilities()
 )
 
 /** Live codec/format telemetry shown in the "Playback info" sheet. */
@@ -954,7 +949,8 @@ class PlayerViewModel @Inject constructor(
                     player.pause()
                     val initialVolume = runCatching { dlnaPlaybackController.getVolume(device) }.getOrNull()
                     val initialMute = runCatching { dlnaPlaybackController.getMute(device) }.getOrNull() ?: false
-                    val caps = dlnaPlaybackController.capabilitiesFor(device)
+                    val caps = runCatching { dlnaPlaybackController.inspectCapabilities(device) }
+                        .getOrElse { dlnaPlaybackController.capabilitiesFor(device) }
                     _dlnaPlayback.value = DlnaPlaybackState(
                         activeDevice = device,
                         isPlaying = true,
@@ -1015,6 +1011,9 @@ class PlayerViewModel @Inject constructor(
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (error: Exception) {
+                    _dlnaPlayback.value = _dlnaPlayback.value.copy(
+                        capabilities = dlnaPlaybackController.capabilitiesFor(requested)
+                    )
                     publishDlnaCommandFailure(error, "تعذر تغيير موضع الفيديو على التلفزيون.")
                 }
             }
@@ -1044,6 +1043,9 @@ class PlayerViewModel @Inject constructor(
                     )
                 }.onFailure { err ->
                     if (err is CancellationException) throw err
+                    _dlnaPlayback.value = _dlnaPlayback.value.copy(
+                        capabilities = dlnaPlaybackController.capabilitiesFor(requested)
+                    )
                     publishDlnaError(err.message ?: "لا يدعم هذا التلفزيون التحكم في الصوت عن بُعد.")
                 }
             }
@@ -1062,6 +1064,9 @@ class PlayerViewModel @Inject constructor(
                     _dlnaPlayback.value = state.copy(isMuted = nextMuted, errorMessage = null)
                 }.onFailure { err ->
                     if (err is CancellationException) throw err
+                    _dlnaPlayback.value = _dlnaPlayback.value.copy(
+                        capabilities = dlnaPlaybackController.capabilitiesFor(requested)
+                    )
                     publishDlnaError(err.message ?: "لا يدعم هذا التلفزيون كتم الصوت عن بُعد.")
                 }
             }

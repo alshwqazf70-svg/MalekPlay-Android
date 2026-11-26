@@ -29,9 +29,11 @@ import java.nio.charset.CodingErrorAction
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.security.SecureRandom
+import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -46,10 +48,14 @@ import java.util.concurrent.atomic.AtomicBoolean
 class CastMediaHttpServer internal constructor(
     context: Context,
     private val upstreamFactory: DataSource.Factory,
-    private val privateIpv4Provider: () -> List<Inet4Address>
+    private val privateIpv4Provider: () -> List<Inet4Address>,
+    private val allowLoopbackForTest: Boolean = false,
+    private val peerValidator: (remote: java.net.InetAddress?, local: java.net.InetAddress?) -> Boolean = { remote, local ->
+        LanNetworkSupport.isPeerOnActiveLocalLan(remote, local, allowLoopback = allowLoopbackForTest)
+    }
 ) : AutoCloseable {
     constructor(context: Context, upstreamFactory: DataSource.Factory) :
-        this(context, upstreamFactory, LanNetworkSupport::findAllPrivateIpv4s)
+        this(context, upstreamFactory, LanNetworkSupport::findAllPrivateIpv4s, false)
     private val resolver: ContentResolver = context.applicationContext.contentResolver
     private val random = SecureRandom()
     @Volatile private var token = ""
@@ -61,11 +67,13 @@ class CastMediaHttpServer internal constructor(
     private val subtitleUrlByMediaKey = ConcurrentHashMap<String, String>()
     private val subtitleSourceById = ConcurrentHashMap<String, SubtitleSource>()
     private val idBySubtitleKey = ConcurrentHashMap<String, String>()
+    private val activeSockets = Collections.newSetFromMap(ConcurrentHashMap<Socket, Boolean>())
     private val running = AtomicBoolean(false)
     @Volatile private var workers: ThreadPoolExecutor = LanNetworkSupport.createBoundedHttpExecutor("MalekBridge")
     @Volatile private var serverSocket: ServerSocket? = null
     @Volatile private var baseUrl: String? = null
     @Volatile private var boundPort: Int = 0
+    @Volatile private var boundAddress: Inet4Address? = null
 
     private data class SubtitleSource(
         val uri: Uri?,
@@ -73,10 +81,13 @@ class CastMediaHttpServer internal constructor(
         val rawHint: String
     )
 
+    internal fun activeConnectionCountForTest(): Int = activeSockets.size
+
     @Synchronized
     private fun ensureStarted() {
         if (running.get()) return
-        val address = findPrivateIpv4()
+        val ips = privateIpv4Provider()
+        val address = ips.firstOrNull()
             ?: throw IOException("لا يوجد عنوان شبكة محلي (Wi-Fi أو نقطة اتصال) متاح للبث.")
         token = ByteArray(32).also(random::nextBytes).joinToString("") { "%02x".format(it) }
         if (workers.isShutdown || workers.isTerminated) {
@@ -84,9 +95,19 @@ class CastMediaHttpServer internal constructor(
         }
         val socket = ServerSocket()
         socket.reuseAddress = true
-        // Bind to wildcard 0.0.0.0 on an ephemeral port only if multiple private LAN interfaces
-        // exist, or bind directly to the private interface; we advertise only private LAN IPs.
-        socket.bind(InetSocketAddress(0), 32)
+        // Bind strictly to the single active private LAN IP when only one LAN interface is up.
+        // Technical POSIX/Android constraint: a single ServerSocket cannot bind to multiple discrete
+        // interface IPs simultaneously; when multiple LAN interfaces (e.g. Wi-Fi + Hotspot + USB)
+        // are active, we bind on wildcard and enforce strict active-LAN subnet + local-endpoint
+        // filtering on every accepted socket via LanNetworkSupport.isPeerOnActiveLocalLan().
+        val bindTarget = if (ips.size == 1) {
+            boundAddress = address
+            InetSocketAddress(address, 0)
+        } else {
+            boundAddress = null
+            InetSocketAddress(0)
+        }
+        socket.bind(bindTarget, 32)
         serverSocket = socket
         boundPort = socket.localPort
         baseUrl = "http://${address.hostAddress}:$boundPort"
@@ -95,9 +116,16 @@ class CastMediaHttpServer internal constructor(
             while (running.get()) {
                 try {
                     val client = socket.accept()
+                    activeSockets.add(client)
+                    if (!running.get()) {
+                        activeSockets.remove(client)
+                        runCatching { client.close() }
+                        break
+                    }
                     try {
                         workers.execute { handle(client) }
                     } catch (_: RejectedExecutionException) {
+                        activeSockets.remove(client)
                         runCatching {
                             client.soTimeout = 2_000
                             val out = BufferedOutputStream(client.getOutputStream())
@@ -115,7 +143,13 @@ class CastMediaHttpServer internal constructor(
     /** Returns the active LAN base URL, or null if the server has not started yet. */
     fun activeBaseUrl(): String? {
         if (!running.get()) return null
-        val address = findPrivateIpv4() ?: return baseUrl
+        val bound = boundAddress
+        val currentIps = findAllPrivateIpv4s()
+        val address = if (bound != null && currentIps.any { it.hostAddress == bound.hostAddress }) {
+            bound
+        } else {
+            currentIps.firstOrNull()
+        } ?: return baseUrl
         return "http://${address.hostAddress}:$boundPort"
     }
 
@@ -205,15 +239,15 @@ class CastMediaHttpServer internal constructor(
     }
 
     private fun handle(socket: Socket) {
-        socket.use { client ->
-            try {
-                client.soTimeout = 10_000
-                // Ensure only LAN / loopback peers (IPv4 or IPv6) can consume the local media bridge.
-                if (!LanNetworkSupport.isAllowedLanPeerAddress(client.inetAddress)) {
-                    return
-                }
+        try {
+            socket.use { client ->
+                try {
+                    client.soTimeout = 10_000
+                    if (!running.get() || !peerValidator(client.inetAddress, client.localAddress)) {
+                        return
+                    }
 
-                val input = BufferedInputStream(client.getInputStream())
+                    val input = BufferedInputStream(client.getInputStream())
                 val output = BufferedOutputStream(client.getOutputStream())
                 val requestLine = readHttpLine(input, 4096) ?: return
                 val request = requestLine.split(' ')
@@ -292,6 +326,9 @@ class CastMediaHttpServer internal constructor(
             } catch (_: Exception) {
                 // The peer may disconnect during a seek or while closing playback.
             }
+        }
+        } finally {
+            activeSockets.remove(socket)
         }
     }
 
@@ -473,21 +510,27 @@ class CastMediaHttpServer internal constructor(
     }
 
     override fun close() {
-        if (!running.compareAndSet(true, false)) return
+        val wasRunning = running.compareAndSet(true, false)
         token = ""
         try { serverSocket?.close() } catch (_: IOException) {}
         serverSocket = null
         baseUrl = null
         boundPort = 0
-        uriById.clear()
-        idByUri.clear()
-        lengthByUri.clear()
-        mimeByUri.clear()
-        fileNameById.clear()
-        subtitleUrlByMediaKey.clear()
-        subtitleSourceById.clear()
-        idBySubtitleKey.clear()
-        workers.shutdownNow()
+        boundAddress = null
+        activeSockets.toList().forEach { sock -> runCatching { sock.close() } }
+        activeSockets.clear()
+        if (wasRunning) {
+            uriById.clear()
+            idByUri.clear()
+            lengthByUri.clear()
+            mimeByUri.clear()
+            fileNameById.clear()
+            subtitleUrlByMediaKey.clear()
+            subtitleSourceById.clear()
+            idBySubtitleKey.clear()
+            workers.shutdownNow()
+            runCatching { workers.awaitTermination(500L, TimeUnit.MILLISECONDS) }
+        }
     }
 
     private fun respond(

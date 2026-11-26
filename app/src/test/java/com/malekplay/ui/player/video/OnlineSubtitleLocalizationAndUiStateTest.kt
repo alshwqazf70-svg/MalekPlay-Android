@@ -112,10 +112,10 @@ class OnlineSubtitleLocalizationAndUiStateTest {
         assertEquals("Downloading subtitle file and applying it to the video…", en.getValue("subtitle_downloading_and_applying_status"))
         assertEquals("جارٍ تنزيل ملف الترجمة وتطبيقه على الفيديو…", ar.getValue("subtitle_downloading_and_applying_status"))
         assertEquals("Preview", en.getValue("subtitle_preview_button"))
-        assertEquals("Previewing…", en.getValue("subtitle_preview_loading_button"))
+        assertEquals("Loading preview…", en.getValue("subtitle_preview_loading_button"))
         assertEquals("Hide preview", en.getValue("subtitle_hide_preview_button"))
         assertEquals("معاينة", ar.getValue("subtitle_preview_button"))
-        assertEquals("جارٍ المعاينة…", ar.getValue("subtitle_preview_loading_button"))
+        assertEquals("جارٍ تحميل المعاينة…", ar.getValue("subtitle_preview_loading_button"))
         assertEquals("إخفاء المعاينة", ar.getValue("subtitle_hide_preview_button"))
         assertEquals("Download & translate to Arabic (AI)", en.getValue("subtitle_download_and_translate_ai"))
         assertEquals("Downloading & translating…", en.getValue("subtitle_downloading_and_translating"))
@@ -215,6 +215,17 @@ class OnlineSubtitleLocalizationAndUiStateTest {
         )
         assertEquals(R.string.subtitle_preview_loading_button, previewLoadingState.previewLabelRes)
         assertFalse(previewLoadingState.previewEnabled)
+
+        val previewErrorOrEmptyState = resolveSubtitleCardActionState(
+            subtitle = englishSub,
+            loading = false,
+            downloadingKey = null,
+            previewKey = "subdl:en-2",
+            previewLoading = false,
+            previewLines = emptyList()
+        )
+        assertEquals(R.string.subtitle_preview_button, previewErrorOrEmptyState.previewLabelRes)
+        assertTrue(previewErrorOrEmptyState.previewEnabled)
 
         // Filter & sort verification.
         val list = listOf(arabicSub, englishSub)

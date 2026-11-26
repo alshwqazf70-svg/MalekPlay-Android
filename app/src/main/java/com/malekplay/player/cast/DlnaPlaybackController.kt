@@ -25,6 +25,9 @@ class DlnaPlaybackController @Inject constructor(
     fun capabilitiesFor(device: DiscoveredNetworkDevice): DlnaRendererClient.RendererCapabilities =
         rendererClient.capabilitiesFor(device)
 
+    suspend fun inspectCapabilities(device: DiscoveredNetworkDevice): DlnaRendererClient.RendererCapabilities =
+        rendererClient.inspectCapabilities(device)
+
     suspend fun play(
         device: DiscoveredNetworkDevice,
         mediaItem: MediaItem,

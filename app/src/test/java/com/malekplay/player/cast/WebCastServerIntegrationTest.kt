@@ -29,9 +29,15 @@ import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.Inet4Address
+import java.net.Inet6Address
 import java.net.InetAddress
 import java.net.URL
 import java.nio.charset.StandardCharsets
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29])
@@ -44,7 +50,12 @@ class WebCastServerIntegrationTest {
 
     @Test
     fun tokenRotatesAndOldSessionTokenIsRejectedAfterStopAndRestart() {
-        val server = WebCastServer(context, DefaultDataSource.Factory(context), loopbackProvider)
+        val server = WebCastServer(
+            context = context,
+            initialUpstreamFactory = DefaultDataSource.Factory(context),
+            privateIpv4Provider = loopbackProvider,
+            allowLoopbackForTest = true
+        )
         try {
             val firstState = server.start(requirePin = true)
             val firstQuickUrl = firstState.quickConnectUrl!!
@@ -73,7 +84,12 @@ class WebCastServerIntegrationTest {
 
     @Test
     fun pinAuthRateLimitsRepeatedWrongGuesses() {
-        val server = WebCastServer(context, DefaultDataSource.Factory(context), loopbackProvider)
+        val server = WebCastServer(
+            context = context,
+            initialUpstreamFactory = DefaultDataSource.Factory(context),
+            privateIpv4Provider = loopbackProvider,
+            allowLoopbackForTest = true
+        )
         try {
             val state = server.start(requirePin = true)
             val base = state.primaryUrl!!
@@ -109,7 +125,12 @@ class WebCastServerIntegrationTest {
             writeBytes("0123456789ABCDEF".toByteArray(StandardCharsets.US_ASCII))
             deleteOnExit()
         }
-        val server = WebCastServer(context, DefaultDataSource.Factory(context), loopbackProvider)
+        val server = WebCastServer(
+            context = context,
+            initialUpstreamFactory = DefaultDataSource.Factory(context),
+            privateIpv4Provider = loopbackProvider,
+            allowLoopbackForTest = true
+        )
         try {
             val state = server.start(requirePin = false)
             server.updateQueue(
@@ -192,7 +213,12 @@ class WebCastServerIntegrationTest {
             writeBytes("ABCDEFGHIJ".toByteArray(StandardCharsets.US_ASCII))
             deleteOnExit()
         }
-        val bridge = CastMediaHttpServer(context, DefaultDataSource.Factory(context), loopbackProvider)
+        val bridge = CastMediaHttpServer(
+            context = context,
+            upstreamFactory = DefaultDataSource.Factory(context),
+            privateIpv4Provider = loopbackProvider,
+            allowLoopbackForTest = true
+        )
         try {
             val streamUri = bridge.urlFor(Uri.fromFile(tempFile), "video/mp4", "sample.mp4")
             val rangeConn = (URL(streamUri.toString()).openConnection() as HttpURLConnection).apply {
@@ -216,20 +242,21 @@ class WebCastServerIntegrationTest {
     @Test
     fun lanNetworkSupportValidatesIpv4AndIpv6Independently() {
         listOf(
-            "127.0.0.1",
             "192.168.1.44",
             "10.0.0.8",
             "172.16.5.9",
             "169.254.10.2",
             "100.64.0.5",
-            "::1",
             "fe80::1",
             "fd12:3456:789a::1"
         ).forEach { ip ->
             assertTrue("Expected allowed LAN IP: $ip", LanNetworkSupport.isAllowedLanPeerAddress(InetAddress.getByName(ip)))
         }
 
+        // Production peer check strictly rejects loopback unless test opt-in is passed.
         listOf(
+            "127.0.0.1",
+            "::1",
             "8.8.8.8",
             "1.1.1.1",
             "2001:4860:4860::8888",
@@ -240,6 +267,21 @@ class WebCastServerIntegrationTest {
         ).forEach { ip ->
             assertFalse("Expected rejected IP: $ip", LanNetworkSupport.isAllowedLanPeerAddress(InetAddress.getByName(ip)))
         }
+
+        assertTrue(
+            LanNetworkSupport.isPeerOnActiveLocalLan(
+                peer = InetAddress.getByName("127.0.0.1"),
+                local = InetAddress.getByName("127.0.0.1"),
+                allowLoopback = true
+            )
+        )
+        assertFalse(
+            LanNetworkSupport.isPeerOnActiveLocalLan(
+                peer = InetAddress.getByName("127.0.0.1"),
+                local = InetAddress.getByName("127.0.0.1"),
+                allowLoopback = false
+            )
+        )
     }
 
     @Test
@@ -282,6 +324,272 @@ class WebCastServerIntegrationTest {
             playbackVerified = true
         )
         assertTrue(verifiedDlna.supportsDirectPlayback())
+    }
+
+    @Test
+    fun lanNetworkBindingThrowsDirectlyWithoutFallingBackToDefaultNetwork() {
+        val defaultCalled = AtomicBoolean(false)
+        val url = URL("http://192.168.1.50:8080/dmr.xml")
+
+        val thrown = runCatching {
+            LanNetworkSupport.openLanHttpConnectionWithOpeners(
+                url = url,
+                hasBoundNetwork = true,
+                boundOpener = { throw IOException("Wi-Fi socket bind failed") },
+                defaultOpener = {
+                    defaultCalled.set(true)
+                    throw AssertionError("Default network fallback must never be called")
+                },
+                connectTimeoutMs = 1000,
+                readTimeoutMs = 1000
+            )
+        }.exceptionOrNull()
+
+        assertTrue(thrown is IOException)
+        assertFalse("Default network fallback must not be attempted when bound Network fails", defaultCalled.get())
+    }
+
+    @Test
+    fun mdnsPreservesLinkLocalScopeIdAndBuildsValidQueries() {
+        val linkLocalBytes = InetAddress.getByName("fe80::1234").address
+        val packet = buildDnsPacket(
+            records = listOf(
+                buildDnsRecord("roku-tv.local", MdnsDiscoveryClient.TYPE_AAAA, linkLocalBytes)
+            )
+        )
+        val parsed = MdnsDiscoveryClient().parseRecords(packet, fallbackScopeId = "4")
+        assertEquals(1, parsed.size)
+        val scopedAddr = parsed.first().address!!
+        assertTrue("Expected %4 scope id in $scopedAddr", scopedAddr.endsWith("%4"))
+        assertEquals("http://[fe80:0:0:0:0:0:0:1234%254]:8060/query/device-info", "http://${LanNetworkSupport.formatUriAuthorityHost(scopedAddr)}:8060/query/device-info")
+        assertEquals("[fe80:0:0:0:0:0:0:1234%4]", LanNetworkSupport.formatUrlHost(scopedAddr))
+
+        val query = MdnsDiscoveryClient().buildPtrQueryPacket("_googlecast._tcp.local")
+        assertTrue(query.size > 12)
+        assertEquals(0, query[2].toInt() and 0x80) // standard query flag QR=0
+    }
+
+    @Test
+    fun webCastStopForciblyInterruptsLongRunningStreamAndIsIdempotent() {
+        val started = CountDownLatch(1)
+        val closedByStop = CountDownLatch(1)
+        val slowFactory = DataSource.Factory {
+            object : BaseDataSource(false) {
+                private var offset = 0L
+                override fun open(dataSpec: DataSpec): Long {
+                    started.countDown()
+                    return 50L * 1024L * 1024L
+                }
+                override fun read(buffer: ByteArray, off: Int, length: Int): Int {
+                    Thread.sleep(25)
+                    buffer[off] = 'A'.code.toByte()
+                    offset += 1
+                    return 1
+                }
+                override fun getUri(): Uri? = Uri.parse("content://slow/1")
+                override fun close() {
+                    closedByStop.countDown()
+                }
+            }
+        }
+        val server = WebCastServer(
+            context = context,
+            initialUpstreamFactory = slowFactory,
+            privateIpv4Provider = loopbackProvider,
+            allowLoopbackForTest = true
+        )
+        try {
+            val state = server.start(requirePin = false)
+            server.updateQueue(
+                listOf(WebCastItem(id = "slow1", title = "Slow", uri = Uri.parse("content://slow/1"), mimeType = "video/mp4"))
+            )
+            val base = state.primaryUrl!!
+
+            val readFinished = CountDownLatch(1)
+            val readerThread = Thread {
+                runCatching {
+                    val conn = URL("$base/stream/slow1/stream.mp4").openConnection() as HttpURLConnection
+                    conn.readTimeout = 5000
+                    conn.inputStream.use { it.readBytes() }
+                }
+                readFinished.countDown()
+            }.apply { start() }
+
+            assertTrue("Stream did not start in time", started.await(3, TimeUnit.SECONDS))
+            server.stop()
+            // Second stop() must be safely idempotent.
+            server.stop()
+
+            assertTrue("Active stream was not interrupted on stop()", readFinished.await(3, TimeUnit.SECONDS))
+            assertTrue("Upstream DataSource was not closed on stop()", closedByStop.await(2, TimeUnit.SECONDS))
+
+            val rejected = runCatching {
+                (URL("$base/api/state").openConnection() as HttpURLConnection).responseCode
+            }
+            assertTrue("Server socket must refuse new connections after stop()", rejected.isFailure)
+            readerThread.join(1000)
+        } finally {
+            server.close()
+        }
+    }
+
+    @Test
+    fun castMediaHttpServerCloseInterruptsActiveStream() {
+        val started = CountDownLatch(1)
+        val closedByServer = CountDownLatch(1)
+        val slowFactory = DataSource.Factory {
+            object : BaseDataSource(false) {
+                override fun open(dataSpec: DataSpec): Long {
+                    started.countDown()
+                    return 50L * 1024L * 1024L
+                }
+                override fun read(buffer: ByteArray, off: Int, length: Int): Int {
+                    Thread.sleep(25)
+                    buffer[off] = 'Z'.code.toByte()
+                    return 1
+                }
+                override fun getUri(): Uri? = Uri.parse("content://slow/2")
+                override fun close() {
+                    closedByServer.countDown()
+                }
+            }
+        }
+        val bridge = CastMediaHttpServer(
+            context = context,
+            upstreamFactory = slowFactory,
+            privateIpv4Provider = loopbackProvider,
+            allowLoopbackForTest = true
+        )
+        try {
+            val streamUri = bridge.urlFor(Uri.parse("content://slow/2"), "video/mp4", "slow.mp4")
+            val finished = CountDownLatch(1)
+            val worker = Thread {
+                runCatching {
+                    (URL(streamUri.toString()).openConnection() as HttpURLConnection).inputStream.use { it.readBytes() }
+                }
+                finished.countDown()
+            }.apply { start() }
+
+            assertTrue(started.await(3, TimeUnit.SECONDS))
+            bridge.close()
+            bridge.close() // idempotent
+            assertTrue("Bridge stream not interrupted on close()", finished.await(3, TimeUnit.SECONDS))
+            assertTrue("Bridge upstream DataSource not closed", closedByServer.await(2, TimeUnit.SECONDS))
+            worker.join(1000)
+        } finally {
+            bridge.close()
+        }
+    }
+
+    @Test
+    fun productionWebCastAndBridgeRejectLoopbackWithoutTestOptIn() {
+        val server = WebCastServer(
+            context = context,
+            initialUpstreamFactory = DefaultDataSource.Factory(context),
+            privateIpv4Provider = loopbackProvider,
+            allowLoopbackForTest = false
+        )
+        val bridge = CastMediaHttpServer(
+            context = context,
+            upstreamFactory = DefaultDataSource.Factory(context),
+            privateIpv4Provider = loopbackProvider,
+            allowLoopbackForTest = false
+        )
+        try {
+            val state = server.start(requirePin = false)
+            val serverRejected = runCatching {
+                val conn = URL("${state.primaryUrl}/api/state").openConnection() as HttpURLConnection
+                conn.responseCode
+            }
+            assertTrue("Production WebCastServer must drop loopback peer", serverRejected.isFailure)
+
+            val bridgeUrl = bridge.urlFor(Uri.parse("content://a/b.mp4"), "video/mp4", "b.mp4")
+            val bridgeRejected = runCatching {
+                (URL(bridgeUrl.toString()).openConnection() as HttpURLConnection).responseCode
+            }
+            assertTrue("Production CastMediaHttpServer must drop loopback peer", bridgeRejected.isFailure)
+        } finally {
+            server.close()
+            bridge.close()
+        }
+    }
+
+    @Test
+    fun pinAttemptMapEnforcesMaxSizeEvictsOldestUsesMonotonicClockAndExpiresCleanly() {
+        val fakeClockNs = AtomicLong(1_000_000_000L)
+        val fakeHostCounter = AtomicInteger(0)
+        val server = WebCastServer(
+            context = context,
+            initialUpstreamFactory = DefaultDataSource.Factory(context),
+            privateIpv4Provider = loopbackProvider,
+            allowLoopbackForTest = true,
+            nanoTimeProvider = { fakeClockNs.get() },
+            peerValidator = { _, _ -> true }
+        )
+        try {
+            val state = server.start(requirePin = true)
+            val base = state.primaryUrl!!
+            val wrongPin = if (state.pinCode == "000000") "111111" else "000000"
+
+            // Trigger 5 failures on the same host (all on 127.0.0.1) -> locked for 30s
+            repeat(5) {
+                val conn = (URL("$base/api/auth").openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    doOutput = true
+                    setRequestProperty("Content-Type", "application/json")
+                }
+                conn.outputStream.use { it.write("""{"pin":"$wrongPin"}""".toByteArray(StandardCharsets.UTF_8)) }
+                assertEquals(403, conn.responseCode)
+                conn.disconnect()
+            }
+
+            // 6th attempt within 30s is rejected with 429
+            val lockedConn = (URL("$base/api/auth").openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                doOutput = true
+                setRequestProperty("Content-Type", "application/json")
+            }
+            lockedConn.outputStream.use { it.write("""{"pin":"$wrongPin"}""".toByteArray(StandardCharsets.UTF_8)) }
+            assertEquals(429, lockedConn.responseCode)
+            lockedConn.disconnect()
+
+            // Advance monotonic clock past PIN_ATTEMPT_WINDOW_NS (180s) -> lock state expires cleanly
+            fakeClockNs.addAndGet(WebCastServer.PIN_ATTEMPT_WINDOW_NS + 1_000_000_000L)
+            val afterExpiryConn = (URL("$base/api/auth").openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                doOutput = true
+                setRequestProperty("Content-Type", "application/json")
+            }
+            afterExpiryConn.outputStream.use { it.write("""{"pin":"${state.pinCode}"}""".toByteArray(StandardCharsets.UTF_8)) }
+            assertEquals(200, afterExpiryConn.responseCode)
+            afterExpiryConn.disconnect()
+            assertEquals(0, server.pinAttemptMapSizeForTest())
+
+            // Verify global rate limit (25 failures per 60s window across distinct hosts) and max map size (64)
+            repeat(WebCastServer.MAX_GLOBAL_PIN_FAILURES_PER_WINDOW) { idx ->
+                fakeClockNs.addAndGet(1_000_000L)
+                assertEquals(403, server.evaluatePinAttempt("192.168.1.${idx + 10}", wrongPin).first)
+            }
+            // 26th failure from a brand new host within the same 60s window triggers global 429
+            assertEquals(429, server.evaluatePinAttempt("192.168.1.240", wrongPin).first)
+
+            // Advance 61s (still < 180s expiry window) across 3 windows to insert > 64 unique hosts and verify eviction
+            for (batch in 1..3) {
+                fakeClockNs.addAndGet(WebCastServer.GLOBAL_PIN_WINDOW_NS + 1_000_000L)
+                repeat(25) { i ->
+                    fakeClockNs.addAndGet(1_000_000L)
+                    val hostNum = batch * 25 + i + 10
+                    server.evaluatePinAttempt("192.168.2.$hostNum", wrongPin)
+                }
+            }
+            assertTrue(
+                "Map size must remain capped at MAX_TRACKED_HOSTS=${WebCastServer.MAX_TRACKED_HOSTS}, got ${server.pinAttemptMapSizeForTest()}",
+                server.pinAttemptMapSizeForTest() <= WebCastServer.MAX_TRACKED_HOSTS
+            )
+            assertEquals(WebCastServer.MAX_TRACKED_HOSTS, server.pinAttemptMapSizeForTest())
+        } finally {
+            server.close()
+        }
     }
 
     private fun buildDnsPacket(records: List<ByteArray>): ByteArray {

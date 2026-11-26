@@ -119,8 +119,9 @@ class SubtitleEngineNonRegressionTest {
         val arabicWin1256Srt = (
             "1\r\n" +
                 "00:00:04,000 --> 00:00:07,000\r\n" +
-                "تجربة ترميز ويندوز ١٢٥٦ العربي\r\n"
+                "تجربة ترميز ويندوز 1256 العربي\r\n"
             ).toByteArray(Charset.forName("windows-1256"))
+        assertFalse("Test fixture itself must be representable in windows-1256", arabicWin1256Srt.contains('?'.code.toByte()))
 
         val utf16LeSrt = byteArrayOf(0xFF.toByte(), 0xFE.toByte()) + (
             "1\r\n" +
@@ -153,11 +154,11 @@ class SubtitleEngineNonRegressionTest {
         assertEquals("vtt", vttFile.extension)
         assertEquals(listOf("[00:00:01,200] Hello VTT cue"), repo.previewSubtitleLines(vttSub, 3))
 
-        val zipSub = OnlineSubtitle(0L, "ar", "Show.ZIP", 40, "srt", "/subtitle/zip-ar", "subdl")
+        val zipSub = OnlineSubtitle(0L, "ara", "Show.ZIP", 40, "srt", "/subtitle/zip-ar", "subdl")
         val zipFile = File(requireNotNull(repo.download(zipSub).path))
         assertEquals("srt", zipFile.extension)
         assertEquals(
-            listOf("[00:00:04,000] تجربة ترميز ويندوز ١٢٥٦ العربي"),
+            listOf("[00:00:04,000] تجربة ترميز ويندوز 1256 العربي"),
             repo.previewSubtitleLines(zipSub, 3)
         )
 

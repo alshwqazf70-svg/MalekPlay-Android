@@ -30,7 +30,7 @@ internal fun validateDlnaRendererMediaUrl(raw: String, allowLoopback: Boolean = 
         "رابط وسائط DLNA يحتوي على بيانات أو مكونات غير مسموحة."
     }
     require(uri.port == -1 || uri.port in 1..65535) { "منفذ وسائط DLNA غير صالح." }
-    val cleanHost = uri.host.removePrefix("[").removeSuffix("]")
+    val cleanHost = LanNetworkSupport.stripZone(uri.host)
     if (uri.scheme.equals("http", true)) {
         require(isPrivateLanHost(cleanHost) || (allowLoopback && cleanHost == "127.0.0.1")) {
             "روابط HTTP مسموحة فقط لخادم البث المحلي على الشبكة الخاصة."
@@ -46,7 +46,7 @@ internal fun validateDlnaRendererEndpointUrl(
     allowLoopback: Boolean = false
 ): URL {
     require(raw.length in 1..4096) { "رابط جهاز DLNA غير صالح." }
-    val cleanDeviceHost = deviceHost.trim().removePrefix("[").removeSuffix("]").substringBefore('%')
+    val cleanDeviceHost = LanNetworkSupport.stripZone(deviceHost)
     require(isPrivateLanHost(cleanDeviceHost) || (allowLoopback && cleanDeviceHost == "127.0.0.1")) {
         "عنوان جهاز DLNA ليس عنوان شبكة محلية."
     }
@@ -58,7 +58,7 @@ internal fun validateDlnaRendererEndpointUrl(
         "رابط DLNA يحتوي على بيانات أو مكونات غير مسموحة."
     }
     require(uri.port == -1 || uri.port in 1..65535) { "منفذ DLNA غير صالح." }
-    val cleanUriHost = uri.host.removePrefix("[").removeSuffix("]").substringBefore('%')
+    val cleanUriHost = LanNetworkSupport.stripZone(uri.host)
     require(
         (isPrivateLanHost(cleanUriHost) || (allowLoopback && cleanUriHost == "127.0.0.1")) &&
             cleanUriHost.equals(cleanDeviceHost, ignoreCase = true)
@@ -90,6 +90,13 @@ class DlnaRendererClient internal constructor(
     ) : this(connectTimeoutMs, readTimeoutMs, context, 8060, false)
     private val appContext: Context? = context?.applicationContext
     private val endpointCache = ConcurrentHashMap<String, RendererEndpoints>()
+    private val capabilityCache = ConcurrentHashMap<String, RendererCapabilities>()
+
+    enum class CapabilitySupport {
+        SUPPORTED,
+        UNSUPPORTED,
+        UNKNOWN
+    }
 
     data class PlaybackPosition(
         val positionMs: Long,
@@ -98,11 +105,17 @@ class DlnaRendererClient internal constructor(
     )
 
     data class RendererCapabilities(
-        val supportsSeek: Boolean,
-        val supportsAbsoluteVolume: Boolean,
-        val supportsExplicitMute: Boolean,
-        val supportsPositionReporting: Boolean
-    )
+        val seek: CapabilitySupport = CapabilitySupport.UNKNOWN,
+        val positionReporting: CapabilitySupport = CapabilitySupport.UNKNOWN,
+        val absoluteVolume: CapabilitySupport = CapabilitySupport.UNKNOWN,
+        val explicitMute: CapabilitySupport = CapabilitySupport.UNKNOWN,
+        val protocolInfoVerified: Boolean = false
+    ) {
+        val supportsSeek: Boolean get() = seek == CapabilitySupport.SUPPORTED
+        val supportsAbsoluteVolume: Boolean get() = absoluteVolume == CapabilitySupport.SUPPORTED
+        val supportsExplicitMute: Boolean get() = explicitMute == CapabilitySupport.SUPPORTED
+        val supportsPositionReporting: Boolean get() = positionReporting == CapabilitySupport.SUPPORTED
+    }
 
     private data class RokuMediaPlayerState(
         val state: String,
@@ -110,31 +123,88 @@ class DlnaRendererClient internal constructor(
         val durationMs: Long
     )
 
-    private data class ServiceEndpoint(val controlUrl: URL, val serviceType: String)
-    private data class RendererEndpoints(
-        val avTransport: ServiceEndpoint,
-        val renderingControl: ServiceEndpoint?
+    private class SoapFaultException(
+        val errorCode: Int?,
+        val errorDescription: String,
+        message: String
+    ) : IOException(message)
+
+    private data class ServiceEndpoint(
+        val controlUrl: URL,
+        val serviceType: String,
+        val scpdUrl: URL? = null
     )
 
-    fun capabilitiesFor(device: DiscoveredNetworkDevice): RendererCapabilities =
+    private data class RendererEndpoints(
+        val avTransport: ServiceEndpoint,
+        val renderingControl: ServiceEndpoint?,
+        val connectionManager: ServiceEndpoint?
+    )
+
+    fun capabilitiesFor(device: DiscoveredNetworkDevice): RendererCapabilities {
         if (isRokuPrimary(device)) {
-            RendererCapabilities(
-                supportsSeek = false,
-                supportsAbsoluteVolume = false,
-                supportsExplicitMute = false,
-                supportsPositionReporting = true
-            )
-        } else {
-            val cached = device.descriptionUrl?.let { desc ->
-                endpointCache[dlnaEndpointCacheKey(device.id, device.host, desc)]
-            }
-            RendererCapabilities(
-                supportsSeek = true,
-                supportsAbsoluteVolume = cached == null || cached.renderingControl != null,
-                supportsExplicitMute = cached == null || cached.renderingControl != null,
-                supportsPositionReporting = true
+            return RendererCapabilities(
+                seek = CapabilitySupport.UNSUPPORTED,
+                positionReporting = if (device.supportsRokuControlOnly()) {
+                    CapabilitySupport.UNSUPPORTED
+                } else {
+                    CapabilitySupport.SUPPORTED
+                },
+                absoluteVolume = CapabilitySupport.UNSUPPORTED,
+                explicitMute = CapabilitySupport.UNSUPPORTED,
+                protocolInfoVerified = false
             )
         }
+        val desc = device.descriptionUrl ?: return RendererCapabilities()
+        val key = dlnaEndpointCacheKey(device.id, device.host, desc)
+        capabilityCache[key]?.let { return it }
+        val cached = endpointCache[key] ?: return RendererCapabilities()
+        return RendererCapabilities(
+            seek = CapabilitySupport.UNKNOWN,
+            positionReporting = CapabilitySupport.UNKNOWN,
+            absoluteVolume = if (cached.renderingControl == null) CapabilitySupport.UNSUPPORTED else CapabilitySupport.UNKNOWN,
+            explicitMute = if (cached.renderingControl == null) CapabilitySupport.UNSUPPORTED else CapabilitySupport.UNKNOWN,
+            protocolInfoVerified = false
+        )
+    }
+
+    /**
+     * Queries UPnP device description, service SCPD XMLs, and ConnectionManager#GetProtocolInfo
+     * to determine actual supported capabilities without guessing.
+     */
+    suspend fun inspectCapabilities(device: DiscoveredNetworkDevice): RendererCapabilities =
+        withContext(Dispatchers.IO) {
+            if (isRokuPrimary(device)) {
+                return@withContext capabilitiesFor(device)
+            }
+            val desc = device.descriptionUrl ?: return@withContext RendererCapabilities()
+            val key = dlnaEndpointCacheKey(device.id, device.host, desc)
+            val endpoints = runCatching { resolveRendererEndpoints(device) }.getOrNull()
+                ?: return@withContext capabilitiesFor(device)
+            val cm = endpoints.connectionManager
+            if (cm != null && capabilityCache[key]?.protocolInfoVerified != true) {
+                val ok = runCatching {
+                    soap(cm, "GetProtocolInfo", "")
+                }.isSuccess
+                if (ok) {
+                    updateCapabilities(key) { it.copy(protocolInfoVerified = true) }
+                }
+            }
+            capabilityCache[key] ?: capabilitiesFor(device)
+        }
+
+    private fun updateCapabilities(
+        cacheKey: String?,
+        transform: (RendererCapabilities) -> RendererCapabilities
+    ) {
+        if (cacheKey == null) return
+        capabilityCache.compute(cacheKey) { _, existing ->
+            transform(existing ?: RendererCapabilities())
+        }
+    }
+
+    private fun isUnsupportedFault(error: Throwable): Boolean =
+        error is SoapFaultException && error.errorCode in setOf(401, 602, 710)
 
     suspend fun play(
         device: DiscoveredNetworkDevice,
@@ -281,12 +351,42 @@ class DlnaRendererClient internal constructor(
         val target = "%02d:%02d:%02d".format(seconds / 3600, (seconds % 3600) / 60, seconds % 60)
         withContext(Dispatchers.IO) {
             val endpoint = resolveRendererEndpoints(device).avTransport
+            val cacheKey = device.descriptionUrl?.let { dlnaEndpointCacheKey(device.id, device.host, it) }
+            if (capabilitiesFor(device).seek == CapabilitySupport.UNSUPPORTED) {
+                throw UnsupportedOperationException("هذا التلفزيون لا يدعم الانتقال الزمني (Seek) عبر DLNA.")
+            }
             try {
                 soap(endpoint, "Seek", "<InstanceID>0</InstanceID><Unit>REL_TIME</Unit><Target>$target</Target>")
+                updateCapabilities(cacheKey) { it.copy(seek = CapabilitySupport.SUPPORTED) }
             } catch (failure: Exception) {
                 if (failure is CancellationException) throw failure
+                if (isUnsupportedFault(failure)) {
+                    // Try ABS_TIME fallback before declaring Seek unsupported; some TVs reject REL_TIME with 710.
+                    try {
+                        soap(endpoint, "Seek", "<InstanceID>0</InstanceID><Unit>ABS_TIME</Unit><Target>$target</Target>")
+                        updateCapabilities(cacheKey) { it.copy(seek = CapabilitySupport.SUPPORTED) }
+                        return@withContext
+                    } catch (absFailure: Exception) {
+                        if (absFailure is CancellationException) throw absFailure
+                        if (isUnsupportedFault(absFailure)) {
+                            updateCapabilities(cacheKey) { it.copy(seek = CapabilitySupport.UNSUPPORTED) }
+                            throw UnsupportedOperationException("هذا التلفزيون لا يدعم الانتقال الزمني (Seek) عبر DLNA.")
+                        }
+                        throw absFailure
+                    }
+                }
                 // Some LG/Sony/Philips TVs only accept ABS_TIME instead of REL_TIME.
-                soap(endpoint, "Seek", "<InstanceID>0</InstanceID><Unit>ABS_TIME</Unit><Target>$target</Target>")
+                try {
+                    soap(endpoint, "Seek", "<InstanceID>0</InstanceID><Unit>ABS_TIME</Unit><Target>$target</Target>")
+                    updateCapabilities(cacheKey) { it.copy(seek = CapabilitySupport.SUPPORTED) }
+                } catch (absFailure: Exception) {
+                    if (absFailure is CancellationException) throw absFailure
+                    if (isUnsupportedFault(absFailure)) {
+                        updateCapabilities(cacheKey) { it.copy(seek = CapabilitySupport.UNSUPPORTED) }
+                        throw UnsupportedOperationException("هذا التلفزيون لا يدعم الانتقال الزمني (Seek) عبر DLNA.")
+                    }
+                    throw absFailure
+                }
             }
         }
     }
@@ -295,10 +395,24 @@ class DlnaRendererClient internal constructor(
         if (isRokuPrimary(device)) return@withContext null
         val rendering = runCatching { resolveRendererEndpoints(device).renderingControl }.getOrNull()
             ?: return@withContext null
-        val response = runCatching {
+        val cacheKey = device.descriptionUrl?.let { dlnaEndpointCacheKey(device.id, device.host, it) }
+        if (capabilitiesFor(device).absoluteVolume == CapabilitySupport.UNSUPPORTED) {
+            return@withContext null
+        }
+        val response = try {
             soap(rendering, "GetVolume", "<InstanceID>0</InstanceID><Channel>Master</Channel>")
-        }.getOrNull() ?: return@withContext null
-        extractSoapTag(response, "CurrentVolume")?.toIntOrNull()?.coerceIn(0, 100)
+        } catch (err: Exception) {
+            if (err is CancellationException) throw err
+            if (isUnsupportedFault(err)) {
+                updateCapabilities(cacheKey) { it.copy(absoluteVolume = CapabilitySupport.UNSUPPORTED) }
+            }
+            return@withContext null
+        }
+        val parsed = extractSoapTag(response, "CurrentVolume")?.toIntOrNull()?.coerceIn(0, 100)
+        if (parsed != null) {
+            updateCapabilities(cacheKey) { it.copy(absoluteVolume = CapabilitySupport.SUPPORTED) }
+        }
+        parsed
     }
 
     suspend fun setVolume(device: DiscoveredNetworkDevice, volumePercent: Int) = withContext(Dispatchers.IO) {
@@ -308,11 +422,25 @@ class DlnaRendererClient internal constructor(
         }
         val rendering = resolveRendererEndpoints(device).renderingControl
             ?: throw UnsupportedOperationException("التلفزيون لا يدعم التحكم بالصوت عبر DLNA.")
-        soap(
-            rendering,
-            "SetVolume",
-            "<InstanceID>0</InstanceID><Channel>Master</Channel><DesiredVolume>$clamped</DesiredVolume>"
-        )
+        val cacheKey = device.descriptionUrl?.let { dlnaEndpointCacheKey(device.id, device.host, it) }
+        if (capabilitiesFor(device).absoluteVolume == CapabilitySupport.UNSUPPORTED) {
+            throw UnsupportedOperationException("التلفزيون لا يدعم ضبط مستوى الصوت المطلق عبر DLNA.")
+        }
+        try {
+            soap(
+                rendering,
+                "SetVolume",
+                "<InstanceID>0</InstanceID><Channel>Master</Channel><DesiredVolume>$clamped</DesiredVolume>"
+            )
+            updateCapabilities(cacheKey) { it.copy(absoluteVolume = CapabilitySupport.SUPPORTED) }
+        } catch (err: Exception) {
+            if (err is CancellationException) throw err
+            if (isUnsupportedFault(err)) {
+                updateCapabilities(cacheKey) { it.copy(absoluteVolume = CapabilitySupport.UNSUPPORTED) }
+                throw UnsupportedOperationException("التلفزيون لا يدعم ضبط مستوى الصوت المطلق عبر DLNA.")
+            }
+            throw err
+        }
         Unit
     }
 
@@ -333,11 +461,25 @@ class DlnaRendererClient internal constructor(
         }
         val rendering = resolveRendererEndpoints(device).renderingControl
             ?: throw UnsupportedOperationException("التلفزيون لا يدعم كتم الصوت عبر DLNA.")
-        soap(
-            rendering,
-            "SetMute",
-            "<InstanceID>0</InstanceID><Channel>Master</Channel><DesiredMute>${if (muted) 1 else 0}</DesiredMute>"
-        )
+        val cacheKey = device.descriptionUrl?.let { dlnaEndpointCacheKey(device.id, device.host, it) }
+        if (capabilitiesFor(device).explicitMute == CapabilitySupport.UNSUPPORTED) {
+            throw UnsupportedOperationException("التلفزيون لا يدعم كتم الصوت الصريح عبر DLNA.")
+        }
+        try {
+            soap(
+                rendering,
+                "SetMute",
+                "<InstanceID>0</InstanceID><Channel>Master</Channel><DesiredMute>${if (muted) 1 else 0}</DesiredMute>"
+            )
+            updateCapabilities(cacheKey) { it.copy(explicitMute = CapabilitySupport.SUPPORTED) }
+        } catch (err: Exception) {
+            if (err is CancellationException) throw err
+            if (isUnsupportedFault(err)) {
+                updateCapabilities(cacheKey) { it.copy(explicitMute = CapabilitySupport.UNSUPPORTED) }
+                throw UnsupportedOperationException("التلفزيون لا يدعم كتم الصوت الصريح عبر DLNA.")
+            }
+            throw err
+        }
         Unit
     }
 
@@ -345,14 +487,28 @@ class DlnaRendererClient internal constructor(
         if (isRokuPrimary(device)) return@withContext null
         val rendering = runCatching { resolveRendererEndpoints(device).renderingControl }.getOrNull()
             ?: return@withContext null
-        val response = runCatching {
+        val cacheKey = device.descriptionUrl?.let { dlnaEndpointCacheKey(device.id, device.host, it) }
+        if (capabilitiesFor(device).explicitMute == CapabilitySupport.UNSUPPORTED) {
+            return@withContext null
+        }
+        val response = try {
             soap(rendering, "GetMute", "<InstanceID>0</InstanceID><Channel>Master</Channel>")
-        }.getOrNull() ?: return@withContext null
-        when (extractSoapTag(response, "CurrentMute")?.trim()?.lowercase()) {
+        } catch (err: Exception) {
+            if (err is CancellationException) throw err
+            if (isUnsupportedFault(err)) {
+                updateCapabilities(cacheKey) { it.copy(explicitMute = CapabilitySupport.UNSUPPORTED) }
+            }
+            return@withContext null
+        }
+        val parsed = when (extractSoapTag(response, "CurrentMute")?.trim()?.lowercase()) {
             "1", "true" -> true
             "0", "false" -> false
             else -> null
         }
+        if (parsed != null) {
+            updateCapabilities(cacheKey) { it.copy(explicitMute = CapabilitySupport.SUPPORTED) }
+        }
+        parsed
     }
 
     suspend fun getPosition(device: DiscoveredNetworkDevice): PlaybackPosition? =
@@ -368,11 +524,24 @@ class DlnaRendererClient internal constructor(
                 return@withContext PlaybackPosition(roku.positionMs, roku.durationMs, mappedState)
             }
             val endpoint = resolveRendererEndpoints(device).avTransport
-            val response = soap(
-                endpoint,
-                "GetPositionInfo",
-                "<InstanceID>0</InstanceID>"
-            )
+            val cacheKey = device.descriptionUrl?.let { dlnaEndpointCacheKey(device.id, device.host, it) }
+            if (capabilitiesFor(device).positionReporting == CapabilitySupport.UNSUPPORTED) {
+                return@withContext null
+            }
+            val response = try {
+                soap(
+                    endpoint,
+                    "GetPositionInfo",
+                    "<InstanceID>0</InstanceID>"
+                )
+            } catch (err: Exception) {
+                if (err is CancellationException) throw err
+                if (isUnsupportedFault(err)) {
+                    updateCapabilities(cacheKey) { it.copy(positionReporting = CapabilitySupport.UNSUPPORTED) }
+                    return@withContext null
+                }
+                throw err
+            }
             val parser = newSafePullParser(response)
             var relativeTime: String? = null
             var duration: String? = null
@@ -389,7 +558,12 @@ class DlnaRendererClient internal constructor(
                 val info = soap(endpoint, "GetTransportInfo", "<InstanceID>0</InstanceID>")
                 extractSoapTag(info, "CurrentTransportState")
             }.getOrNull()
-            val positionMs = parseDlnaClockTime(relativeTime) ?: return@withContext null
+            val positionMs = parseDlnaClockTime(relativeTime)
+            if (positionMs == null) {
+                updateCapabilities(cacheKey) { it.copy(positionReporting = CapabilitySupport.UNSUPPORTED) }
+                return@withContext null
+            }
+            updateCapabilities(cacheKey) { it.copy(positionReporting = CapabilitySupport.SUPPORTED) }
             val durationMs = parseDlnaClockTime(duration) ?: 0L
             PlaybackPosition(positionMs, durationMs, transportState)
         }
@@ -400,12 +574,12 @@ class DlnaRendererClient internal constructor(
             TvCastProtocol.DLNA !in device.castProtocols
 
     private fun rokuUrlHost(device: DiscoveredNetworkDevice): String =
-        device.host.trim().removePrefix("[").removeSuffix("]").let { clean ->
-            if (clean.contains(':')) "[$clean]" else clean
-        }
+        LanNetworkSupport.formatUriAuthorityHost(device.host)
 
-    private fun isAllowedTargetHost(host: String): Boolean =
-        isPrivateLanHost(host) || (allowLoopbackForTest && host == "127.0.0.1")
+    private fun isAllowedTargetHost(host: String): Boolean {
+        val clean = LanNetworkSupport.stripZone(host)
+        return isPrivateLanHost(clean) || (allowLoopbackForTest && clean == "127.0.0.1")
+    }
 
     private suspend fun playViaRokuEcp(
         device: DiscoveredNetworkDevice,
@@ -414,6 +588,11 @@ class DlnaRendererClient internal constructor(
         mimeType: String
     ) = withContext(Dispatchers.IO) {
         require(isAllowedTargetHost(device.host)) { "عنوان Roku خارج الشبكة المحلية." }
+        if (device.supportsRokuControlOnly()) {
+            throw UnsupportedOperationException(
+                "جهاز Roku يدعم التحكم عن بُعد فقط ولا يتوفر فيه تطبيق Roku Media Player (PlayOnRoku) لاستقبال البث المباشر."
+            )
+        }
         val isAudio = mimeType.startsWith("audio/", true)
         val isImage = mimeType.startsWith("image/", true)
         val mediaType = when {
@@ -541,17 +720,25 @@ class DlnaRendererClient internal constructor(
         val parser = newSafePullParser(xml)
         var serviceType: String? = null
         var controlPath: String? = null
+        var scpdPath: String? = null
         var inService = false
         var avTransport: ServiceEndpoint? = null
         var renderingControl: ServiceEndpoint? = null
+        var connectionManager: ServiceEndpoint? = null
 
         while (parser.eventType != XmlPullParser.END_DOCUMENT) {
             when (parser.eventType) {
                 XmlPullParser.START_TAG -> {
                     when (parser.name.substringAfter(':')) {
-                        "service" -> { inService = true; serviceType = null; controlPath = null }
+                        "service" -> {
+                            inService = true
+                            serviceType = null
+                            controlPath = null
+                            scpdPath = null
+                        }
                         "serviceType" -> if (inService) serviceType = parser.nextText().trim()
                         "controlURL" -> if (inService) controlPath = parser.nextText().trim()
+                        "SCPDURL" -> if (inService) scpdPath = parser.nextText().trim()
                     }
                 }
                 XmlPullParser.END_TAG -> if (parser.name.substringAfter(':') == "service" && inService) {
@@ -562,11 +749,23 @@ class DlnaRendererClient internal constructor(
                         val safeControlUrl = runCatching {
                             validateDlnaRendererEndpointUrl(resolved.toExternalForm(), device.host, allowLoopbackForTest)
                         }.getOrNull()
+                        val safeScpdUrl = scpdPath?.takeIf { it.isNotBlank() }?.let { rawScpd ->
+                            runCatching {
+                                validateDlnaRendererEndpointUrl(
+                                    URL(descriptionUrl, rawScpd).toExternalForm(),
+                                    device.host,
+                                    allowLoopbackForTest
+                                )
+                            }.getOrNull()
+                        }
                         if (safeControlUrl != null) {
-                            if (avTransport == null && type.matches(Regex("urn:schemas-upnp-org:service:AVTransport:[0-9]+", RegexOption.IGNORE_CASE))) {
-                                avTransport = ServiceEndpoint(safeControlUrl, type)
-                            } else if (renderingControl == null && type.matches(Regex("urn:schemas-upnp-org:service:RenderingControl:[0-9]+", RegexOption.IGNORE_CASE))) {
-                                renderingControl = ServiceEndpoint(safeControlUrl, type)
+                            when {
+                                avTransport == null && type.matches(Regex("urn:schemas-upnp-org:service:AVTransport:[0-9]+", RegexOption.IGNORE_CASE)) ->
+                                    avTransport = ServiceEndpoint(safeControlUrl, type, safeScpdUrl)
+                                renderingControl == null && type.matches(Regex("urn:schemas-upnp-org:service:RenderingControl:[0-9]+", RegexOption.IGNORE_CASE)) ->
+                                    renderingControl = ServiceEndpoint(safeControlUrl, type, safeScpdUrl)
+                                connectionManager == null && type.matches(Regex("urn:schemas-upnp-org:service:ConnectionManager:[0-9]+", RegexOption.IGNORE_CASE)) ->
+                                    connectionManager = ServiceEndpoint(safeControlUrl, type, safeScpdUrl)
                             }
                         }
                     }
@@ -577,9 +776,73 @@ class DlnaRendererClient internal constructor(
         }
         val resolvedAv = avTransport
             ?: throw IOException("هذا الجهاز لا يعلن خدمة AVTransport؛ قد يكون خادم وسائط فقط.")
-        val endpoints = RendererEndpoints(resolvedAv, renderingControl)
+        val endpoints = RendererEndpoints(resolvedAv, renderingControl, connectionManager)
         endpointCache[cacheKey] = endpoints
+
+        val avActions = resolvedAv.scpdUrl?.let { scpdUrl ->
+            runCatching { parseScpdActions(readUrl(scpdUrl)) }.getOrNull()
+        }
+        val rcActions = renderingControl?.scpdUrl?.let { scpdUrl ->
+            runCatching { parseScpdActions(readUrl(scpdUrl)) }.getOrNull()
+        }
+        capabilityCache.putIfAbsent(
+            cacheKey,
+            RendererCapabilities(
+                seek = when {
+                    avActions == null -> CapabilitySupport.UNKNOWN
+                    "Seek" in avActions -> CapabilitySupport.SUPPORTED
+                    else -> CapabilitySupport.UNSUPPORTED
+                },
+                positionReporting = when {
+                    avActions == null -> CapabilitySupport.UNKNOWN
+                    "GetPositionInfo" in avActions -> CapabilitySupport.SUPPORTED
+                    else -> CapabilitySupport.UNSUPPORTED
+                },
+                absoluteVolume = when {
+                    renderingControl == null -> CapabilitySupport.UNSUPPORTED
+                    rcActions == null -> CapabilitySupport.UNKNOWN
+                    "GetVolume" in rcActions || "SetVolume" in rcActions -> CapabilitySupport.SUPPORTED
+                    else -> CapabilitySupport.UNSUPPORTED
+                },
+                explicitMute = when {
+                    renderingControl == null -> CapabilitySupport.UNSUPPORTED
+                    rcActions == null -> CapabilitySupport.UNKNOWN
+                    "GetMute" in rcActions || "SetMute" in rcActions -> CapabilitySupport.SUPPORTED
+                    else -> CapabilitySupport.UNSUPPORTED
+                },
+                protocolInfoVerified = false
+            )
+        )
         return endpoints
+    }
+
+    private fun parseScpdActions(xml: String): Set<String> {
+        val parser = newSafePullParser(xml)
+        val actions = linkedSetOf<String>()
+        var inActionList = false
+        var inAction = false
+        while (parser.eventType != XmlPullParser.END_DOCUMENT) {
+            when (parser.eventType) {
+                XmlPullParser.START_TAG -> {
+                    when (parser.name.substringAfter(':')) {
+                        "actionList" -> inActionList = true
+                        "action" -> if (inActionList) inAction = true
+                        "name" -> if (inAction) {
+                            val name = parser.nextText().trim()
+                            if (name.isNotEmpty()) actions += name
+                        }
+                    }
+                }
+                XmlPullParser.END_TAG -> {
+                    when (parser.name.substringAfter(':')) {
+                        "action" -> inAction = false
+                        "actionList" -> inActionList = false
+                    }
+                }
+            }
+            parser.next()
+        }
+        return actions
     }
 
     private fun extractSoapTag(xml: String, tagName: String): String? {
@@ -647,6 +910,13 @@ class DlnaRendererClient internal constructor(
                         StandardCharsets.UTF_8
                     ).take(1200)
                 }.getOrDefault("")
+                if (errorBody.contains(":Fault", ignoreCase = true) || errorBody.contains("<Fault", ignoreCase = true)) {
+                    val code = extractSoapTag(errorBody, "errorCode")?.toIntOrNull()
+                    val desc = extractSoapTag(errorBody, "errorDescription")
+                        ?: extractSoapTag(errorBody, "faultstring")
+                        ?: "SOAP Fault"
+                    throw SoapFaultException(code, desc, "رفض التلفزيون أمر $action: ${desc.take(200)}")
+                }
                 throw IOException("فشل أمر DLNA $action (HTTP $status): ${errorBody.take(300)}")
             }
             val responseXml = connection.inputStream?.use { input ->
@@ -660,10 +930,11 @@ class DlnaRendererClient internal constructor(
                 )
             }.orEmpty()
             if (responseXml.contains(":Fault", ignoreCase = true) || responseXml.contains("<Fault", ignoreCase = true)) {
+                val code = extractSoapTag(responseXml, "errorCode")?.toIntOrNull()
                 val desc = extractSoapTag(responseXml, "errorDescription")
                     ?: extractSoapTag(responseXml, "faultstring")
                     ?: "SOAP Fault"
-                throw IOException("رفض التلفزيون أمر $action: ${desc.take(200)}")
+                throw SoapFaultException(code, desc, "رفض التلفزيون أمر $action: ${desc.take(200)}")
             }
             return responseXml
         } finally { connection.disconnect() }
@@ -757,7 +1028,7 @@ private fun escapeDlnaXml(value: String): String = value
  * the device UUID. This prevents stale UPnP control URLs after DHCP changes.
  */
 internal fun dlnaEndpointCacheKey(deviceId: String, host: String, descriptionUrl: String): String =
-    listOf(deviceId, host.lowercase(), descriptionUrl).joinToString("\u0000")
+    listOf(deviceId, LanNetworkSupport.decodeScopedHost(host).lowercase(), descriptionUrl).joinToString("\u0000")
 
 /**
  * Parses the UPnP HH:MM:SS[.fraction] clock format without allowing malformed

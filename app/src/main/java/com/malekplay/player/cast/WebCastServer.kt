@@ -23,14 +23,17 @@ import java.io.BufferedOutputStream
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.net.Inet4Address
+import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.nio.charset.StandardCharsets
 import java.security.SecureRandom
+import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 data class WebCastItem(
@@ -82,10 +85,15 @@ sealed interface WebCastRemoteCommand {
 class WebCastServer internal constructor(
     context: Context,
     @Volatile private var upstreamFactory: DataSource.Factory,
-    private val privateIpv4Provider: () -> List<Inet4Address>
+    private val privateIpv4Provider: () -> List<Inet4Address>,
+    private val allowLoopbackForTest: Boolean = false,
+    private val nanoTimeProvider: () -> Long = System::nanoTime,
+    private val peerValidator: (remote: InetAddress?, local: InetAddress?) -> Boolean = { remote, local ->
+        LanNetworkSupport.isPeerOnActiveLocalLan(remote, local, allowLoopback = allowLoopbackForTest)
+    }
 ) : AutoCloseable {
     constructor(context: Context, upstreamFactory: DataSource.Factory) :
-        this(context, upstreamFactory, LanNetworkSupport::findAllPrivateIpv4s)
+        this(context, upstreamFactory, LanNetworkSupport::findAllPrivateIpv4s, false)
     private val resolver: ContentResolver = context.applicationContext.contentResolver
     private val random = SecureRandom()
     @Volatile private var accessToken: String = ""
@@ -96,6 +104,7 @@ class WebCastServer internal constructor(
     private var serverSocket: ServerSocket? = null
     private var workers: ThreadPoolExecutor = LanNetworkSupport.createBoundedHttpExecutor("MalekWebCast")
     @Volatile private var boundPort: Int = 0
+    @Volatile private var boundAddress: Inet4Address? = null
 
     private val itemsLock = Any()
     @Volatile private var queueItems: List<WebCastItem> = emptyList()
@@ -105,9 +114,22 @@ class WebCastServer internal constructor(
     @Volatile private var phoneIsPlaying: Boolean = false
     @Volatile private var stateRevision: Long = 1L
 
+    private data class PinAttemptState(
+        val failCount: Int,
+        val lastAttemptNs: Long,
+        val lockedUntilNs: Long
+    )
+
     private val lengthByUri = ConcurrentHashMap<String, Long>()
     private val viewersById = ConcurrentHashMap<String, WebCastViewer>()
-    private val failedPinAttemptsByHost = ConcurrentHashMap<String, Pair<Int, Long>>()
+    private val activeSockets = Collections.newSetFromMap(ConcurrentHashMap<Socket, Boolean>())
+    private val failedPinAttemptsByHost = ConcurrentHashMap<String, PinAttemptState>()
+    private val pinLock = Any()
+    private var globalPinWindowStartNs: Long = 0L
+    private var globalPinFailureCount: Int = 0
+
+    internal fun activeConnectionCountForTest(): Int = activeSockets.size
+    internal fun pinAttemptMapSizeForTest(): Int = failedPinAttemptsByHost.size
 
     private val _state = MutableStateFlow(WebCastUiState())
     val state: StateFlow<WebCastUiState> = _state.asStateFlow()
@@ -134,7 +156,12 @@ class WebCastServer internal constructor(
         }
         accessToken = generateAccessToken()
         pinCode = generatePin()
-        val socket = bindPreferredPort()
+        synchronized(pinLock) {
+            failedPinAttemptsByHost.clear()
+            globalPinWindowStartNs = 0L
+            globalPinFailureCount = 0
+        }
+        val socket = bindPreferredPort(ips)
         serverSocket = socket
         boundPort = socket.localPort
         if (workers.isShutdown || workers.isTerminated) {
@@ -145,9 +172,16 @@ class WebCastServer internal constructor(
             while (running.get()) {
                 try {
                     val client = socket.accept()
+                    activeSockets.add(client)
+                    if (!running.get()) {
+                        activeSockets.remove(client)
+                        runCatching { client.close() }
+                        break
+                    }
                     try {
                         workers.execute { handle(client) }
                     } catch (_: RejectedExecutionException) {
+                        activeSockets.remove(client)
                         runCatching {
                             client.soTimeout = 2_000
                             val out = BufferedOutputStream(client.getOutputStream())
@@ -190,19 +224,25 @@ class WebCastServer internal constructor(
 
     @Synchronized
     fun stop() {
-        if (!running.compareAndSet(true, false)) {
-            accessToken = ""
-            _state.value = WebCastUiState()
-            return
-        }
+        val wasRunning = running.compareAndSet(true, false)
         accessToken = ""
         runCatching { serverSocket?.close() }
         serverSocket = null
         boundPort = 0
-        lengthByUri.clear()
-        viewersById.clear()
-        failedPinAttemptsByHost.clear()
-        workers.shutdownNow()
+        boundAddress = null
+        activeSockets.toList().forEach { sock -> runCatching { sock.close() } }
+        activeSockets.clear()
+        if (wasRunning) {
+            lengthByUri.clear()
+            viewersById.clear()
+            synchronized(pinLock) {
+                failedPinAttemptsByHost.clear()
+                globalPinWindowStartNs = 0L
+                globalPinFailureCount = 0
+            }
+            workers.shutdownNow()
+            runCatching { workers.awaitTermination(500L, TimeUnit.MILLISECONDS) }
+        }
         _state.value = WebCastUiState()
     }
 
@@ -220,7 +260,11 @@ class WebCastServer internal constructor(
         pinCode = generatePin()
         if (running.get()) {
             accessToken = generateAccessToken()
-            failedPinAttemptsByHost.clear()
+            synchronized(pinLock) {
+                failedPinAttemptsByHost.clear()
+                globalPinWindowStartNs = 0L
+                globalPinFailureCount = 0
+            }
         }
         publishUiState()
     }
@@ -290,12 +334,23 @@ class WebCastServer internal constructor(
         )
     }
 
-    private fun bindPreferredPort(): ServerSocket {
+    private fun bindPreferredPort(ips: List<Inet4Address>): ServerSocket {
+        // Bind directly to the single private LAN IP when only one LAN interface is active.
+        // Technical POSIX/Android constraint: a single ServerSocket cannot bind to multiple discrete
+        // interface IPs simultaneously; when multiple LAN interfaces (Wi-Fi + Hotspot + USB) exist,
+        // we bind on wildcard and enforce strict active-LAN subnet + local-endpoint validation
+        // on every accepted connection via LanNetworkSupport.isPeerOnActiveLocalLan().
+        val singleBindIp = if (ips.size == 1) ips.first() else null
+        boundAddress = singleBindIp
         for (port in DEFAULT_PORT_START..DEFAULT_PORT_END) {
             try {
                 return ServerSocket().apply {
                     reuseAddress = true
-                    bind(InetSocketAddress(port), 32)
+                    bind(
+                        if (singleBindIp != null) InetSocketAddress(singleBindIp, port)
+                        else InetSocketAddress(port),
+                        32
+                    )
                 }
             } catch (_: IOException) {
                 continue
@@ -303,21 +358,27 @@ class WebCastServer internal constructor(
         }
         return ServerSocket().apply {
             reuseAddress = true
-            bind(InetSocketAddress(0), 32)
+            bind(
+                if (singleBindIp != null) InetSocketAddress(singleBindIp, 0)
+                else InetSocketAddress(0),
+                32
+            )
         }
     }
 
     private fun handle(socket: Socket) {
-        socket.use { client ->
-            try {
-                client.soTimeout = 10_000
-                val remoteAddr = client.inetAddress
-                if (!LanNetworkSupport.isAllowedLanPeerAddress(remoteAddr)) {
-                    return
-                }
-                val remoteHost = remoteAddr.hostAddress.orEmpty()
+        try {
+            socket.use { client ->
+                try {
+                    client.soTimeout = 10_000
+                    val remoteAddr = client.inetAddress
+                    if (!running.get() || !peerValidator(remoteAddr, client.localAddress)) {
+                        return
+                    }
+                    val remoteHost = LanNetworkSupport.formatHostPreservingScope(remoteAddr)
+                        ?: remoteAddr.hostAddress.orEmpty()
 
-                val input = BufferedInputStream(client.getInputStream())
+                    val input = BufferedInputStream(client.getInputStream())
                 val output = BufferedOutputStream(client.getOutputStream())
                 val requestLine = CastMediaHttpServer.readHttpLine(input, 4096) ?: return
                 val request = requestLine.split(' ')
@@ -446,6 +507,9 @@ class WebCastServer internal constructor(
                 // Client disconnected or aborted stream.
             }
         }
+        } finally {
+            activeSockets.remove(socket)
+        }
     }
 
     private fun handlePinAuth(
@@ -462,55 +526,114 @@ class WebCastServer internal constructor(
             )
             return
         }
-        val now = System.currentTimeMillis()
-        if (failedPinAttemptsByHost.size > MAX_TRACKED_HOSTS) {
-            val iterator = failedPinAttemptsByHost.entries.iterator()
-            while (iterator.hasNext()) {
-                if (now - iterator.next().value.second >= 180_000L) {
-                    iterator.remove()
-                }
-            }
-        }
-        val attemptInfo = failedPinAttemptsByHost[remoteHost]
-        val lockWindowMs = when {
-            attemptInfo == null -> 0L
-            attemptInfo.first >= 10 -> 120_000L
-            attemptInfo.first >= 5 -> 30_000L
-            else -> 0L
-        }
-        if (attemptInfo != null && lockWindowMs > 0L && now - attemptInfo.second < lockWindowMs) {
-            val waitSec = ((lockWindowMs - (now - attemptInfo.second)) / 1000L).coerceAtLeast(1L)
-            respondJson(
-                output,
-                429,
-                JSONObject().put("ok", false).put("error", "محاولات كثيرة خاطئة. انتظر $waitSec ثانية.").toString()
-            )
-            return
-        }
         val bodyBytes = readFixedBody(input, contentLength, maxBytes = 1024)
         val submittedPin = runCatching {
             JSONObject(String(bodyBytes, StandardCharsets.UTF_8)).optString("pin", "").trim()
         }.getOrDefault("")
 
-        val currentToken = accessToken
-        if (currentToken.isNotEmpty() && CastMediaHttpServer.constantTimeEquals(submittedPin, pinCode)) {
-            failedPinAttemptsByHost.remove(remoteHost)
-            val jsonBytes = JSONObject().put("ok", true).toString().toByteArray(StandardCharsets.UTF_8)
-            val headers = linkedMapOf(
-                "Content-Type" to "application/json; charset=utf-8",
-                "Cache-Control" to "no-store",
-                "Set-Cookie" to "malek_cast=$currentToken; Path=/; HttpOnly; SameSite=Lax",
-                "Connection" to "close"
+        val (status, waitSec) = evaluatePinAttempt(remoteHost, submittedPin)
+        when (status) {
+            429 -> respondJson(
+                output,
+                429,
+                JSONObject().put("ok", false).put("error", "محاولات كثيرة خاطئة. انتظر $waitSec ثانية.").toString()
             )
-            respondBytes(output, 200, "OK", jsonBytes, headers)
-        } else {
-            val prevCount = if (attemptInfo != null && now - attemptInfo.second < 180_000L) attemptInfo.first else 0
-            failedPinAttemptsByHost[remoteHost] = (prevCount + 1) to now
-            respondJson(
+            200 -> {
+                val currentToken = accessToken
+                val jsonBytes = JSONObject().put("ok", true).toString().toByteArray(StandardCharsets.UTF_8)
+                val headers = linkedMapOf(
+                    "Content-Type" to "application/json; charset=utf-8",
+                    "Cache-Control" to "no-store",
+                    "Set-Cookie" to "malek_cast=$currentToken; Path=/; HttpOnly; SameSite=Lax",
+                    "Connection" to "close"
+                )
+                respondBytes(output, 200, "OK", jsonBytes, headers)
+            }
+            else -> respondJson(
                 output,
                 403,
                 JSONObject().put("ok", false).put("error", "رمز PIN غير صحيح.").toString()
             )
+        }
+    }
+
+    internal fun evaluatePinAttempt(remoteHost: String, submittedPin: String): Pair<Int, Long> {
+        val nowNs = nanoTimeProvider()
+        val rateLimitedWaitSec = synchronized(pinLock) {
+            pruneExpiredPinAttemptsLocked(nowNs)
+            val currentHostState = failedPinAttemptsByHost[remoteHost]
+            if (currentHostState != null && nowNs < currentHostState.lockedUntilNs) {
+                return@synchronized ((currentHostState.lockedUntilNs - nowNs) / 1_000_000_000L).coerceAtLeast(1L)
+            }
+            if (currentHostState != null &&
+                currentHostState.lockedUntilNs > 0L &&
+                nowNs >= currentHostState.lockedUntilNs &&
+                nowNs - currentHostState.lastAttemptNs >= PIN_ATTEMPT_WINDOW_NS
+            ) {
+                failedPinAttemptsByHost.remove(remoteHost)
+            }
+            if (globalPinWindowStartNs == 0L || nowNs - globalPinWindowStartNs >= GLOBAL_PIN_WINDOW_NS) {
+                globalPinWindowStartNs = nowNs
+                globalPinFailureCount = 0
+            }
+            if (globalPinFailureCount >= MAX_GLOBAL_PIN_FAILURES_PER_WINDOW) {
+                return@synchronized ((GLOBAL_PIN_WINDOW_NS - (nowNs - globalPinWindowStartNs)) / 1_000_000_000L)
+                    .coerceAtLeast(1L)
+            }
+            0L
+        }
+
+        if (rateLimitedWaitSec > 0L) {
+            return 429 to rateLimitedWaitSec
+        }
+
+        val currentToken = accessToken
+        if (currentToken.isNotEmpty() && CastMediaHttpServer.constantTimeEquals(submittedPin, pinCode)) {
+            synchronized(pinLock) {
+                failedPinAttemptsByHost.remove(remoteHost)
+            }
+            return 200 to 0L
+        } else {
+            synchronized(pinLock) {
+                pruneExpiredPinAttemptsLocked(nowNs)
+                val existing = failedPinAttemptsByHost[remoteHost]
+                val prevCount = if (existing != null && nowNs - existing.lastAttemptNs < PIN_ATTEMPT_WINDOW_NS) {
+                    existing.failCount
+                } else 0
+                val nextCount = prevCount + 1
+                val lockDurationNs = when {
+                    nextCount >= 10 -> 120_000_000_000L
+                    nextCount >= 5 -> 30_000_000_000L
+                    else -> 0L
+                }
+                if (existing == null && failedPinAttemptsByHost.size >= MAX_TRACKED_HOSTS) {
+                    val oldestKey = failedPinAttemptsByHost.entries
+                        .minByOrNull { it.value.lastAttemptNs }?.key
+                    if (oldestKey != null) failedPinAttemptsByHost.remove(oldestKey)
+                }
+                failedPinAttemptsByHost[remoteHost] = PinAttemptState(
+                    failCount = nextCount,
+                    lastAttemptNs = nowNs,
+                    lockedUntilNs = if (lockDurationNs > 0L) nowNs + lockDurationNs else 0L
+                )
+                if (globalPinWindowStartNs == 0L || nowNs - globalPinWindowStartNs >= GLOBAL_PIN_WINDOW_NS) {
+                    globalPinWindowStartNs = nowNs
+                    globalPinFailureCount = 1
+                } else {
+                    globalPinFailureCount++
+                }
+            }
+            return 403 to 0L
+        }
+    }
+
+    private fun pruneExpiredPinAttemptsLocked(nowNs: Long) {
+        val iterator = failedPinAttemptsByHost.entries.iterator()
+        while (iterator.hasNext()) {
+            val state = iterator.next().value
+            if (nowNs >= state.lockedUntilNs && nowNs - state.lastAttemptNs >= PIN_ATTEMPT_WINDOW_NS) {
+                iterator.remove()
+            }
         }
     }
 
@@ -884,7 +1007,10 @@ class WebCastServer internal constructor(
         private const val DEFAULT_PORT_START = 8780
         private const val DEFAULT_PORT_END = 8795
         private const val VIEWER_TTL_MS = 12_000L
-        private const val MAX_TRACKED_HOSTS = 256
+        internal const val MAX_TRACKED_HOSTS = 64
+        internal const val MAX_GLOBAL_PIN_FAILURES_PER_WINDOW = 25
+        internal const val GLOBAL_PIN_WINDOW_NS = 60_000_000_000L
+        internal const val PIN_ATTEMPT_WINDOW_NS = 180_000_000_000L
 
         private const val PIN_LOGIN_HTML = """<!doctype html>
 <html lang="ar" dir="rtl">

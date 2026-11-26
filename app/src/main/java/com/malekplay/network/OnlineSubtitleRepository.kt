@@ -490,7 +490,7 @@ class OnlineSubtitleRepository internal constructor(
             val uri = download(subtitle)
             val path = uri.path ?: error("تعذر الوصول إلى ملف المعاينة")
             val file = File(path)
-            val preferArabic = subtitle.language.equals("ar", ignoreCase = true)
+            val preferArabic = SubtitleQueryCleaner.normalizeLanguage(subtitle.language) == "ar"
             val lines = extractPreviewLines(
                 bytes = file.readBytes(),
                 extension = file.extension,
@@ -772,7 +772,7 @@ class OnlineSubtitleRepository internal constructor(
             }
             val bytes = unwrapGzipIfNeeded(rawBytes)
             validateSubtitleDownloadResponse(contentType, bytes, "subtitles.website")
-            val preferArabic = subtitle.language.equals("ar", ignoreCase = true)
+            val preferArabic = SubtitleQueryCleaner.normalizeLanguage(subtitle.language) == "ar"
             val target = if (bytes.isZip()) {
                 extract(bytes, dir, 0L, cachePrefix, subtitle.format, preferArabic)
             } else {
@@ -820,7 +820,7 @@ class OnlineSubtitleRepository internal constructor(
         val rawBytes = subf2mProvider.download(detailUrl)
         val bytes = unwrapGzipIfNeeded(rawBytes)
         unsupportedArchiveTypeMessage(bytes)?.let { error(it) }
-        val preferArabic = subtitle.language.equals("ar", ignoreCase = true)
+        val preferArabic = SubtitleQueryCleaner.normalizeLanguage(subtitle.language) == "ar"
         val target = if (bytes.isZip()) {
             extract(
                 bytes, directory, 0L, prefix, subtitle.format, preferArabic,
@@ -1026,7 +1026,7 @@ class OnlineSubtitleRepository internal constructor(
             }
             val bytes = unwrapGzipIfNeeded(rawBytes)
             validateSubtitleDownloadResponse(contentType, bytes, "SubDL")
-            val preferArabic = subtitle.language.equals("ar", ignoreCase = true)
+            val preferArabic = SubtitleQueryCleaner.normalizeLanguage(subtitle.language) == "ar"
             val target = if (bytes.isZip()) {
                 extract(
                     bytes, directory, 0L, prefix, subtitle.format, preferArabic,
@@ -1103,7 +1103,7 @@ class OnlineSubtitleRepository internal constructor(
         }.distinctBy { it.fileId }.take(40)
     }
 
-    private suspend fun downloadOpenSubtitles(fileId: Long): Uri {
+    private suspend fun downloadOpenSubtitles(fileId: Long, preferArabic: Boolean = false): Uri {
         require(fileId > 0)
         val dir = File(app.cacheDir, "online-subtitles").apply { mkdirs() }
         findReusableCachedSubtitle(dir, "subtitle-$fileId")?.let { return Uri.fromFile(it) }
@@ -1135,9 +1135,9 @@ class OnlineSubtitleRepository internal constructor(
             val rawBytes = response.body?.byteStream()?.use(::readBounded) ?: error("ملف الترجمة فارغ")
             val bytes = unwrapGzipIfNeeded(rawBytes)
             require(bytes.isNotEmpty() && bytes.size <= MAX_BYTES) { "حجم ملف الترجمة غير صالح" }
-            val target = if (bytes.isZip()) extract(bytes, dir, fileId) else {
-                val ext = detect(bytes) ?: error("محتوى ملف الترجمة غير صالح: لا يحتوي على أسطر توقيت صالحة")
-                val normalized = normalizeSubtitleForStorage(bytes, ext)
+            val target = if (bytes.isZip()) extract(bytes, dir, fileId, preferArabicLegacy = preferArabic) else {
+                val ext = detect(bytes, preferArabic) ?: error("محتوى ملف الترجمة غير صالح: لا يحتوي على أسطر توقيت صالحة")
+                val normalized = normalizeSubtitleForStorage(bytes, ext, preferArabic)
                 writeSubtitleAtomically(dir, "subtitle-$fileId.$ext", normalized)
             }
             require(target.length() in 1..MAX_BYTES.toLong())

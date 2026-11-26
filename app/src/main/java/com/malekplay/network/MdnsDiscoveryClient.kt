@@ -1,6 +1,7 @@
 package com.malekplay.network
 
 import android.net.Network
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
@@ -48,23 +49,34 @@ internal fun protocolsForMdnsService(service: String): Set<TvCastProtocol> = whe
     else -> emptySet()
 }
 
-/** Discovers devices advertising common TV, phone and file-sharing services over mDNS/DNS-SD. */
-internal class MdnsDiscoveryClient {
+/**
+ * Discovers devices advertising TV, phone, and file-sharing services over mDNS/DNS-SD
+ * across both IPv4 (`224.0.0.251`) and IPv6 (`ff02::fb`) multicast on all active LAN interfaces.
+ */
+internal class MdnsDiscoveryClient(
+    private val socketFactory: () -> MulticastSocket = { MulticastSocket(null) }
+) {
+    private data class RecordedAddress(
+        val host: String,
+        val isIpv4: Boolean,
+        val isLinkLocal: Boolean
+    )
+
     suspend fun discover(
         network: Network?,
-        interfaces: List<NetworkInterface> = findMulticastInterfaces()
+        interfaces: List<NetworkInterface> = findMulticastInterfaces(),
+        onSocketOpened: ((MulticastSocket) -> Unit)? = null
     ): List<DiscoveredNetworkDevice> = withContext(Dispatchers.IO) {
-        val instances = LinkedHashMap<String, String>()
-        val servers = LinkedHashMap<String, Pair<String, Int>>()
-        val ipv4Addresses = LinkedHashMap<String, String>()
-        val ipv6Addresses = LinkedHashMap<String, String>()
-        val fallbackHosts = LinkedHashMap<String, String>()
-        val friendlyNames = LinkedHashMap<String, String>()
-        val modelNames = LinkedHashMap<String, String>()
-        val supportedServices = SERVICE_TYPES.toSet()
+        val rawRecords = ArrayList<Pair<DnsRecord, InetAddress>>()
+        val interfacesByZone = interfaces.associateBy { it.name.lowercase(Locale.ROOT) }
+        val joinedV4Interfaces = ArrayList<NetworkInterface>()
+        val joinedV6Interfaces = ArrayList<NetworkInterface>()
+        var joinedLegacyV4Group = false
+        var joinedLegacyV6Group = false
 
-        val joinedInterfaces = ArrayList<NetworkInterface>()
-        MulticastSocket(null).use { socket ->
+        val socket = socketFactory()
+        try {
+            onSocketOpened?.invoke(socket)
             if (network != null) runCatching { network.bindSocket(socket) }
             socket.reuseAddress = true
             try {
@@ -74,100 +86,184 @@ internal class MdnsDiscoveryClient {
             }
             socket.soTimeout = RECEIVE_TIMEOUT_MS
             socket.timeToLive = 1
+
             val groupV4 = InetAddress.getByName(MDNS_GROUP_V4)
             val groupV6 = runCatching { InetAddress.getByName(MDNS_GROUP_V6) }.getOrNull()
 
-            try {
-                if (interfaces.isNotEmpty()) {
-                    interfaces.take(4).forEach { iface ->
-                        val joinedV4 = runCatching {
+            if (interfaces.isNotEmpty()) {
+                interfaces.take(4).forEach { iface ->
+                    val addrs = runCatching { iface.inetAddresses.toList() }.getOrDefault(emptyList())
+                    val hasV4 = addrs.any { it is Inet4Address && !it.isLoopbackAddress }
+                    val hasV6 = addrs.any { it is Inet6Address && !it.isLoopbackAddress }
+                    if (hasV4) {
+                        val ok = runCatching {
                             socket.joinGroup(InetSocketAddress(groupV4, MDNS_PORT), iface)
                         }.isSuccess
-                        if (joinedV4) joinedInterfaces += iface
-                        if (groupV6 != null && iface.inetAddresses.toList().any { it is Inet6Address }) {
-                            runCatching { socket.joinGroup(InetSocketAddress(groupV6, MDNS_PORT), iface) }
-                        }
+                        if (ok) joinedV4Interfaces += iface
+                    }
+                    if (hasV6 && groupV6 != null) {
+                        val ok = runCatching {
+                            socket.joinGroup(InetSocketAddress(groupV6, MDNS_PORT), iface)
+                        }.isSuccess
+                        if (ok) joinedV6Interfaces += iface
                     }
                 }
-                if (joinedInterfaces.isEmpty()) {
-                    runCatching { socket.joinGroup(groupV4) }
+            }
+            if (joinedV4Interfaces.isEmpty()) {
+                joinedLegacyV4Group = runCatching { socket.joinGroup(groupV4) }.isSuccess
+            }
+            if (joinedV6Interfaces.isEmpty() && groupV6 != null) {
+                joinedLegacyV6Group = runCatching { socket.joinGroup(groupV6) }.isSuccess
+            }
+
+            SERVICE_TYPES.forEach { service ->
+                if (!currentCoroutineContext().isActive) return@forEach
+                val query = buildPtrQuery(service)
+                if (joinedV4Interfaces.isNotEmpty()) {
+                    joinedV4Interfaces.forEach { iface ->
+                        runCatching {
+                            socket.networkInterface = iface
+                            socket.send(DatagramPacket(query, query.size, groupV4, MDNS_PORT))
+                        }
+                    }
+                } else if (joinedLegacyV4Group) {
+                    runCatching { socket.send(DatagramPacket(query, query.size, groupV4, MDNS_PORT)) }
                 }
 
-                SERVICE_TYPES.forEach { service ->
-                    if (!currentCoroutineContext().isActive) return@forEach
-                    val query = buildPtrQuery(service)
-                    if (joinedInterfaces.isNotEmpty()) {
-                        joinedInterfaces.forEach { iface ->
+                if (groupV6 != null) {
+                    if (joinedV6Interfaces.isNotEmpty()) {
+                        joinedV6Interfaces.forEach { iface ->
                             runCatching {
                                 socket.networkInterface = iface
-                                socket.send(DatagramPacket(query, query.size, groupV4, MDNS_PORT))
+                                val scopedV6 = runCatching {
+                                    Inet6Address.getByAddress(null, groupV6.address, iface)
+                                }.getOrElse { groupV6 }
+                                socket.send(DatagramPacket(query, query.size, scopedV6, MDNS_PORT))
                             }
                         }
-                    } else {
-                        runCatching { socket.send(DatagramPacket(query, query.size, groupV4, MDNS_PORT)) }
+                    } else if (joinedLegacyV6Group) {
+                        runCatching { socket.send(DatagramPacket(query, query.size, groupV6, MDNS_PORT)) }
                     }
                 }
+            }
 
-                val deadline = System.nanoTime() + DISCOVERY_WINDOW_MS * 1_000_000L
-                val buffer = ByteArray(MAX_PACKET_BYTES)
-                while (currentCoroutineContext().isActive && System.nanoTime() < deadline) {
-                    val packet = DatagramPacket(buffer, buffer.size)
-                    try {
-                        socket.receive(packet)
-                    } catch (_: SocketTimeoutException) {
-                        continue
-                    }
-                    val packetAddr = packet.address
-                    if (!LanNetworkSupport.isAllowedLanPeerAddress(packetAddr)) continue
-                    val sourceHost = normalizeHostAddress(packetAddr) ?: continue
-                    val parsed = runCatching {
-                        parseRecords(packet.data.copyOfRange(packet.offset, packet.offset + packet.length))
-                    }.getOrNull() ?: continue
-                    parsed.forEach { record ->
-                        when (record.type) {
-                            TYPE_PTR -> record.target?.let { target ->
-                                val service = record.name.lowercase(Locale.ROOT)
-                                if (service in supportedServices) {
-                                    instances[target.lowercase(Locale.ROOT)] = service
-                                    fallbackHosts[target.lowercase(Locale.ROOT)] = sourceHost
-                                }
-                            }
-                            TYPE_SRV -> record.target?.let { target ->
-                                servers[record.name.lowercase(Locale.ROOT)] = target.lowercase(Locale.ROOT) to record.port
-                                fallbackHosts[record.name.lowercase(Locale.ROOT)] = sourceHost
-                            }
-                            TYPE_A -> record.address?.let { addr ->
-                                ipv4Addresses[record.name.lowercase(Locale.ROOT)] = addr
-                            }
-                            TYPE_AAAA -> record.address?.let { addr ->
-                                ipv6Addresses[record.name.lowercase(Locale.ROOT)] = addr
-                            }
-                            TYPE_TXT -> {
-                                record.text?.let { friendlyNames[record.name.lowercase(Locale.ROOT)] = it }
-                                record.model?.let { modelNames[record.name.lowercase(Locale.ROOT)] = it }
-                            }
-                        }
-                    }
+            val deadline = System.nanoTime() + DISCOVERY_WINDOW_MS * 1_000_000L
+            val buffer = ByteArray(MAX_PACKET_BYTES)
+            while (currentCoroutineContext().isActive && System.nanoTime() < deadline) {
+                val packet = DatagramPacket(buffer, buffer.size)
+                try {
+                    socket.receive(packet)
+                } catch (_: SocketTimeoutException) {
+                    continue
+                } catch (_: Exception) {
+                    // Socket closed externally (e.g., network loss or discovery cancellation).
+                    break
                 }
-            } finally {
-                joinedInterfaces.forEach { iface ->
+                val packetAddr = packet.address ?: continue
+                if (!LanNetworkSupport.isAllowedLanPeerAddress(packetAddr)) continue
+
+                val packetInterface = resolvePacketInterface(packetAddr, interfacesByZone)
+                val parsed = runCatching {
+                    parseRecords(
+                        data = packet.data.copyOfRange(packet.offset, packet.offset + packet.length),
+                        sourceInterface = packetInterface
+                    )
+                }.getOrNull() ?: continue
+                parsed.forEach { record -> rawRecords += record to packetAddr }
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } finally {
+            val groupV4 = runCatching { InetAddress.getByName(MDNS_GROUP_V4) }.getOrNull()
+            val groupV6 = runCatching { InetAddress.getByName(MDNS_GROUP_V6) }.getOrNull()
+            if (groupV4 != null) {
+                joinedV4Interfaces.forEach { iface ->
                     runCatching { socket.leaveGroup(InetSocketAddress(groupV4, MDNS_PORT), iface) }
-                    if (groupV6 != null) {
-                        runCatching { socket.leaveGroup(InetSocketAddress(groupV6, MDNS_PORT), iface) }
+                }
+                if (joinedLegacyV4Group) runCatching { socket.leaveGroup(groupV4) }
+            }
+            if (groupV6 != null) {
+                joinedV6Interfaces.forEach { iface ->
+                    runCatching { socket.leaveGroup(InetSocketAddress(groupV6, MDNS_PORT), iface) }
+                }
+                if (joinedLegacyV6Group) runCatching { socket.leaveGroup(groupV6) }
+            }
+            runCatching { socket.close() }
+        }
+
+        buildDevicesFromRecords(rawRecords, interfacesByZone)
+    }
+
+    internal fun buildDevicesFromRecords(
+        rawRecords: List<Pair<DnsRecord, InetAddress>>,
+        interfacesByZone: Map<String, NetworkInterface> = emptyMap()
+    ): List<DiscoveredNetworkDevice> {
+        val instances = LinkedHashMap<String, String>()
+        val servers = LinkedHashMap<String, Pair<String, Int>>()
+        val addressesByHost = LinkedHashMap<String, LinkedHashSet<RecordedAddress>>()
+        val fallbackHostsByKey = LinkedHashMap<String, LinkedHashSet<RecordedAddress>>()
+        val friendlyNames = LinkedHashMap<String, String>()
+        val modelNames = LinkedHashMap<String, String>()
+        val supportedServices = SERVICE_TYPES.toSet()
+
+        fun addFallback(key: String, packetAddr: InetAddress) {
+            val formatted = LanNetworkSupport.formatHostPreservingScope(
+                packetAddr,
+                resolvePacketInterface(packetAddr, interfacesByZone)
+            ) ?: return
+            fallbackHostsByKey.getOrPut(key) { LinkedHashSet() }.add(
+                RecordedAddress(
+                    host = formatted,
+                    isIpv4 = packetAddr is Inet4Address,
+                    isLinkLocal = packetAddr.isLinkLocalAddress
+                )
+            )
+        }
+
+        rawRecords.forEach { (record, packetAddr) ->
+            when (record.type) {
+                TYPE_PTR -> record.target?.let { target ->
+                    val service = record.name.lowercase(Locale.ROOT)
+                    if (service in supportedServices) {
+                        val instanceKey = target.lowercase(Locale.ROOT)
+                        instances[instanceKey] = service
+                        addFallback(instanceKey, packetAddr)
                     }
                 }
-                if (joinedInterfaces.isEmpty()) {
-                    runCatching { socket.leaveGroup(groupV4) }
+                TYPE_SRV -> record.target?.let { target ->
+                    val instanceKey = record.name.lowercase(Locale.ROOT)
+                    servers[instanceKey] = target.lowercase(Locale.ROOT) to record.port
+                    addFallback(instanceKey, packetAddr)
+                }
+                TYPE_A -> record.address?.let { addr ->
+                    addressesByHost.getOrPut(record.name.lowercase(Locale.ROOT)) { LinkedHashSet() }
+                        .add(RecordedAddress(host = addr, isIpv4 = true, isLinkLocal = false))
+                }
+                TYPE_AAAA -> record.address?.let { addr ->
+                    val resolvedAddr = attachPacketScopeIfLinkLocal(addr, packetAddr, interfacesByZone)
+                    val bare = LanNetworkSupport.stripZone(resolvedAddr)
+                    val isLinkLocal = bare.lowercase(Locale.ROOT).startsWith("fe80:")
+                    addressesByHost.getOrPut(record.name.lowercase(Locale.ROOT)) { LinkedHashSet() }
+                        .add(RecordedAddress(host = resolvedAddr, isIpv4 = false, isLinkLocal = isLinkLocal))
+                }
+                TYPE_TXT -> {
+                    val key = record.name.lowercase(Locale.ROOT)
+                    record.text?.let { friendlyNames[key] = it }
+                    record.model?.let { modelNames[key] = it }
                 }
             }
         }
 
-        instances.mapNotNull { (instance, service) ->
+        val devices = instances.mapNotNull { (instance, service) ->
             val server = servers[instance]
-            val hostName = server?.first
-            val host = hostName?.let { ipv4Addresses[it] ?: ipv6Addresses[it] }
-                ?: fallbackHosts[instance]
-                ?: return@mapNotNull null
+            val targetHostname = server?.first
+            val hostRecords = targetHostname?.let { addressesByHost[it] }.orEmpty()
+            val fallbackRecords = fallbackHostsByKey[instance].orEmpty()
+            val allCandidateRecords = (hostRecords + fallbackRecords).toList()
+            val orderedHosts = selectPreferredAndAlternateHosts(allCandidateRecords)
+            val primaryHost = orderedHosts.firstOrNull() ?: return@mapNotNull null
+            val alternates = orderedHosts.drop(1).toSet()
+
             val kind = classifyMdnsService(service)
             val serviceLabel = service.removeSuffix(".local")
             val rawLabel = friendlyNames[instance]
@@ -176,23 +272,112 @@ internal class MdnsDiscoveryClient {
             val label = rawLabel.filterNot { it.isISOControl() }.trim().take(70).ifBlank { "جهاز شبكة" }
             val model = modelNames[instance]?.filterNot { it.isISOControl() }?.trim()?.take(60)
             DiscoveredNetworkDevice(
-                id = "$host:MDNS:$serviceLabel",
+                id = "${LanNetworkSupport.stripZone(primaryHost).lowercase(Locale.ROOT)}:MDNS:$serviceLabel",
                 name = label,
-                host = host,
+                host = primaryHost,
                 kind = kind,
                 services = listOfNotNull(
                     "mDNS/DNS-SD",
                     serviceLabel,
-                    server?.second?.takeIf { it in 1..65535 }?.let { "Port " + it }
+                    server?.second?.takeIf { it in 1..65535 }?.let { "Port $it" }
                 ).toSet(),
                 modelName = model,
                 castProtocols = protocolsForMdnsService(service),
-                playbackVerified = false
+                playbackVerified = false,
+                alternateHosts = alternates
             )
-        }.distinctBy { it.host + ":" + it.services.elementAtOrNull(1) }
+        }
+
+        return deduplicateMultiAddressDevices(devices)
     }
 
-    private fun buildPtrQuery(service: String): ByteArray {
+    private fun selectPreferredAndAlternateHosts(records: List<RecordedAddress>): List<String> {
+        // Prefer IPv4 for broad legacy TV HTTP compatibility, then ULA IPv6, then scoped link-local IPv6.
+        return records
+            .sortedWith(
+                compareBy<RecordedAddress>(
+                    { if (it.isIpv4) 0 else 1 },
+                    { if (it.isLinkLocal) 1 else 0 }
+                )
+            )
+            .map { it.host }
+            .distinctBy { LanNetworkSupport.decodeScopedHost(it).lowercase(Locale.ROOT) }
+    }
+
+    private fun deduplicateMultiAddressDevices(
+        devices: List<DiscoveredNetworkDevice>
+    ): List<DiscoveredNetworkDevice> {
+        val merged = LinkedHashMap<String, DiscoveredNetworkDevice>()
+        for (device in devices) {
+            val serviceTag = device.services.firstOrNull { it.startsWith("_") } ?: device.services.joinToString(",")
+            val allHosts = (listOf(device.host) + device.alternateHosts)
+                .map { LanNetworkSupport.stripZone(it).lowercase(Locale.ROOT) }
+                .toSet()
+
+            val existingKey = merged.entries.firstOrNull { (_, existing) ->
+                val existingService = existing.services.firstOrNull { it.startsWith("_") } ?: existing.services.joinToString(",")
+                if (!existingService.equals(serviceTag, ignoreCase = true)) return@firstOrNull false
+                val existingHosts = (listOf(existing.host) + existing.alternateHosts)
+                    .map { LanNetworkSupport.stripZone(it).lowercase(Locale.ROOT) }
+                    .toSet()
+                allHosts.any { it in existingHosts }
+            }?.key
+
+            if (existingKey == null) {
+                merged[device.id] = device
+            } else {
+                val existing = merged.getValue(existingKey)
+                val combinedHosts = (listOf(existing.host) + existing.alternateHosts + device.host + device.alternateHosts)
+                    .distinctBy { LanNetworkSupport.decodeScopedHost(it).lowercase(Locale.ROOT) }
+                val primary = combinedHosts.firstOrNull { !it.contains(':') } ?: combinedHosts.first()
+                val alternates = combinedHosts.filterNot { it.equals(primary, ignoreCase = true) }.toSet()
+                merged[existingKey] = existing.copy(
+                    host = primary,
+                    services = existing.services + device.services,
+                    castProtocols = existing.castProtocols + device.castProtocols,
+                    modelName = existing.modelName ?: device.modelName,
+                    alternateHosts = alternates
+                )
+            }
+        }
+        return merged.values.toList()
+    }
+
+    private fun resolvePacketInterface(
+        packetAddr: InetAddress,
+        interfacesByZone: Map<String, NetworkInterface>
+    ): NetworkInterface? {
+        if (packetAddr is Inet6Address) {
+            packetAddr.scopedInterface?.let { return it }
+            val scopeId = packetAddr.scopeId
+            if (scopeId > 0) {
+                runCatching { NetworkInterface.getByIndex(scopeId) }.getOrNull()?.let { return it }
+            }
+            val zone = packetAddr.hostAddress?.substringAfter('%', "")
+            if (!zone.isNullOrBlank()) {
+                interfacesByZone[zone.lowercase(Locale.ROOT)]?.let { return it }
+            }
+        }
+        return null
+    }
+
+    private fun attachPacketScopeIfLinkLocal(
+        recordedAddress: String,
+        packetAddr: InetAddress,
+        interfacesByZone: Map<String, NetworkInterface>
+    ): String {
+        if ('%' in recordedAddress) return recordedAddress
+        val bare = LanNetworkSupport.stripZone(recordedAddress)
+        if (!bare.lowercase(Locale.ROOT).startsWith("fe80:")) return bare
+        val fallbackIface = resolvePacketInterface(packetAddr, interfacesByZone)
+        val packetZone = LanNetworkSupport.formatHostPreservingScope(packetAddr, fallbackIface)
+            ?.substringAfter('%', "")
+            ?.takeIf { it.isNotBlank() }
+            ?: fallbackIface?.name
+        return if (!packetZone.isNullOrBlank()) "$bare%$packetZone" else bare
+    }
+
+    internal fun buildPtrQuery(service: String): ByteArray {
         val out = ArrayList<Byte>()
         fun put(value: Int) { out.add(value.toByte()) }
         repeat(2) { put(0) }
@@ -210,7 +395,10 @@ internal class MdnsDiscoveryClient {
         return out.toByteArray()
     }
 
-    internal fun parseRecords(data: ByteArray): List<DnsRecord> {
+    internal fun parseRecords(
+        data: ByteArray,
+        sourceInterface: NetworkInterface? = null
+    ): List<DnsRecord> {
         require(data.size in 12..MAX_PACKET_BYTES)
         fun u16(offset: Int): Int {
             require(offset >= 0 && offset + 1 < data.size)
@@ -253,13 +441,19 @@ internal class MdnsDiscoveryClient {
                 TYPE_A -> if (length == 4) {
                     val parsed = InetAddress.getByAddress(data.copyOfRange(rdata, rdata + 4))
                     if (LanNetworkSupport.isAllowedLanPeerAddress(parsed)) {
-                        address = normalizeHostAddress(parsed)
+                        address = LanNetworkSupport.formatHostPreservingScope(parsed)
                     }
                 }
                 TYPE_AAAA -> if (length == 16) {
-                    val parsed = InetAddress.getByAddress(data.copyOfRange(rdata, rdata + 16))
+                    val rawAddr = data.copyOfRange(rdata, rdata + 16)
+                    val parsed = if (sourceInterface != null) {
+                        runCatching { Inet6Address.getByAddress(null, rawAddr, sourceInterface) }
+                            .getOrElse { InetAddress.getByAddress(rawAddr) }
+                    } else {
+                        InetAddress.getByAddress(rawAddr)
+                    }
                     if (LanNetworkSupport.isAllowedLanPeerAddress(parsed)) {
-                        address = normalizeHostAddress(parsed)
+                        address = LanNetworkSupport.formatHostPreservingScope(parsed, sourceInterface)
                     }
                 }
                 TYPE_TXT -> {
@@ -359,15 +553,11 @@ internal class MdnsDiscoveryClient {
             "_afpovertcp._tcp.local"
         )
 
-        private fun normalizeHostAddress(addr: InetAddress?): String? {
-            val raw = addr?.hostAddress ?: return null
-            return raw.substringBefore('%').takeIf { it.isNotBlank() }
-        }
-
         internal fun findMulticastInterfaces(): List<NetworkInterface> = runCatching {
             NetworkInterface.getNetworkInterfaces()?.toList().orEmpty()
                 .filter { iface ->
                     iface.isUp && !iface.isLoopback && iface.supportsMulticast() &&
+                        LanNetworkSupport.isLanInterfaceName(iface.name) &&
                         iface.inetAddresses.toList().any { addr ->
                             !addr.isLoopbackAddress && LanNetworkSupport.isAllowedLanPeerAddress(addr)
                         }
