@@ -750,9 +750,6 @@ class PlaybackService : MediaSessionService() {
         customDetailStrength = prevDetail
         customContrastBoost = prevContrast
         customVibranceStrength = prevVibrance
-        videoUpscalingEnabled = prevUpscaling
-        videoNoiseReductionEnabled = prevNoiseFlag
-        videoVibranceEnabled = prevVibranceFlag
         applyVideoEnhancements()
         return false
     }
