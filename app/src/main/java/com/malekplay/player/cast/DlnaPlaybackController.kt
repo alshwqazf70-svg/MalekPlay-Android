@@ -20,7 +20,10 @@ class DlnaPlaybackController @Inject constructor(
     @ApplicationContext context: Context
 ) {
     private val appContext = context.applicationContext
-    private val rendererClient = DlnaRendererClient()
+    private val rendererClient = DlnaRendererClient(context = appContext)
+
+    fun capabilitiesFor(device: DiscoveredNetworkDevice): DlnaRendererClient.RendererCapabilities =
+        rendererClient.capabilitiesFor(device)
 
     suspend fun play(
         device: DiscoveredNetworkDevice,
@@ -93,6 +96,9 @@ class DlnaPlaybackController @Inject constructor(
 
     suspend fun setMute(device: DiscoveredNetworkDevice, muted: Boolean) =
         rendererClient.setMute(device, muted)
+
+    suspend fun getMute(device: DiscoveredNetworkDevice): Boolean? =
+        rendererClient.getMute(device)
 
     suspend fun getPosition(device: DiscoveredNetworkDevice): DlnaRendererClient.PlaybackPosition? =
         rendererClient.getPosition(device)

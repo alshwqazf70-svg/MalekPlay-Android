@@ -1,12 +1,17 @@
 package com.malekplay.network
 
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import android.net.Network
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withContext
 import java.net.DatagramPacket
+import java.net.Inet4Address
+import java.net.Inet6Address
 import java.net.InetAddress
-import java.net.MulticastSocket
 import java.net.InetSocketAddress
+import java.net.MulticastSocket
+import java.net.NetworkInterface
 import java.net.SocketTimeoutException
 import java.util.Locale
 
@@ -45,14 +50,20 @@ internal fun protocolsForMdnsService(service: String): Set<TvCastProtocol> = whe
 
 /** Discovers devices advertising common TV, phone and file-sharing services over mDNS/DNS-SD. */
 internal class MdnsDiscoveryClient {
-    suspend fun discover(network: Network?): List<DiscoveredNetworkDevice> = withContext(Dispatchers.IO) {
+    suspend fun discover(
+        network: Network?,
+        interfaces: List<NetworkInterface> = findMulticastInterfaces()
+    ): List<DiscoveredNetworkDevice> = withContext(Dispatchers.IO) {
         val instances = LinkedHashMap<String, String>()
         val servers = LinkedHashMap<String, Pair<String, Int>>()
-        val addresses = LinkedHashMap<String, String>()
+        val ipv4Addresses = LinkedHashMap<String, String>()
+        val ipv6Addresses = LinkedHashMap<String, String>()
         val fallbackHosts = LinkedHashMap<String, String>()
         val friendlyNames = LinkedHashMap<String, String>()
         val modelNames = LinkedHashMap<String, String>()
         val supportedServices = SERVICE_TYPES.toSet()
+
+        val joinedInterfaces = ArrayList<NetworkInterface>()
         MulticastSocket(null).use { socket ->
             if (network != null) runCatching { network.bindSocket(socket) }
             socket.reuseAddress = true
@@ -63,44 +74,90 @@ internal class MdnsDiscoveryClient {
             }
             socket.soTimeout = RECEIVE_TIMEOUT_MS
             socket.timeToLive = 1
-            val group = InetAddress.getByName(MDNS_GROUP)
-            runCatching { socket.joinGroup(group) }
-            SERVICE_TYPES.forEach { service ->
-                val query = buildPtrQuery(service)
-                runCatching { socket.send(DatagramPacket(query, query.size, group, MDNS_PORT)) }
-            }
-            val deadline = System.nanoTime() + DISCOVERY_WINDOW_MS * 1_000_000L
-            val buffer = ByteArray(MAX_PACKET_BYTES)
-            while (System.nanoTime() < deadline) {
-                val packet = DatagramPacket(buffer, buffer.size)
-                try {
-                    socket.receive(packet)
-                } catch (_: SocketTimeoutException) {
-                    continue
-                }
-                val sourceHost = packet.address.hostAddress ?: continue
-                val parsed = runCatching {
-                    parseRecords(packet.data.copyOfRange(packet.offset, packet.offset + packet.length))
-                }.getOrNull() ?: continue
-                parsed.forEach { record ->
-                    when (record.type) {
-                        TYPE_PTR -> record.target?.let { target ->
-                            val service = record.name.lowercase(Locale.ROOT)
-                            if (service in supportedServices) {
-                                instances[target.lowercase(Locale.ROOT)] = service
-                                fallbackHosts[target.lowercase(Locale.ROOT)] = sourceHost
-                            }
-                        }
-                        TYPE_SRV -> record.target?.let { target ->
-                            servers[record.name.lowercase(Locale.ROOT)] = target.lowercase(Locale.ROOT) to record.port
-                            fallbackHosts[record.name.lowercase(Locale.ROOT)] = sourceHost
-                        }
-                        TYPE_A -> record.address?.let { addresses[record.name.lowercase(Locale.ROOT)] = it }
-                        TYPE_TXT -> {
-                            record.text?.let { friendlyNames[record.name.lowercase(Locale.ROOT)] = it }
-                            record.model?.let { modelNames[record.name.lowercase(Locale.ROOT)] = it }
+            val groupV4 = InetAddress.getByName(MDNS_GROUP_V4)
+            val groupV6 = runCatching { InetAddress.getByName(MDNS_GROUP_V6) }.getOrNull()
+
+            try {
+                if (interfaces.isNotEmpty()) {
+                    interfaces.take(4).forEach { iface ->
+                        val joinedV4 = runCatching {
+                            socket.joinGroup(InetSocketAddress(groupV4, MDNS_PORT), iface)
+                        }.isSuccess
+                        if (joinedV4) joinedInterfaces += iface
+                        if (groupV6 != null && iface.inetAddresses.toList().any { it is Inet6Address }) {
+                            runCatching { socket.joinGroup(InetSocketAddress(groupV6, MDNS_PORT), iface) }
                         }
                     }
+                }
+                if (joinedInterfaces.isEmpty()) {
+                    runCatching { socket.joinGroup(groupV4) }
+                }
+
+                SERVICE_TYPES.forEach { service ->
+                    if (!currentCoroutineContext().isActive) return@forEach
+                    val query = buildPtrQuery(service)
+                    if (joinedInterfaces.isNotEmpty()) {
+                        joinedInterfaces.forEach { iface ->
+                            runCatching {
+                                socket.networkInterface = iface
+                                socket.send(DatagramPacket(query, query.size, groupV4, MDNS_PORT))
+                            }
+                        }
+                    } else {
+                        runCatching { socket.send(DatagramPacket(query, query.size, groupV4, MDNS_PORT)) }
+                    }
+                }
+
+                val deadline = System.nanoTime() + DISCOVERY_WINDOW_MS * 1_000_000L
+                val buffer = ByteArray(MAX_PACKET_BYTES)
+                while (currentCoroutineContext().isActive && System.nanoTime() < deadline) {
+                    val packet = DatagramPacket(buffer, buffer.size)
+                    try {
+                        socket.receive(packet)
+                    } catch (_: SocketTimeoutException) {
+                        continue
+                    }
+                    val packetAddr = packet.address
+                    if (!LanNetworkSupport.isAllowedLanPeerAddress(packetAddr)) continue
+                    val sourceHost = normalizeHostAddress(packetAddr) ?: continue
+                    val parsed = runCatching {
+                        parseRecords(packet.data.copyOfRange(packet.offset, packet.offset + packet.length))
+                    }.getOrNull() ?: continue
+                    parsed.forEach { record ->
+                        when (record.type) {
+                            TYPE_PTR -> record.target?.let { target ->
+                                val service = record.name.lowercase(Locale.ROOT)
+                                if (service in supportedServices) {
+                                    instances[target.lowercase(Locale.ROOT)] = service
+                                    fallbackHosts[target.lowercase(Locale.ROOT)] = sourceHost
+                                }
+                            }
+                            TYPE_SRV -> record.target?.let { target ->
+                                servers[record.name.lowercase(Locale.ROOT)] = target.lowercase(Locale.ROOT) to record.port
+                                fallbackHosts[record.name.lowercase(Locale.ROOT)] = sourceHost
+                            }
+                            TYPE_A -> record.address?.let { addr ->
+                                ipv4Addresses[record.name.lowercase(Locale.ROOT)] = addr
+                            }
+                            TYPE_AAAA -> record.address?.let { addr ->
+                                ipv6Addresses[record.name.lowercase(Locale.ROOT)] = addr
+                            }
+                            TYPE_TXT -> {
+                                record.text?.let { friendlyNames[record.name.lowercase(Locale.ROOT)] = it }
+                                record.model?.let { modelNames[record.name.lowercase(Locale.ROOT)] = it }
+                            }
+                        }
+                    }
+                }
+            } finally {
+                joinedInterfaces.forEach { iface ->
+                    runCatching { socket.leaveGroup(InetSocketAddress(groupV4, MDNS_PORT), iface) }
+                    if (groupV6 != null) {
+                        runCatching { socket.leaveGroup(InetSocketAddress(groupV6, MDNS_PORT), iface) }
+                    }
+                }
+                if (joinedInterfaces.isEmpty()) {
+                    runCatching { socket.leaveGroup(groupV4) }
                 }
             }
         }
@@ -108,7 +165,9 @@ internal class MdnsDiscoveryClient {
         instances.mapNotNull { (instance, service) ->
             val server = servers[instance]
             val hostName = server?.first
-            val host = hostName?.let { addresses[it] } ?: fallbackHosts[instance] ?: return@mapNotNull null
+            val host = hostName?.let { ipv4Addresses[it] ?: ipv6Addresses[it] }
+                ?: fallbackHosts[instance]
+                ?: return@mapNotNull null
             val kind = classifyMdnsService(service)
             val serviceLabel = service.removeSuffix(".local")
             val rawLabel = friendlyNames[instance]
@@ -127,7 +186,8 @@ internal class MdnsDiscoveryClient {
                     server?.second?.takeIf { it in 1..65535 }?.let { "Port " + it }
                 ).toSet(),
                 modelName = model,
-                castProtocols = protocolsForMdnsService(service)
+                castProtocols = protocolsForMdnsService(service),
+                playbackVerified = false
             )
         }.distinctBy { it.host + ":" + it.services.elementAtOrNull(1) }
     }
@@ -150,7 +210,7 @@ internal class MdnsDiscoveryClient {
         return out.toByteArray()
     }
 
-    private fun parseRecords(data: ByteArray): List<DnsRecord> {
+    internal fun parseRecords(data: ByteArray): List<DnsRecord> {
         require(data.size in 12..MAX_PACKET_BYTES)
         fun u16(offset: Int): Int {
             require(offset >= 0 && offset + 1 < data.size)
@@ -191,7 +251,16 @@ internal class MdnsDiscoveryClient {
                     target = decoded.first
                 }
                 TYPE_A -> if (length == 4) {
-                    address = InetAddress.getByAddress(data.copyOfRange(rdata, rdata + 4)).hostAddress
+                    val parsed = InetAddress.getByAddress(data.copyOfRange(rdata, rdata + 4))
+                    if (LanNetworkSupport.isAllowedLanPeerAddress(parsed)) {
+                        address = normalizeHostAddress(parsed)
+                    }
+                }
+                TYPE_AAAA -> if (length == 16) {
+                    val parsed = InetAddress.getByAddress(data.copyOfRange(rdata, rdata + 16))
+                    if (LanNetworkSupport.isAllowedLanPeerAddress(parsed)) {
+                        address = normalizeHostAddress(parsed)
+                    }
                 }
                 TYPE_TXT -> {
                     var cursor = rdata
@@ -244,7 +313,7 @@ internal class MdnsDiscoveryClient {
         return labels.joinToString(".") to nextOffset
     }
 
-    private data class DnsRecord(
+    internal data class DnsRecord(
         val name: String,
         val type: Int,
         val target: String? = null,
@@ -254,14 +323,16 @@ internal class MdnsDiscoveryClient {
         val model: String? = null
     )
 
-    private companion object {
-        const val MDNS_GROUP = "224.0.0.251"
+    internal companion object {
+        const val MDNS_GROUP_V4 = "224.0.0.251"
+        const val MDNS_GROUP_V6 = "ff02::fb"
         const val MDNS_PORT = 5353
         const val TYPE_A = 1
         const val TYPE_PTR = 12
         const val TYPE_TXT = 16
+        const val TYPE_AAAA = 28
         const val TYPE_SRV = 33
-        const val RECEIVE_TIMEOUT_MS = 350
+        const val RECEIVE_TIMEOUT_MS = 300
         const val DISCOVERY_WINDOW_MS = 2_600L
         const val MAX_PACKET_BYTES = 9_000
         const val MAX_RECORDS = 512
@@ -287,5 +358,28 @@ internal class MdnsDiscoveryClient {
             "_sftp-ssh._tcp.local",
             "_afpovertcp._tcp.local"
         )
+
+        private fun normalizeHostAddress(addr: InetAddress?): String? {
+            val raw = addr?.hostAddress ?: return null
+            return raw.substringBefore('%').takeIf { it.isNotBlank() }
+        }
+
+        internal fun findMulticastInterfaces(): List<NetworkInterface> = runCatching {
+            NetworkInterface.getNetworkInterfaces()?.toList().orEmpty()
+                .filter { iface ->
+                    iface.isUp && !iface.isLoopback && iface.supportsMulticast() &&
+                        iface.inetAddresses.toList().any { addr ->
+                            !addr.isLoopbackAddress && LanNetworkSupport.isAllowedLanPeerAddress(addr)
+                        }
+                }
+                .sortedBy { iface ->
+                    val name = iface.name.lowercase(Locale.ROOT)
+                    when {
+                        name.startsWith("wlan") || name.startsWith("ap") || name.startsWith("swlan") -> 0
+                        name.startsWith("eth") || name.startsWith("p2p") || name.startsWith("rndis") -> 1
+                        else -> 2
+                    }
+                }
+        }.getOrDefault(emptyList())
     }
 }

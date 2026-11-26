@@ -359,6 +359,7 @@ class PlaybackService : MediaSessionService() {
             bridge.close()
         }
         castMediaHttpServer = null
+        com.malekplay.player.cast.WebCastRegistry.detachServiceFactory(applicationContext)
         if (::networkProfilesPreferences.isInitialized) {
             networkProfilesPreferences.unregisterOnSharedPreferenceChangeListener(profilePreferencesListener)
         }

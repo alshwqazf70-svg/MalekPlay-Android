@@ -90,18 +90,18 @@ fun DlnaDevicePickerDialog(
     LaunchedEffect(refreshToken) {
         loading = true
         error = null
+        devices = emptyList()
         try {
             val all = discoveryClient.discover(context)
-            devices = all.filter { device ->
-                device.kind == NetworkDeviceKind.MEDIA_RENDERER ||
-                    device.castProtocols.isNotEmpty() ||
-                    device.services.any {
-                        it.contains("MediaRenderer", ignoreCase = true) ||
-                            it.contains("AVTransport", ignoreCase = true) ||
-                            it.contains("roku", ignoreCase = true) ||
-                            it.contains("_googlecast", ignoreCase = true)
-                    }
-            }
+            devices = all
+                .filter { device ->
+                    device.supportsDirectPlayback() ||
+                        device.hasGoogleCastRoute() ||
+                        device.isDiscoveredWithoutDirectPlayback() ||
+                        device.kind == NetworkDeviceKind.MEDIA_RENDERER ||
+                        device.castProtocols.isNotEmpty()
+                }
+                .distinctBy { it.host.lowercase() }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
@@ -200,29 +200,39 @@ fun DlnaDevicePickerDialog(
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             items(devices, key = { it.id }) { device ->
-                                val isDlnaOrRoku = device.descriptionUrl != null ||
-                                    TvCastProtocol.DLNA in device.castProtocols ||
-                                    TvCastProtocol.ROKU_ECP in device.castProtocols ||
-                                    device.services.any { it.contains("MediaRenderer", true) || it.contains("AVTransport", true) }
+                                val canDirectCast = device.supportsDirectPlayback()
+                                val isGoogleCast = device.hasGoogleCastRoute()
+                                val capabilityBadge = when {
+                                    canDirectCast -> "جاهز للبث"
+                                    isGoogleCast -> "زر Cast أعلاه"
+                                    else -> "مكتشف • بدون بث مباشر"
+                                }
                                 val subtitleParts = listOfNotNull(
                                     device.host,
                                     device.manufacturer?.takeIf { it.isNotBlank() },
                                     device.modelName?.takeIf { it.isNotBlank() },
-                                    protocolBadges(device)
+                                    protocolBadges(device),
+                                    capabilityBadge
                                 ).joinToString(" • ")
 
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clip(RoundedCornerShape(14.dp))
-                                        .background(Color(0xFF1A1426))
-                                        .border(1.dp, Color(0x33C084FC), RoundedCornerShape(14.dp))
+                                        .background(if (canDirectCast) Color(0xFF1A1426) else Color(0xFF14111D))
+                                        .border(
+                                            1.dp,
+                                            if (canDirectCast) Color(0x55C084FC) else Color(0x22FFFFFF),
+                                            RoundedCornerShape(14.dp)
+                                        )
                                         .clickable {
-                                            if (isDlnaOrRoku) {
+                                            if (canDirectCast) {
                                                 onDeviceSelected(device)
-                                            } else {
-                                                // Devices discovered only via AirPlay / Google Cast can use MediaRouteButton or Web Cast.
+                                            } else if (!isGoogleCast) {
+                                                // Devices discovered only via AirPlay/DIAL or without AVTransport use Web Cast.
                                                 selectedTab = 1
+                                            } else {
+                                                manualIpError = "لأجهزة Google Cast استخدم أيقونة Cast في الصندوق البنفسجي أعلاه."
                                             }
                                         }
                                         .padding(horizontal = 12.dp, vertical = 10.dp),
@@ -231,7 +241,7 @@ fun DlnaDevicePickerDialog(
                                     Icon(
                                         imageVector = Icons.Filled.Tv,
                                         contentDescription = null,
-                                        tint = MalekPlayColors.PurpleBright,
+                                        tint = if (canDirectCast) MalekPlayColors.PurpleBright else MalekPlayColors.TextSecondary,
                                         modifier = Modifier.size(22.dp)
                                     )
                                     Spacer(Modifier.width(10.dp))
@@ -253,9 +263,13 @@ fun DlnaDevicePickerDialog(
                                         )
                                     }
                                     Text(
-                                        text = if (isDlnaOrRoku) "بث" else "متصفح/Cast",
+                                        text = when {
+                                            canDirectCast -> "بث"
+                                            isGoogleCast -> "Cast"
+                                            else -> "المتصفح"
+                                        },
                                         style = MaterialTheme.typography.labelMedium,
-                                        color = MalekPlayColors.PurpleBright,
+                                        color = if (canDirectCast) MalekPlayColors.PurpleBright else MalekPlayColors.TextSecondary,
                                         fontWeight = FontWeight.Bold
                                     )
                                 }
@@ -287,18 +301,23 @@ fun DlnaDevicePickerDialog(
                                     scope.launch {
                                         probingManualIp = true
                                         manualIpError = null
-                                        runCatching {
-                                            discoveryClient.probeDeviceByIp(manualIp)
-                                        }.onSuccess { probed ->
+                                        try {
+                                            val probed = discoveryClient.probeDeviceByIp(manualIp, context)
                                             if (probed == null) {
                                                 manualIpError = "لم يستجب التلفزيون على منافذ DLNA/Roku. جرّب تبويب الكمبيوتر والمتصفح!"
+                                            } else if (!probed.supportsDirectPlayback() && !probed.hasGoogleCastRoute()) {
+                                                devices = (listOf(probed) + devices).distinctBy { it.host.lowercase() }
+                                                manualIpError = "تم اكتشاف الجهاز (${probed.name}) لكنه لا يدعم DLNA AVTransport أو Roku ECP."
                                             } else {
-                                                devices = (listOf(probed) + devices).distinctBy { it.host }
+                                                devices = (listOf(probed) + devices).distinctBy { it.host.lowercase() }
                                             }
-                                        }.onFailure { err ->
+                                        } catch (cancelled: CancellationException) {
+                                            throw cancelled
+                                        } catch (err: Exception) {
                                             manualIpError = err.message ?: "عنوان IP غير صالح."
+                                        } finally {
+                                            probingManualIp = false
                                         }
-                                        probingManualIp = false
                                     }
                                 }
                             ) {

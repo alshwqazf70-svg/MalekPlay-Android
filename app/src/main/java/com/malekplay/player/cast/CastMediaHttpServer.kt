@@ -14,13 +14,13 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import com.google.android.gms.cast.MediaQueueItem
+import com.malekplay.network.LanNetworkSupport
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.net.Inet4Address
 import java.net.InetSocketAddress
-import java.net.NetworkInterface
 import java.net.ServerSocket
 import java.net.Socket
 import java.nio.ByteBuffer
@@ -30,7 +30,8 @@ import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -42,13 +43,16 @@ import java.util.concurrent.atomic.AtomicBoolean
  * DLNA contentFeatures/transferMode headers, filename extensions for strict TVs,
  * and automatic SRT/ASS -> WebVTT subtitle conversion.
  */
-class CastMediaHttpServer(
+class CastMediaHttpServer internal constructor(
     context: Context,
-    private val upstreamFactory: DataSource.Factory
+    private val upstreamFactory: DataSource.Factory,
+    private val privateIpv4Provider: () -> List<Inet4Address>
 ) : AutoCloseable {
+    constructor(context: Context, upstreamFactory: DataSource.Factory) :
+        this(context, upstreamFactory, LanNetworkSupport::findAllPrivateIpv4s)
     private val resolver: ContentResolver = context.applicationContext.contentResolver
     private val random = SecureRandom()
-    private val token = ByteArray(32).also(random::nextBytes).joinToString("") { "%02x".format(it) }
+    @Volatile private var token = ""
     private val uriById = ConcurrentHashMap<String, Uri>()
     private val idByUri = ConcurrentHashMap<String, String>()
     private val lengthByUri = ConcurrentHashMap<String, Long>()
@@ -58,7 +62,7 @@ class CastMediaHttpServer(
     private val subtitleSourceById = ConcurrentHashMap<String, SubtitleSource>()
     private val idBySubtitleKey = ConcurrentHashMap<String, String>()
     private val running = AtomicBoolean(false)
-    private val workers = Executors.newFixedThreadPool(16)
+    @Volatile private var workers: ThreadPoolExecutor = LanNetworkSupport.createBoundedHttpExecutor("MalekBridge")
     @Volatile private var serverSocket: ServerSocket? = null
     @Volatile private var baseUrl: String? = null
     @Volatile private var boundPort: Int = 0
@@ -74,6 +78,10 @@ class CastMediaHttpServer(
         if (running.get()) return
         val address = findPrivateIpv4()
             ?: throw IOException("لا يوجد عنوان شبكة محلي (Wi-Fi أو نقطة اتصال) متاح للبث.")
+        token = ByteArray(32).also(random::nextBytes).joinToString("") { "%02x".format(it) }
+        if (workers.isShutdown || workers.isTerminated) {
+            workers = LanNetworkSupport.createBoundedHttpExecutor("MalekBridge")
+        }
         val socket = ServerSocket()
         socket.reuseAddress = true
         // Bind to wildcard 0.0.0.0 on an ephemeral port only if multiple private LAN interfaces
@@ -87,7 +95,16 @@ class CastMediaHttpServer(
             while (running.get()) {
                 try {
                     val client = socket.accept()
-                    workers.execute { handle(client) }
+                    try {
+                        workers.execute { handle(client) }
+                    } catch (_: RejectedExecutionException) {
+                        runCatching {
+                            client.soTimeout = 2_000
+                            val out = BufferedOutputStream(client.getOutputStream())
+                            respond(out, 503, "Service Unavailable", "Retry-After" to "2")
+                        }
+                        runCatching { client.close() }
+                    }
                 } catch (_: IOException) {
                     if (running.get()) close()
                 }
@@ -180,26 +197,25 @@ class CastMediaHttpServer(
 
     /** Maps our own bridge URL back to the original URI when playback returns locally. */
     fun originalUriFor(uri: Uri): Uri? {
+        val currentToken = token
+        if (currentToken.isEmpty()) return null
         val parts = uri.pathSegments
-        if (parts.size !in 3..4 || parts[0] != "media" || !constantTimeEquals(parts[1], token)) return null
+        if (parts.size !in 3..4 || parts[0] != "media" || !constantTimeEquals(parts[1], currentToken)) return null
         return uriById[parts[2]]
     }
 
     private fun handle(socket: Socket) {
         socket.use { client ->
             try {
-                client.soTimeout = 15_000
-                // Ensure only LAN / loopback peers can consume the local media bridge.
-                val remoteAddr = client.inetAddress
-                if (remoteAddr is Inet4Address && !remoteAddr.isLoopbackAddress &&
-                    !remoteAddr.isSiteLocalAddress && !(remoteAddr.hostAddress?.startsWith("169.254.") == true)
-                ) {
+                client.soTimeout = 10_000
+                // Ensure only LAN / loopback peers (IPv4 or IPv6) can consume the local media bridge.
+                if (!LanNetworkSupport.isAllowedLanPeerAddress(client.inetAddress)) {
                     return
                 }
 
                 val input = BufferedInputStream(client.getInputStream())
                 val output = BufferedOutputStream(client.getOutputStream())
-                val requestLine = readLine(input, 4096) ?: return
+                val requestLine = readHttpLine(input, 4096) ?: return
                 val request = requestLine.split(' ')
                 if (request.size < 2) {
                     respond(output, 400, "Bad Request")
@@ -216,9 +232,9 @@ class CastMediaHttpServer(
                 var getContentFeatures = false
                 var headerBytes = 0
                 while (true) {
-                    val line = readLine(input, 8192) ?: break
+                    val line = readHttpLine(input, 8192) ?: break
                     headerBytes += line.length
-                    if (headerBytes > 32_768) {
+                    if (headerBytes > 16_384) {
                         respond(output, 431, "Request Header Fields Too Large")
                         return
                     }
@@ -246,7 +262,8 @@ class CastMediaHttpServer(
                     )
                     return
                 }
-                if (path.size !in 3..4 || !constantTimeEquals(path[1], token)) {
+                val currentToken = token
+                if (currentToken.isEmpty() || path.size !in 3..4 || !constantTimeEquals(path[1], currentToken)) {
                     respond(output, 404, "Not Found")
                     return
                 }
@@ -257,6 +274,7 @@ class CastMediaHttpServer(
                             respond(output, 404, "Not Found")
                             return
                         }
+                        client.soTimeout = 30_000
                         serveMedia(output, method, uri, rangeHeader, getContentFeatures)
                     }
                     "sub" -> {
@@ -341,13 +359,24 @@ class CastMediaHttpServer(
         var source: DataSource? = null
         try {
             if (range == null && method == "GET") {
-                source = upstreamFactory.createDataSource()
-                val openedLength = source.open(DataSpec(uri))
+                val created = upstreamFactory.createDataSource()
+                val openedLength = try {
+                    created.open(DataSpec(uri))
+                } catch (_: IOException) {
+                    runCatching { created.close() }
+                    lengthByUri.remove(key)
+                    respond(output, 404, "Not Found")
+                    return
+                }
+                source = created
                 if (openedLength >= 0L) {
                     totalLength = openedLength
                     lengthByUri[key] = openedLength
+                } else {
+                    lengthByUri.remove(key)
+                    totalLength = null
                 }
-            } else if (totalLength == null) {
+            } else if (totalLength == null || uri.scheme == ContentResolver.SCHEME_FILE) {
                 val probe = upstreamFactory.createDataSource()
                 try {
                     val measured = probe.open(DataSpec(uri))
@@ -355,8 +384,12 @@ class CastMediaHttpServer(
                         totalLength = measured
                         lengthByUri[key] = measured
                     }
+                } catch (_: IOException) {
+                    lengthByUri.remove(key)
+                    respond(output, 404, "Not Found")
+                    return
                 } finally {
-                    probe.close()
+                    runCatching { probe.close() }
                 }
             }
 
@@ -365,7 +398,7 @@ class CastMediaHttpServer(
                 return
             }
 
-            val parsed = if (range != null) parseRange(range, totalLength ?: 0L) else null
+            val parsed = if (range != null) parseHttpRange(range, totalLength ?: 0L) else null
             if (range != null && parsed == null) {
                 respond(
                     output, 416, "Range Not Satisfiable",
@@ -406,8 +439,8 @@ class CastMediaHttpServer(
             if (status == 206 && parsed != null) {
                 headers["Content-Range"] = "bytes ${parsed.first}-${parsed.last}/${totalLength}"
             }
-            writeHeaders(output, status, if (status == 206) "Partial Content" else "OK", headers)
             if (method == "HEAD") {
+                writeHttpHeaders(output, status, if (status == 206) "Partial Content" else "OK", headers)
                 output.flush()
                 return
             }
@@ -420,41 +453,19 @@ class CastMediaHttpServer(
                         .setLength(knownCount!!)
                         .build()
                 } else DataSpec(uri)
-                created.open(spec)
+                try {
+                    created.open(spec)
+                } catch (_: IOException) {
+                    runCatching { created.close() }
+                    lengthByUri.remove(key)
+                    respond(output, 404, "Not Found")
+                    return
+                }
                 source = created
             }
 
-            val buffer = ByteArray(64 * 1024)
-            var zeroReads = 0
-            if (knownCount == null) {
-                while (true) {
-                    val read = mediaSource.read(buffer, 0, buffer.size)
-                    if (read == C.RESULT_END_OF_INPUT) break
-                    if (read == 0) {
-                        if (++zeroReads > 3) throw IOException("Upstream media made no read progress")
-                        continue
-                    }
-                    zeroReads = 0
-                    output.write(Integer.toHexString(read).toByteArray(StandardCharsets.US_ASCII))
-                    output.write("\r\n".toByteArray(StandardCharsets.US_ASCII))
-                    output.write(buffer, 0, read)
-                    output.write("\r\n".toByteArray(StandardCharsets.US_ASCII))
-                }
-                output.write("0\r\n\r\n".toByteArray(StandardCharsets.US_ASCII))
-            } else {
-                var remaining = knownCount
-                while (remaining > 0L) {
-                    val read = mediaSource.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
-                    if (read == C.RESULT_END_OF_INPUT) throw IOException("Upstream media ended before its advertised length")
-                    if (read == 0) {
-                        if (++zeroReads > 3) throw IOException("Upstream media made no read progress")
-                        continue
-                    }
-                    zeroReads = 0
-                    output.write(buffer, 0, read)
-                    remaining -= read
-                }
-            }
+            writeHttpHeaders(output, status, if (status == 206) "Partial Content" else "OK", headers)
+            streamMediaPayload(mediaSource, output, knownCount)
             output.flush()
         } finally {
             runCatching { source?.close() }
@@ -463,6 +474,7 @@ class CastMediaHttpServer(
 
     override fun close() {
         if (!running.compareAndSet(true, false)) return
+        token = ""
         try { serverSocket?.close() } catch (_: IOException) {}
         serverSocket = null
         baseUrl = null
@@ -486,7 +498,7 @@ class CastMediaHttpServer(
     ) {
         val all = linkedMapOf("Content-Length" to "0", "Connection" to "close")
         headers.forEach { all[it.first] = it.second }
-        writeHeaders(output, status, reason, all)
+        writeHttpHeaders(output, status, reason, all)
         output.flush()
     }
 
@@ -495,74 +507,13 @@ class CastMediaHttpServer(
         status: Int,
         reason: String,
         headers: Map<String, String>
-    ) {
-        output.write("HTTP/1.1 $status $reason\r\n".toByteArray(StandardCharsets.US_ASCII))
-        headers.forEach { (name, value) ->
-            output.write("$name: $value\r\n".toByteArray(StandardCharsets.US_ASCII))
-        }
-        output.write("\r\n".toByteArray(StandardCharsets.US_ASCII))
-        output.flush()
-    }
-
-    private fun readLine(input: BufferedInputStream, limit: Int): String? {
-        val bytes = ArrayList<Byte>()
-        while (bytes.size < limit) {
-            val next = input.read()
-            if (next < 0) return if (bytes.isEmpty()) null else String(bytes.toByteArray(), StandardCharsets.ISO_8859_1)
-            if (next == 10) break
-            if (next != 13) bytes.add(next.toByte())
-        }
-        if (bytes.size >= limit) throw IOException("HTTP line too long")
-        return String(bytes.toByteArray(), StandardCharsets.ISO_8859_1)
-    }
-
-    private fun parseRange(header: String?, length: Long): ByteRange? {
-        if (header == null) return null
-        if (!header.startsWith("bytes=") || header.contains(',')) return null
-        val spec = header.removePrefix("bytes=").trim()
-        val dash = spec.indexOf('-')
-        if (dash < 0 || length <= 0) return null
-        val left = spec.substring(0, dash).trim()
-        val right = spec.substring(dash + 1).trim()
-        return try {
-            if (left.isEmpty()) {
-                val suffix = right.toLong()
-                if (suffix <= 0) null else ByteRange((length - suffix.coerceAtMost(length)), length - 1)
-            } else {
-                val start = left.toLong()
-                val end = if (right.isEmpty()) length - 1 else right.toLong()
-                if (start < 0 || start >= length || end < start) null
-                else ByteRange(start, end.coerceAtMost(length - 1))
-            }
-        } catch (_: NumberFormatException) { null }
-    }
+    ) = writeHttpHeaders(output, status, reason, headers)
 
     private fun findPrivateIpv4(): Inet4Address? = findAllPrivateIpv4s().firstOrNull()
 
-    private fun findAllPrivateIpv4s(): List<Inet4Address> {
-        val interfaces = runCatching { NetworkInterface.getNetworkInterfaces() }.getOrNull() ?: return emptyList()
-        return interfaces.toList()
-            .filter { it.isUp && !it.isLoopback }
-            .sortedBy {
-                val name = it.name.lowercase()
-                when {
-                    name.startsWith("wlan") || name.startsWith("ap") || name.startsWith("swlan") -> 0
-                    name.startsWith("p2p") || name.startsWith("eth") || name.startsWith("rndis") -> 1
-                    else -> 2
-                }
-            }
-            .flatMap { it.inetAddresses.toList() }
-            .filterIsInstance<Inet4Address>()
-            .filter { address ->
-                !address.isLoopbackAddress &&
-                    (address.isSiteLocalAddress || address.hostAddress?.startsWith("169.254.") == true)
-            }
-    }
+    private fun findAllPrivateIpv4s(): List<Inet4Address> = privateIpv4Provider()
 
-    private fun constantTimeEquals(a: String, b: String): Boolean =
-        MessageDigest.isEqual(a.toByteArray(StandardCharsets.UTF_8), b.toByteArray(StandardCharsets.UTF_8))
-
-    private data class ByteRange(val first: Long, val last: Long)
+    data class ByteRange(val first: Long, val last: Long)
 
     @UnstableApi
     class BridgeMediaItemConverter(private val server: CastMediaHttpServer) : MediaItemConverter {
@@ -610,6 +561,98 @@ class CastMediaHttpServer(
     }
 
     companion object {
+        internal fun readHttpLine(input: BufferedInputStream, limit: Int): String? {
+            val bytes = ArrayList<Byte>()
+            while (bytes.size < limit) {
+                val next = input.read()
+                if (next < 0) return if (bytes.isEmpty()) null else String(bytes.toByteArray(), StandardCharsets.ISO_8859_1)
+                if (next == 10) break
+                if (next != 13) bytes.add(next.toByte())
+            }
+            if (bytes.size >= limit) throw IOException("HTTP line too long")
+            return String(bytes.toByteArray(), StandardCharsets.ISO_8859_1)
+        }
+
+        internal fun parseHttpRange(header: String?, length: Long): ByteRange? {
+            if (header == null) return null
+            if (!header.startsWith("bytes=") || header.contains(',')) return null
+            val spec = header.removePrefix("bytes=").trim()
+            val dash = spec.indexOf('-')
+            if (dash < 0 || length <= 0) return null
+            val left = spec.substring(0, dash).trim()
+            val right = spec.substring(dash + 1).trim()
+            return try {
+                if (left.isEmpty()) {
+                    val suffix = right.toLong()
+                    if (suffix <= 0) null else ByteRange((length - suffix.coerceAtMost(length)), length - 1)
+                } else {
+                    val start = left.toLong()
+                    val end = if (right.isEmpty()) length - 1 else right.toLong()
+                    if (start < 0 || start >= length || end < start) null
+                    else ByteRange(start, end.coerceAtMost(length - 1))
+                }
+            } catch (_: NumberFormatException) {
+                null
+            }
+        }
+
+        internal fun writeHttpHeaders(
+            output: BufferedOutputStream,
+            status: Int,
+            reason: String,
+            headers: Map<String, String>
+        ) {
+            output.write("HTTP/1.1 $status $reason\r\n".toByteArray(StandardCharsets.US_ASCII))
+            headers.forEach { (name, value) ->
+                output.write("$name: $value\r\n".toByteArray(StandardCharsets.US_ASCII))
+            }
+            output.write("\r\n".toByteArray(StandardCharsets.US_ASCII))
+            output.flush()
+        }
+
+        internal fun constantTimeEquals(a: String, b: String): Boolean =
+            MessageDigest.isEqual(a.toByteArray(StandardCharsets.UTF_8), b.toByteArray(StandardCharsets.UTF_8))
+
+        internal fun streamMediaPayload(
+            mediaSource: DataSource,
+            output: BufferedOutputStream,
+            knownCount: Long?
+        ) {
+            val buffer = ByteArray(64 * 1024)
+            var zeroReads = 0
+            if (knownCount == null) {
+                while (true) {
+                    val read = mediaSource.read(buffer, 0, buffer.size)
+                    if (read == C.RESULT_END_OF_INPUT) break
+                    if (read == 0) {
+                        if (++zeroReads > 3) throw IOException("Upstream media made no read progress")
+                        continue
+                    }
+                    zeroReads = 0
+                    output.write(Integer.toHexString(read).toByteArray(StandardCharsets.US_ASCII))
+                    output.write("\r\n".toByteArray(StandardCharsets.US_ASCII))
+                    output.write(buffer, 0, read)
+                    output.write("\r\n".toByteArray(StandardCharsets.US_ASCII))
+                }
+                output.write("0\r\n\r\n".toByteArray(StandardCharsets.US_ASCII))
+            } else {
+                var remaining = knownCount
+                while (remaining > 0L) {
+                    val read = mediaSource.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
+                    if (read == C.RESULT_END_OF_INPUT) {
+                        throw IOException("Upstream media ended before its advertised length")
+                    }
+                    if (read == 0) {
+                        if (++zeroReads > 3) throw IOException("Upstream media made no read progress")
+                        continue
+                    }
+                    zeroReads = 0
+                    output.write(buffer, 0, read)
+                    remaining -= read
+                }
+            }
+        }
+
         internal fun inferMimeFromUriOrName(uri: Uri?, hint: String?): String {
             val candidate = (hint ?: uri?.lastPathSegment ?: "").lowercase()
             return when {

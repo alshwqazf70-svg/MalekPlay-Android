@@ -29,6 +29,7 @@ import com.malekplay.domain.model.LibraryItem
 import com.malekplay.domain.model.MediaItem as DomainMedia
 import com.malekplay.domain.model.PlayerSettings
 import com.malekplay.network.DiscoveredNetworkDevice
+import com.malekplay.network.DlnaRendererClient
 import com.malekplay.network.OnlineSubtitle
 import com.malekplay.network.OnlineSubtitleRepository
 import com.malekplay.network.TvEpisodeGuide
@@ -85,12 +86,19 @@ data class TrackDescriptor(
 data class DlnaPlaybackState(
     val activeDevice: DiscoveredNetworkDevice? = null,
     val isPlaying: Boolean = false,
+    val isConnecting: Boolean = false,
     val positionMs: Long = 0L,
     val durationMs: Long = 0L,
     val isConnected: Boolean = true,
     val errorMessage: String? = null,
     val volumePercent: Int? = null,
-    val isMuted: Boolean = false
+    val isMuted: Boolean = false,
+    val capabilities: DlnaRendererClient.RendererCapabilities = DlnaRendererClient.RendererCapabilities(
+        supportsSeek = true,
+        supportsAbsoluteVolume = true,
+        supportsExplicitMute = true,
+        supportsPositionReporting = true
+    )
 )
 
 /** Live codec/format telemetry shown in the "Playback info" sheet. */
@@ -936,6 +944,7 @@ class PlayerViewModel @Inject constructor(
                         dlnaSessionGeneration++
                         _dlnaPlayback.value = DlnaPlaybackState()
                     }
+                    _dlnaPlayback.value = _dlnaPlayback.value.copy(isConnecting = true, errorMessage = null)
                     dlnaPlaybackController.play(
                         device = device,
                         mediaItem = item,
@@ -944,11 +953,16 @@ class PlayerViewModel @Inject constructor(
                     )
                     player.pause()
                     val initialVolume = runCatching { dlnaPlaybackController.getVolume(device) }.getOrNull()
+                    val initialMute = runCatching { dlnaPlaybackController.getMute(device) }.getOrNull() ?: false
+                    val caps = dlnaPlaybackController.capabilitiesFor(device)
                     _dlnaPlayback.value = DlnaPlaybackState(
                         activeDevice = device,
                         isPlaying = true,
+                        isConnecting = false,
                         isConnected = true,
-                        volumePercent = initialVolume
+                        volumePercent = initialVolume,
+                        isMuted = initialMute,
+                        capabilities = caps
                     )
                     startDlnaPolling(device)
                 } catch (cancelled: CancellationException) {
@@ -1237,8 +1251,9 @@ class PlayerViewModel @Inject constructor(
     }
 
     private fun publishDlnaCommandFailure(error: Exception, fallback: String) {
+        val isUnsupported = error is UnsupportedOperationException
         _dlnaPlayback.value = _dlnaPlayback.value.copy(
-            isConnected = false,
+            isConnected = if (isUnsupported) _dlnaPlayback.value.isConnected else false,
             errorMessage = error.message?.takeIf { it.isNotBlank() } ?: fallback
         )
     }

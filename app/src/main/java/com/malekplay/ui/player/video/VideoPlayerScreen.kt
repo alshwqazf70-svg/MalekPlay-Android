@@ -1824,6 +1824,7 @@ fun VideoPlayerScreen(
 
         if (showRemoteOutputDialog) {
             val remote = activeDlnaDevice
+            val caps = dlnaPlayback.capabilities
             AlertDialog(
                 onDismissRequest = { showRemoteOutputDialog = false },
                 title = {
@@ -1853,13 +1854,22 @@ fun VideoPlayerScreen(
                             IconButton(onClick = { viewModel.stepDlnaVolume(true) }) {
                                 Icon(Icons.Filled.VolumeUp, contentDescription = "رفع صوت التلفزيون")
                             }
-                            IconButton(onClick = { viewModel.toggleDlnaMute() }) {
-                                Icon(
-                                    Icons.Filled.VolumeOff,
-                                    contentDescription = "كتم صوت التلفزيون",
-                                    tint = if (dlnaPlayback.isMuted) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
-                                )
+                            if (caps.supportsExplicitMute) {
+                                IconButton(onClick = { viewModel.toggleDlnaMute() }) {
+                                    Icon(
+                                        Icons.Filled.VolumeOff,
+                                        contentDescription = "كتم صوت التلفزيون",
+                                        tint = if (dlnaPlayback.isMuted) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
                             }
+                        }
+                        if (!caps.supportsSeek || !caps.supportsExplicitMute) {
+                            Text(
+                                text = "قدرات هذا الجهاز: يدعم التشغيل والإيقاف وتغيير مستوى الصوت، ولا يدعم الانتقال الزمني أو الكتم الصريح عبر الشبكة.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                         TextButton(
                             onClick = {

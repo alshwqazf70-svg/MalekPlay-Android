@@ -9,6 +9,7 @@ import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
+import com.malekplay.network.LanNetworkSupport
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -23,14 +24,13 @@ import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.net.Inet4Address
 import java.net.InetSocketAddress
-import java.net.NetworkInterface
 import java.net.ServerSocket
 import java.net.Socket
 import java.nio.charset.StandardCharsets
-import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.atomic.AtomicBoolean
 
 data class WebCastItem(
@@ -79,19 +79,22 @@ sealed interface WebCastRemoteCommand {
  * with HTTP Range video/audio streaming, automatic SRT/ASS -> WebVTT subtitle translation,
  * full queue browsing, direct file download, keyboard shortcuts, and live phone sync.
  */
-class WebCastServer(
+class WebCastServer internal constructor(
     context: Context,
-    @Volatile private var upstreamFactory: DataSource.Factory
+    @Volatile private var upstreamFactory: DataSource.Factory,
+    private val privateIpv4Provider: () -> List<Inet4Address>
 ) : AutoCloseable {
+    constructor(context: Context, upstreamFactory: DataSource.Factory) :
+        this(context, upstreamFactory, LanNetworkSupport::findAllPrivateIpv4s)
     private val resolver: ContentResolver = context.applicationContext.contentResolver
     private val random = SecureRandom()
-    private val accessToken = ByteArray(16).also(random::nextBytes).joinToString("") { "%02x".format(it) }
+    @Volatile private var accessToken: String = ""
     @Volatile private var pinCode: String = generatePin()
     @Volatile private var requirePinForCleanUrl: Boolean = true
 
     private val running = AtomicBoolean(false)
     private var serverSocket: ServerSocket? = null
-    private var workers = Executors.newFixedThreadPool(16)
+    private var workers: ThreadPoolExecutor = LanNetworkSupport.createBoundedHttpExecutor("MalekWebCast")
     @Volatile private var boundPort: Int = 0
 
     private val itemsLock = Any()
@@ -113,6 +116,8 @@ class WebCastServer(
     val commands: SharedFlow<WebCastRemoteCommand> = _commands.asSharedFlow()
 
     private fun generatePin(): String = "%06d".format(random.nextInt(1_000_000))
+    private fun generateAccessToken(): String =
+        ByteArray(24).also(random::nextBytes).joinToString("") { "%02x".format(it) }
 
     @Synchronized
     fun start(requirePin: Boolean = true): WebCastUiState {
@@ -121,25 +126,35 @@ class WebCastServer(
             publishUiState()
             return _state.value
         }
-        val ips = findAllPrivateIpv4s()
+        val ips = privateIpv4Provider()
         if (ips.isEmpty()) {
             val err = "اتصل بشبكة Wi-Fi أو فعّل نقطة الاتصال لبدء البث إلى الكمبيوتر."
             _state.value = WebCastUiState(running = false, error = err)
             throw IOException(err)
         }
+        accessToken = generateAccessToken()
         pinCode = generatePin()
         val socket = bindPreferredPort()
         serverSocket = socket
         boundPort = socket.localPort
         if (workers.isShutdown || workers.isTerminated) {
-            workers = Executors.newFixedThreadPool(16)
+            workers = LanNetworkSupport.createBoundedHttpExecutor("MalekWebCast")
         }
         running.set(true)
         workers.execute {
             while (running.get()) {
                 try {
                     val client = socket.accept()
-                    workers.execute { handle(client) }
+                    try {
+                        workers.execute { handle(client) }
+                    } catch (_: RejectedExecutionException) {
+                        runCatching {
+                            client.soTimeout = 2_000
+                            val out = BufferedOutputStream(client.getOutputStream())
+                            respondText(out, 503, "Service Unavailable", "text/plain", "Server busy")
+                        }
+                        runCatching { client.close() }
+                    }
                 } catch (_: IOException) {
                     if (running.get()) stop()
                 }
@@ -176,12 +191,15 @@ class WebCastServer(
     @Synchronized
     fun stop() {
         if (!running.compareAndSet(true, false)) {
+            accessToken = ""
             _state.value = WebCastUiState()
             return
         }
+        accessToken = ""
         runCatching { serverSocket?.close() }
         serverSocket = null
         boundPort = 0
+        lengthByUri.clear()
         viewersById.clear()
         failedPinAttemptsByHost.clear()
         workers.shutdownNow()
@@ -197,8 +215,13 @@ class WebCastServer(
         publishUiState()
     }
 
+    @Synchronized
     fun regeneratePin() {
         pinCode = generatePin()
+        if (running.get()) {
+            accessToken = generateAccessToken()
+            failedPinAttemptsByHost.clear()
+        }
         publishUiState()
     }
 
@@ -241,9 +264,10 @@ class WebCastServer(
             _state.value = WebCastUiState()
             return
         }
-        val urls = findAllPrivateIpv4s().map { "http://${it.hostAddress}:$boundPort" }
+        val urls = privateIpv4Provider().map { "http://${it.hostAddress}:$boundPort" }
         val primary = urls.firstOrNull()
-        val quick = primary?.let { "$it/?k=$accessToken" }
+        val tokenSnapshot = accessToken
+        val quick = if (primary != null && tokenSnapshot.isNotEmpty()) "$primary/?k=$tokenSnapshot" else null
         val currentTitle = synchronized(itemsLock) {
             queueItems.getOrNull(currentIndex)?.title.orEmpty()
         }
@@ -286,18 +310,16 @@ class WebCastServer(
     private fun handle(socket: Socket) {
         socket.use { client ->
             try {
-                client.soTimeout = 15_000
+                client.soTimeout = 10_000
                 val remoteAddr = client.inetAddress
-                val remoteHost = remoteAddr.hostAddress.orEmpty()
-                if (remoteAddr is Inet4Address && !remoteAddr.isLoopbackAddress &&
-                    !remoteAddr.isSiteLocalAddress && !remoteHost.startsWith("169.254.")
-                ) {
+                if (!LanNetworkSupport.isAllowedLanPeerAddress(remoteAddr)) {
                     return
                 }
+                val remoteHost = remoteAddr.hostAddress.orEmpty()
 
                 val input = BufferedInputStream(client.getInputStream())
                 val output = BufferedOutputStream(client.getOutputStream())
-                val requestLine = readLine(input, 4096) ?: return
+                val requestLine = CastMediaHttpServer.readHttpLine(input, 4096) ?: return
                 val request = requestLine.split(' ')
                 if (request.size < 2) {
                     respondText(output, 400, "Bad Request", "text/plain", "Bad Request")
@@ -316,9 +338,9 @@ class WebCastServer(
                 var headerBytes = 0
 
                 while (true) {
-                    val line = readLine(input, 8192) ?: break
+                    val line = CastMediaHttpServer.readHttpLine(input, 8192) ?: break
                     headerBytes += line.length
-                    if (headerBytes > 32_768) {
+                    if (headerBytes > 16_384) {
                         respondText(output, 431, "Request Header Fields Too Large", "text/plain", "Headers too large")
                         return
                     }
@@ -332,9 +354,14 @@ class WebCastServer(
                             name.equals("Cookie", true) -> cookieHeader = value
                             name.equals("X-Malek-Token", true) -> tokenHeader = value
                             name.equals("User-Agent", true) -> userAgent = value
-                            name.equals("Content-Length", true) -> contentLength = value.toIntOrNull() ?: 0
+                            name.equals("Content-Length", true) -> contentLength = value.toIntOrNull() ?: -1
                         }
                     }
+                }
+
+                if (contentLength < 0) {
+                    respondText(output, 400, "Bad Request", "text/plain", "Invalid Content-Length")
+                    return
                 }
 
                 val queryToken = parsedUri.getQueryParameter("k")
@@ -345,8 +372,9 @@ class WebCastServer(
                     isTokenValid(tokenHeader)
 
                 if (path == "/" || path == "/index.html") {
-                    val setCookie = if (isTokenValid(queryToken)) {
-                        "malek_cast=$accessToken; Path=/; HttpOnly; SameSite=Lax"
+                    val currentToken = accessToken
+                    val setCookie = if (isTokenValid(queryToken) && currentToken.isNotEmpty()) {
+                        "malek_cast=$currentToken; Path=/; HttpOnly; SameSite=Lax"
                     } else null
                     val html = if (isAuthorized) {
                         WEB_PLAYER_HTML
@@ -392,6 +420,7 @@ class WebCastServer(
                             respondText(output, 404, "Not Found", "text/plain", "Media not found")
                             return
                         }
+                        client.soTimeout = 30_000
                         val asDownload = parsedUri.getQueryParameter("download") == "1"
                         serveMedia(output, method, item, rangeHeader, asDownload)
                     }
@@ -425,13 +454,36 @@ class WebCastServer(
         contentLength: Int,
         remoteHost: String
     ) {
+        if (contentLength <= 0 || contentLength > 1024) {
+            respondJson(
+                output,
+                if (contentLength > 1024) 413 else 400,
+                JSONObject().put("ok", false).put("error", "طلب مصادقة غير صالح.").toString()
+            )
+            return
+        }
         val now = System.currentTimeMillis()
+        if (failedPinAttemptsByHost.size > MAX_TRACKED_HOSTS) {
+            val iterator = failedPinAttemptsByHost.entries.iterator()
+            while (iterator.hasNext()) {
+                if (now - iterator.next().value.second >= 180_000L) {
+                    iterator.remove()
+                }
+            }
+        }
         val attemptInfo = failedPinAttemptsByHost[remoteHost]
-        if (attemptInfo != null && attemptInfo.first >= 8 && now - attemptInfo.second < 30_000L) {
+        val lockWindowMs = when {
+            attemptInfo == null -> 0L
+            attemptInfo.first >= 10 -> 120_000L
+            attemptInfo.first >= 5 -> 30_000L
+            else -> 0L
+        }
+        if (attemptInfo != null && lockWindowMs > 0L && now - attemptInfo.second < lockWindowMs) {
+            val waitSec = ((lockWindowMs - (now - attemptInfo.second)) / 1000L).coerceAtLeast(1L)
             respondJson(
                 output,
                 429,
-                JSONObject().put("ok", false).put("error", "محاولات كثيرة خاطئة. انتظر 30 ثانية.").toString()
+                JSONObject().put("ok", false).put("error", "محاولات كثيرة خاطئة. انتظر $waitSec ثانية.").toString()
             )
             return
         }
@@ -440,18 +492,19 @@ class WebCastServer(
             JSONObject(String(bodyBytes, StandardCharsets.UTF_8)).optString("pin", "").trim()
         }.getOrDefault("")
 
-        if (constantTimeEquals(submittedPin, pinCode)) {
+        val currentToken = accessToken
+        if (currentToken.isNotEmpty() && CastMediaHttpServer.constantTimeEquals(submittedPin, pinCode)) {
             failedPinAttemptsByHost.remove(remoteHost)
             val jsonBytes = JSONObject().put("ok", true).toString().toByteArray(StandardCharsets.UTF_8)
             val headers = linkedMapOf(
                 "Content-Type" to "application/json; charset=utf-8",
                 "Cache-Control" to "no-store",
-                "Set-Cookie" to "malek_cast=$accessToken; Path=/; HttpOnly; SameSite=Lax",
+                "Set-Cookie" to "malek_cast=$currentToken; Path=/; HttpOnly; SameSite=Lax",
                 "Connection" to "close"
             )
             respondBytes(output, 200, "OK", jsonBytes, headers)
         } else {
-            val prevCount = if (attemptInfo != null && now - attemptInfo.second < 60_000L) attemptInfo.first else 0
+            val prevCount = if (attemptInfo != null && now - attemptInfo.second < 180_000L) attemptInfo.first else 0
             failedPinAttemptsByHost[remoteHost] = (prevCount + 1) to now
             respondJson(
                 output,
@@ -466,6 +519,14 @@ class WebCastServer(
         output: BufferedOutputStream,
         contentLength: Int
     ) {
+        if (contentLength <= 0 || contentLength > 4096) {
+            respondJson(
+                output,
+                if (contentLength > 4096) 413 else 400,
+                JSONObject().put("ok", false).put("error", "Invalid command payload size").toString()
+            )
+            return
+        }
         val bodyBytes = readFixedBody(input, contentLength, maxBytes = 4096)
         val json = runCatching { JSONObject(String(bodyBytes, StandardCharsets.UTF_8)) }.getOrNull()
         if (json == null) {
@@ -629,13 +690,24 @@ class WebCastServer(
         var source: DataSource? = null
         try {
             if (range == null && method == "GET") {
-                source = upstreamFactory.createDataSource()
-                val opened = source.open(DataSpec(uri))
+                val created = upstreamFactory.createDataSource()
+                val opened = try {
+                    created.open(DataSpec(uri))
+                } catch (_: IOException) {
+                    runCatching { created.close() }
+                    lengthByUri.remove(key)
+                    respondText(output, 404, "Not Found", "text/plain", "Media not found")
+                    return
+                }
+                source = created
                 if (opened >= 0L) {
                     totalLength = opened
                     lengthByUri[key] = opened
+                } else {
+                    lengthByUri.remove(key)
+                    totalLength = null
                 }
-            } else if (totalLength == null) {
+            } else if (totalLength == null || uri.scheme == ContentResolver.SCHEME_FILE) {
                 val probe = upstreamFactory.createDataSource()
                 try {
                     val measured = probe.open(DataSpec(uri))
@@ -643,19 +715,39 @@ class WebCastServer(
                         totalLength = measured
                         lengthByUri[key] = measured
                     }
+                } catch (_: IOException) {
+                    lengthByUri.remove(key)
+                    respondText(output, 404, "Not Found", "text/plain", "Media not found")
+                    return
                 } finally {
-                    probe.close()
+                    runCatching { probe.close() }
                 }
             }
 
             if (range != null && totalLength == null) {
-                respondText(output, 416, "Range Not Satisfiable", "text/plain", "Range Not Satisfiable")
+                respondBytes(
+                    output,
+                    416,
+                    "Range Not Satisfiable",
+                    ByteArray(0),
+                    mapOf("Accept-Ranges" to "none", "Connection" to "close")
+                )
                 return
             }
 
-            val parsed = if (range != null) parseRange(range, totalLength ?: 0L) else null
+            val parsed = if (range != null) CastMediaHttpServer.parseHttpRange(range, totalLength ?: 0L) else null
             if (range != null && parsed == null) {
-                respondText(output, 416, "Range Not Satisfiable", "text/plain", "Invalid Range")
+                respondBytes(
+                    output,
+                    416,
+                    "Range Not Satisfiable",
+                    ByteArray(0),
+                    mapOf(
+                        "Content-Range" to "bytes */${totalLength ?: 0L}",
+                        "Accept-Ranges" to "bytes",
+                        "Connection" to "close"
+                    )
+                )
                 return
             }
 
@@ -683,8 +775,8 @@ class WebCastServer(
                 headers["Content-Range"] = "bytes ${parsed.first}-${parsed.last}/$totalLength"
             }
 
-            writeHeaders(output, status, if (status == 206) "Partial Content" else "OK", headers)
             if (method == "HEAD") {
+                CastMediaHttpServer.writeHttpHeaders(output, status, if (status == 206) "Partial Content" else "OK", headers)
                 output.flush()
                 return
             }
@@ -697,49 +789,31 @@ class WebCastServer(
                         .setLength(knownCount!!)
                         .build()
                 } else DataSpec(uri)
-                created.open(spec)
+                try {
+                    created.open(spec)
+                } catch (_: IOException) {
+                    runCatching { created.close() }
+                    lengthByUri.remove(key)
+                    respondText(output, 404, "Not Found", "text/plain", "Media not found")
+                    return
+                }
                 source = created
             }
 
-            val buffer = ByteArray(64 * 1024)
-            var zeroReads = 0
-            if (knownCount == null) {
-                while (true) {
-                    val read = mediaSource.read(buffer, 0, buffer.size)
-                    if (read == C.RESULT_END_OF_INPUT) break
-                    if (read == 0) {
-                        if (++zeroReads > 3) throw IOException("No upstream read progress")
-                        continue
-                    }
-                    zeroReads = 0
-                    output.write(Integer.toHexString(read).toByteArray(StandardCharsets.US_ASCII))
-                    output.write("\r\n".toByteArray(StandardCharsets.US_ASCII))
-                    output.write(buffer, 0, read)
-                    output.write("\r\n".toByteArray(StandardCharsets.US_ASCII))
-                }
-                output.write("0\r\n\r\n".toByteArray(StandardCharsets.US_ASCII))
-            } else {
-                var remaining = knownCount
-                while (remaining > 0L) {
-                    val read = mediaSource.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
-                    if (read == C.RESULT_END_OF_INPUT) break
-                    if (read == 0) {
-                        if (++zeroReads > 3) throw IOException("No upstream read progress")
-                        continue
-                    }
-                    zeroReads = 0
-                    output.write(buffer, 0, read)
-                    remaining -= read
-                }
-            }
+            CastMediaHttpServer.writeHttpHeaders(output, status, if (status == 206) "Partial Content" else "OK", headers)
+            CastMediaHttpServer.streamMediaPayload(mediaSource, output, knownCount)
             output.flush()
         } finally {
             runCatching { source?.close() }
         }
     }
 
-    private fun isTokenValid(candidate: String?): Boolean =
-        !candidate.isNullOrBlank() && constantTimeEquals(candidate, accessToken)
+    private fun isTokenValid(candidate: String?): Boolean {
+        val currentToken = accessToken
+        return currentToken.isNotEmpty() &&
+            !candidate.isNullOrBlank() &&
+            CastMediaHttpServer.constantTimeEquals(candidate, currentToken)
+    }
 
     private fun parseCookieToken(cookieHeader: String?): String? {
         if (cookieHeader.isNullOrBlank()) return null
@@ -799,88 +873,18 @@ class WebCastServer(
         val merged = LinkedHashMap<String, String>(headers.size + 1)
         merged.putAll(headers)
         merged["Content-Length"] = explicitLength.toString()
-        writeHeaders(output, status, reason, merged)
+        CastMediaHttpServer.writeHttpHeaders(output, status, reason, merged)
         if (body.isNotEmpty()) output.write(body)
         output.flush()
     }
 
-    private fun writeHeaders(
-        output: BufferedOutputStream,
-        status: Int,
-        reason: String,
-        headers: Map<String, String>
-    ) {
-        output.write("HTTP/1.1 $status $reason\r\n".toByteArray(StandardCharsets.US_ASCII))
-        headers.forEach { (name, value) ->
-            output.write("$name: $value\r\n".toByteArray(StandardCharsets.US_ASCII))
-        }
-        output.write("\r\n".toByteArray(StandardCharsets.US_ASCII))
-        output.flush()
-    }
-
-    private fun readLine(input: BufferedInputStream, limit: Int): String? {
-        val bytes = ArrayList<Byte>()
-        while (bytes.size < limit) {
-            val next = input.read()
-            if (next < 0) return if (bytes.isEmpty()) null else String(bytes.toByteArray(), StandardCharsets.ISO_8859_1)
-            if (next == 10) break
-            if (next != 13) bytes.add(next.toByte())
-        }
-        if (bytes.size >= limit) throw IOException("HTTP line too long")
-        return String(bytes.toByteArray(), StandardCharsets.ISO_8859_1)
-    }
-
-    private fun parseRange(header: String?, length: Long): ByteRange? {
-        if (header == null) return null
-        if (!header.startsWith("bytes=") || header.contains(',')) return null
-        val spec = header.removePrefix("bytes=").trim()
-        val dash = spec.indexOf('-')
-        if (dash < 0 || length <= 0) return null
-        val left = spec.substring(0, dash).trim()
-        val right = spec.substring(dash + 1).trim()
-        return try {
-            if (left.isEmpty()) {
-                val suffix = right.toLong()
-                if (suffix <= 0) null else ByteRange((length - suffix.coerceAtMost(length)), length - 1)
-            } else {
-                val start = left.toLong()
-                val end = if (right.isEmpty()) length - 1 else right.toLong()
-                if (start < 0 || start >= length || end < start) null
-                else ByteRange(start, end.coerceAtMost(length - 1))
-            }
-        } catch (_: NumberFormatException) { null }
-    }
-
-    private fun findAllPrivateIpv4s(): List<Inet4Address> {
-        val interfaces = runCatching { NetworkInterface.getNetworkInterfaces() }.getOrNull() ?: return emptyList()
-        return interfaces.toList()
-            .filter { it.isUp && !it.isLoopback }
-            .sortedBy {
-                val name = it.name.lowercase()
-                when {
-                    name.startsWith("wlan") || name.startsWith("ap") || name.startsWith("swlan") -> 0
-                    name.startsWith("p2p") || name.startsWith("eth") || name.startsWith("rndis") -> 1
-                    else -> 2
-                }
-            }
-            .flatMap { it.inetAddresses.toList() }
-            .filterIsInstance<Inet4Address>()
-            .filter { address ->
-                !address.isLoopbackAddress &&
-                    (address.isSiteLocalAddress || address.hostAddress?.startsWith("169.254.") == true)
-            }
-    }
-
-    private fun constantTimeEquals(a: String, b: String): Boolean =
-        MessageDigest.isEqual(a.toByteArray(StandardCharsets.UTF_8), b.toByteArray(StandardCharsets.UTF_8))
-
-    private data class ByteRange(val first: Long, val last: Long)
     private data class Tuple4<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
 
     companion object {
         private const val DEFAULT_PORT_START = 8780
         private const val DEFAULT_PORT_END = 8795
         private const val VIEWER_TTL_MS = 12_000L
+        private const val MAX_TRACKED_HOSTS = 256
 
         private const val PIN_LOGIN_HTML = """<!doctype html>
 <html lang="ar" dir="rtl">

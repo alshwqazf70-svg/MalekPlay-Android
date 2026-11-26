@@ -48,6 +48,11 @@ object WebCastRegistry {
     }
 
     @Synchronized
+    fun detachServiceFactory(context: Context) {
+        server?.updateUpstreamFactory(DefaultDataSource.Factory(context.applicationContext))
+    }
+
+    @Synchronized
     fun getOrCreateServer(context: Context): WebCastServer {
         server?.let { return it }
         val fallbackFactory = DefaultDataSource.Factory(context.applicationContext)
