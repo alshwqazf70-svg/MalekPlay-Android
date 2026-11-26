@@ -136,7 +136,8 @@ object UltraShareDiagnostics {
                             "manufacturer" to Build.MANUFACTURER,
                             "deviceModel" to Build.MODEL
                         ))
-                    if (uri != null) writeLine(context, uri, initial)
+                    val target = session.uri
+                    if (target != null) writeLine(context, target, initial)
                     else writePrivateLine(session.privateFile!!, initial)
                     Log.i(TAG, "Diagnostic session started: " + session.id + " (" + safeRole + ")")
                 }.onFailure { Log.e(TAG, "Unable to create public diagnostic log", it) }

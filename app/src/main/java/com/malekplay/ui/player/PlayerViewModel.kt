@@ -1092,12 +1092,12 @@ class PlayerViewModel @Inject constructor(
                 } else null
                 WebCastItem(
                     id = "item-$idx-${media.id.hashCode().toUInt()}",
-                    title = media.title.ifBlank { media.fileName },
-                    uri = Uri.parse(media.contentUri),
+                    title = media.displayTitle.ifBlank { media.title },
+                    uri = media.uri,
                     mimeType = media.mimeType,
                     durationMs = media.durationMs,
                     subtitleUri = activeSub,
-                    subtitleTitle = media.fileName
+                    subtitleTitle = media.title
                 )
             }
         } else {
