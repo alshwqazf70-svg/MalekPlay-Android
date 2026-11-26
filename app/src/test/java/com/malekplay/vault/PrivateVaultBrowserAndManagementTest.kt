@@ -1,5 +1,7 @@
 package com.malekplay.vault
 
+import android.Manifest
+import android.app.Application
 import android.content.Context
 import android.content.pm.ProviderInfo
 import android.database.Cursor
@@ -23,6 +25,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows
 import org.robolectric.shadows.ShadowContentResolver
 import java.io.ByteArrayInputStream
 import java.io.File
@@ -43,6 +46,7 @@ class PrivateVaultBrowserAndManagementTest {
     @Before
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
+        Shadows.shadowOf(context as Application).grantPermissions(Manifest.permission.MANAGE_DOCUMENTS)
         vaultDirectory = File(context.filesDir, "private_vault").apply { deleteRecursively() }
         providerStorageDir = File(context.cacheDir, "vault-provider-test-${UUID.randomUUID()}").apply {
             mkdirs()
@@ -52,6 +56,8 @@ class PrivateVaultBrowserAndManagementTest {
             authority = InMemoryVaultDocumentsProvider.AUTHORITY
             exported = true
             grantUriPermissions = true
+            readPermission = Manifest.permission.MANAGE_DOCUMENTS
+            writePermission = Manifest.permission.MANAGE_DOCUMENTS
         }
         provider.attachInfo(context, info)
         ShadowContentResolver.registerProviderInternal(InMemoryVaultDocumentsProvider.AUTHORITY, provider)
