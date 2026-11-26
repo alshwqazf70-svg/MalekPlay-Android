@@ -2598,7 +2598,7 @@ private fun forgetApprovedSenderTarget(host: String) {
                 }
             }
             // This deadline covers DNS-SD discovery only. Once a peer is found,
-            // the connect watchdog above bounds P2P negotiation before falling back to LAN.
+            // the Wi-Fi Direct session owns negotiation and terminal-failure fallback.
             viewModelScope.launch {
                 delay(UltraSharePairingReadiness.WIFI_DIRECT_INVITATION_DISCOVERY_TIMEOUT_MS)
                 val pending = pairingAttempt
