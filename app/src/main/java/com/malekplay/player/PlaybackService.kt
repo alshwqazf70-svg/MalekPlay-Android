@@ -714,7 +714,10 @@ class PlaybackService : MediaSessionService() {
         // Selecting a preset only changes the saved tuning. The master switch is
         // the sole control that activates GPU processing, so browsing presets while
         // enhancement is OFF must never attach a video-effect chain.
-        if (!hasAnyVideoEnhancementEnabled()) return true
+        if (!hasAnyVideoEnhancementEnabled()) {
+            applyVideoEnhancements()
+            return true
+        }
         if (applyVideoEnhancements()) return true
         videoEnhancementProfile = previousProfile
         videoUpscalingEnabled = previousUpscaling
@@ -743,7 +746,10 @@ class PlaybackService : MediaSessionService() {
         customVibranceStrength = vibranceStrength.coerceIn(0f, 0.35f)
         // Fine-tuning values are preferences, not an activation command. Keep
         // every processing stage OFF until the user enables the master switch.
-        if (!hasAnyVideoEnhancementEnabled()) return true
+        if (!hasAnyVideoEnhancementEnabled()) {
+            applyVideoEnhancements()
+            return true
+        }
         if (applyVideoEnhancements()) return true
         videoCustomTuning = prevCustom
         customDenoiseStrength = prevDenoise
