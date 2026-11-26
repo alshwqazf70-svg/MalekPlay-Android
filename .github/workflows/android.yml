@@ -315,12 +315,7 @@ jobs:
           fi
           if [ -n "$LINT_TXT" ] && [ -f "$LINT_TXT" ]; then
             cat "$LINT_TXT"
-            LINT_ERRORS=$(python3 -c '
-import sys
-text = open(sys.argv[1], encoding="utf-8", errors="replace").read()
-lines = [l.strip() for l in text.splitlines() if "Error:" in l or l.strip().startswith("app/")]
-print("\n".join(lines[:35]))
-' "$LINT_TXT" || true)
+            LINT_ERRORS=$(python3 -c 'import sys; text = open(sys.argv[1], encoding="utf-8", errors="replace").read(); print("\n".join([l.strip() for l in text.splitlines() if "Error:" in l or l.strip().startswith("app/")][:35]))' "$LINT_TXT" || true)
             if [ -n "${LINT_ERRORS}" ]; then
               echo "::error title=Android lint errors::${LINT_ERRORS//$'\n'/%0A}"
             fi
