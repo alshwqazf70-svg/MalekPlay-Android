@@ -309,8 +309,21 @@ jobs:
       - name: Print Android lint diagnostics
         if: always()
         run: |
-          if [ -f app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt ]; then
-            cat app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt
+          LINT_TXT="app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt"
+          if [ ! -f "$LINT_TXT" ]; then
+            LINT_TXT=$(find app/build -name "lint-results*.txt" 2>/dev/null | head -n 1 || true)
+          fi
+          if [ -n "$LINT_TXT" ] && [ -f "$LINT_TXT" ]; then
+            cat "$LINT_TXT"
+            LINT_ERRORS=$(python3 -c '
+import sys
+text = open(sys.argv[1], encoding="utf-8", errors="replace").read()
+lines = [l.strip() for l in text.splitlines() if "Error:" in l or l.strip().startswith("app/")]
+print("\n".join(lines[:35]))
+' "$LINT_TXT" || true)
+            if [ -n "${LINT_ERRORS}" ]; then
+              echo "::error title=Android lint errors::${LINT_ERRORS//$'\n'/%0A}"
+            fi
           fi
       - name: Upload Android lint report
         if: always()

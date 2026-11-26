@@ -546,7 +546,11 @@ class PrivateVaultArchiveBrowserAndSafetyTest {
         val activeFile = File(workDir, "active-transfer.tmp").apply { writeText("active") }
         val staleEditTmp = File(vaultDirectory, "entry-1.edit.tmp").apply { writeText("broken") }
 
-        PrivateVaultRecovery.recover(vaultDirectory, activeTempNames = setOf(activeFile.name))
+        PrivateVaultRecovery.recover(
+            directory = vaultDirectory,
+            committedIds = emptySet(),
+            activeTempNames = setOf(activeFile.name)
+        )
 
         assertFalse(staleFile.exists())
         assertTrue(activeFile.exists())
