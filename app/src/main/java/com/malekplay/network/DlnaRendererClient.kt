@@ -124,21 +124,39 @@ class DlnaRendererClient(
             add("")
         }.distinct()
 
-        // Some TVs (notably older Samsung/LG models) reject SetAVTransportURI while previous media is still active.
-        runCatching { soap(endpoint, "Stop", "<InstanceID>0</InstanceID>") }
-
+        var didStopBeforeRetry = false
         var lastFailure: Exception? = null
         for (metadata in metadataCandidates) {
             try {
-                soap(
-                    endpoint,
-                    "SetAVTransportURI",
-                    """
-                    <InstanceID>0</InstanceID>
-                    <CurrentURI>${escapeDlnaXml(mediaUrl)}</CurrentURI>
-                    <CurrentURIMetaData>${escapeDlnaXml(metadata)}</CurrentURIMetaData>
-                    """.trimIndent()
-                )
+                try {
+                    soap(
+                        endpoint,
+                        "SetAVTransportURI",
+                        """
+                        <InstanceID>0</InstanceID>
+                        <CurrentURI>${escapeDlnaXml(mediaUrl)}</CurrentURI>
+                        <CurrentURIMetaData>${escapeDlnaXml(metadata)}</CurrentURIMetaData>
+                        """.trimIndent()
+                    )
+                } catch (firstSetFailure: Exception) {
+                    if (firstSetFailure is CancellationException) throw firstSetFailure
+                    if (!didStopBeforeRetry) {
+                        didStopBeforeRetry = true
+                        runCatching { soap(endpoint, "Stop", "<InstanceID>0</InstanceID>") }
+                        runCatching { Thread.sleep(150L) }
+                        soap(
+                            endpoint,
+                            "SetAVTransportURI",
+                            """
+                            <InstanceID>0</InstanceID>
+                            <CurrentURI>${escapeDlnaXml(mediaUrl)}</CurrentURI>
+                            <CurrentURIMetaData>${escapeDlnaXml(metadata)}</CurrentURIMetaData>
+                            """.trimIndent()
+                        )
+                    } else {
+                        throw firstSetFailure
+                    }
+                }
                 try {
                     soap(endpoint, "Play", "<InstanceID>0</InstanceID><Speed>1</Speed>")
                     return@withContext
@@ -543,7 +561,10 @@ internal fun buildEnhancedDlnaDidlMetadata(
     val dlnaInfo = "DLNA.ORG_OP=01;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000"
     val subTag = subtitleUrl?.takeIf { it.isNotBlank() }?.let { sub ->
         val safeSub = escapeDlnaXml(sub)
-        """<res protocolInfo="http-get:*:text/srt:*">$safeSub</res><sec:CaptionInfoEx sec:type="srt">$safeSub</sec:CaptionInfoEx>"""
+        val isVtt = sub.contains(".vtt", ignoreCase = true)
+        val subMime = if (isVtt) "text/vtt" else "text/srt"
+        val secType = if (isVtt) "vtt" else "srt"
+        """<res protocolInfo="http-get:*:$subMime:*">$safeSub</res><sec:CaptionInfoEx sec:type="$secType">$safeSub</sec:CaptionInfoEx>"""
     }.orEmpty()
     val secNs = if (subtitleUrl.isNullOrBlank()) "" else """ xmlns:sec="http://www.sec.co.kr/""""
     return """<DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/"$secNs><item id="0" parentID="-1" restricted="1"><dc:title>$safeTitle</dc:title><upnp:class>$upnpClass</upnp:class><res$sizeAttr protocolInfo="http-get:*:$safeMime:$dlnaInfo">$safeUrl</res>$subTag</item></DIDL-Lite>"""

@@ -1087,8 +1087,8 @@ class PlayerViewModel @Inject constructor(
         val castItems: List<WebCastItem> = if (items.isNotEmpty()) {
             items.mapIndexed { idx, media ->
                 val activeSub = if (idx == _currentIndex.value) {
-                    translationSourceSubtitleUri
-                        ?: player?.currentMediaItem?.localConfiguration?.subtitleConfigurations?.firstOrNull()?.uri
+                    player?.currentMediaItem?.localConfiguration?.subtitleConfigurations?.lastOrNull()?.uri
+                        ?: translationSourceSubtitleUri
                 } else null
                 WebCastItem(
                     id = "item-$idx-${media.id.hashCode().toUInt()}",
@@ -1115,8 +1115,8 @@ class PlayerViewModel @Inject constructor(
                         uri = local.uri,
                         mimeType = mime,
                         durationMs = player.duration.coerceAtLeast(0L),
-                        subtitleUri = translationSourceSubtitleUri
-                            ?: local.subtitleConfigurations.firstOrNull()?.uri,
+                        subtitleUri = local.subtitleConfigurations.lastOrNull()?.uri
+                            ?: translationSourceSubtitleUri,
                         subtitleTitle = title
                     )
                 )
@@ -1426,6 +1426,7 @@ class PlayerViewModel @Inject constructor(
             _textTrackDisabled.value = false
             refreshTracks()
             _playerError.value = null
+            if (WebCastRegistry.state.value.running) syncWebCastQueue()
             return true
         }
 
@@ -1453,6 +1454,7 @@ class PlayerViewModel @Inject constructor(
         player.prepare()
         player.playWhenReady = playWhenReady
         _playerError.value = null
+        if (WebCastRegistry.state.value.running) syncWebCastQueue()
         return true
     }
 

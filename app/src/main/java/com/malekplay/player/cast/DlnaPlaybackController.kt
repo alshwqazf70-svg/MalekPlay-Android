@@ -41,7 +41,7 @@ class DlnaPlaybackController @Inject constructor(
             ?: CastMediaHttpServer.inferMimeFromUriOrName(sourceUri, fileNameHint)
 
         val subtitleUri = subtitleOverrideUri
-            ?: configuration.subtitleConfigurations.firstOrNull()?.uri
+            ?: configuration.subtitleConfigurations.lastOrNull()?.uri
 
         val bridgedSubtitleUrl = subtitleUri?.let { sub ->
             LocalMediaBridgeRegistry.subtitleUrlFor(sub, formatVtt = false)

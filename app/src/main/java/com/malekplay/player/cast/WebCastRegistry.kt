@@ -39,6 +39,7 @@ object WebCastRegistry {
     @Synchronized
     fun attachServiceFactory(context: Context, upstreamFactory: DataSource.Factory): WebCastServer {
         server?.let { existing ->
+            existing.updateUpstreamFactory(upstreamFactory)
             return existing
         }
         val created = WebCastServer(context.applicationContext, upstreamFactory)

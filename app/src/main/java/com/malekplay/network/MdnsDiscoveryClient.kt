@@ -52,7 +52,11 @@ internal class MdnsDiscoveryClient {
         MulticastSocket(null).use { socket ->
             if (network != null) runCatching { network.bindSocket(socket) }
             socket.reuseAddress = true
-            socket.bind(InetSocketAddress(MDNS_PORT))
+            try {
+                socket.bind(InetSocketAddress(MDNS_PORT))
+            } catch (_: Exception) {
+                socket.bind(InetSocketAddress(0))
+            }
             socket.soTimeout = RECEIVE_TIMEOUT_MS
             socket.timeToLive = 1
             val group = InetAddress.getByName(MDNS_GROUP)

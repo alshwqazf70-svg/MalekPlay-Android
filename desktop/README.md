@@ -13,10 +13,12 @@ A Windows, Linux, and macOS companion for Ultra Share V2. It also retains an opt
 Install the dependency as above, then start the dedicated browser companion:
 
 ```bash
-python ultra_share_web.py --output ./Received
+python ultra_share_web.py --output ./Received --open-browser
 ```
 
-The terminal displays the computer's receive PIN. Open `http://127.0.0.1:8765` in a browser on that same computer. The page can discover a MalekPlayer receiver on the local network, send selected media to the phone using its private IPv4 address and 9-digit PIN, and list/download media received from Android. The browser companion uses the existing authenticated AES-GCM transfer protocol and SHA-256 verification; it does not upload files to a cloud service.
+Add `--auto-approve` to accept incoming phones authenticated with the pairing PIN automatically, or approve/reject incoming phone pairing requests directly inside the browser banner (`--auto-approve` is also supported in `ultra_share_pc.py receive`).
+
+The terminal displays the computer's receive PIN and LAN IPv4 addresses. Open `http://127.0.0.1:8765` in a browser on that same computer. The page displays host connection details, supports drag-and-drop uploads with live progress/speed, selects among discovered Android devices, lets you approve phone pairing requests from the UI, and includes inline HTML5 video/audio/image preview for received media. The browser companion uses the existing authenticated AES-GCM transfer protocol and SHA-256 verification; it does not upload files to a cloud service.
 
 The browser control page is intentionally bound to `127.0.0.1` and validates Host/Origin headers to resist DNS-rebinding and cross-origin requests. It is not intended to be opened from another device on the LAN. Allow the transfer port through the firewall only on private networks and keep the pairing PIN private.
 

@@ -612,7 +612,12 @@ async function loadHostInfo(){
     const r=await fetch('/api/host-info',{cache:'no-store'});const d=await r.json();
     if(!d.ok)return;
     const ipList=(d.lan_ips&&d.lan_ips.length)?d.lan_ips.join(' / '):'غير متصل بـ LAN';
-    $('hostInfo').innerHTML='<div>IP الكمبيوتر: <strong>'+ipList+'</strong></div><div>رمز الكمبيوتر: <strong>'+d.secret+'</strong> • V2:'+d.v2_port+'</div>';
+    const box=$('hostInfo');box.replaceChildren();
+    const row1=document.createElement('div');row1.textContent='IP الكمبيوتر: ';
+    const ipStrong=document.createElement('strong');ipStrong.textContent=ipList;row1.append(ipStrong);
+    const row2=document.createElement('div');row2.textContent='رمز الكمبيوتر: ';
+    const secStrong=document.createElement('strong');secStrong.textContent=d.secret;row2.append(secStrong,document.createTextNode(' • V2:'+d.v2_port));
+    box.append(row1,row2);
   }catch(_){}
 }
 
@@ -626,7 +631,8 @@ async function pollApprovals(){
       const wrap=document.createElement('div');
       wrap.style.cssText='display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;flex-wrap:wrap';
       const txt=document.createElement('div');
-      txt.innerHTML='<strong>طلب اتصال من الهاتف:</strong> '+req.peer_name+' ('+req.peer_host+')';
+      const strong=document.createElement('strong');strong.textContent='طلب اتصال من الهاتف: ';
+      txt.append(strong,document.createTextNode(req.peer_name+' ('+req.peer_host+')'));
       const btns=document.createElement('div');btns.className='row';btns.style.marginTop='0';
       const yes=document.createElement('button');yes.textContent='قبول الهاتف';
       yes.onclick=()=>resolveApproval(req.id,true);

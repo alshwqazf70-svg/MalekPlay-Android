@@ -9,6 +9,7 @@ import androidx.media3.cast.DefaultMediaItemConverter
 import androidx.media3.cast.MediaItemConverter
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
@@ -22,6 +23,9 @@ import java.net.InetSocketAddress
 import java.net.NetworkInterface
 import java.net.ServerSocket
 import java.net.Socket
+import java.nio.ByteBuffer
+import java.nio.charset.Charset
+import java.nio.charset.CodingErrorAction
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.security.SecureRandom
@@ -318,7 +322,7 @@ class CastMediaHttpServer(
                     out.write(buf, 0, n)
                     total += n
                 }
-                String(out.toByteArray(), StandardCharsets.UTF_8)
+                decodeSubtitleBytes(out.toByteArray())
             } finally {
                 runCatching { ds.close() }
             }
@@ -568,11 +572,27 @@ class CastMediaHttpServer(
             val local = mediaItem.localConfiguration ?: return delegate.toMediaQueueItem(mediaItem)
             val scheme = local.uri.scheme?.lowercase()
             if (scheme == "http") return delegate.toMediaQueueItem(mediaItem)
+            val bridgedSubs = local.subtitleConfigurations.map { sub ->
+                val subScheme = sub.uri.scheme?.lowercase()
+                val bridgedSubUri = if (subScheme == "http") {
+                    sub.uri
+                } else {
+                    server.subtitleUrlFor(sub.uri, formatVtt = true)
+                }
+                MediaItem.SubtitleConfiguration.Builder(bridgedSubUri)
+                    .setId(sub.id)
+                    .setMimeType(MimeTypes.TEXT_VTT)
+                    .setLanguage(sub.language)
+                    .setLabel(sub.label)
+                    .setSelectionFlags(sub.selectionFlags)
+                    .build()
+            }
             val bridged = MediaItem.Builder()
                 .setMediaId(mediaItem.mediaId)
                 .setUri(server.urlFor(local.uri, local.mimeType, mediaItem.mediaMetadata.title?.toString()))
                 .setMimeType(local.mimeType)
                 .setMediaMetadata(mediaItem.mediaMetadata)
+                .setSubtitleConfigurations(bridgedSubs)
                 .build()
             return delegate.toMediaQueueItem(bridged)
         }
@@ -590,8 +610,8 @@ class CastMediaHttpServer(
     }
 
     companion object {
-        internal fun inferMimeFromUriOrName(uri: Uri, hint: String?): String {
-            val candidate = (hint ?: uri.lastPathSegment ?: "").lowercase()
+        internal fun inferMimeFromUriOrName(uri: Uri?, hint: String?): String {
+            val candidate = (hint ?: uri?.lastPathSegment ?: "").lowercase()
             return when {
                 candidate.endsWith(".mp4") || candidate.endsWith(".m4v") -> "video/mp4"
                 candidate.endsWith(".mkv") -> "video/x-matroska"
@@ -611,8 +631,46 @@ class CastMediaHttpServer(
                 candidate.endsWith(".png") -> "image/png"
                 candidate.endsWith(".webp") -> "image/webp"
                 candidate.endsWith(".gif") -> "image/gif"
+                candidate.endsWith(".vtt") -> "text/vtt"
+                candidate.endsWith(".srt") -> "application/x-subrip"
+                candidate.endsWith(".ass") || candidate.endsWith(".ssa") -> "text/x-ssa"
                 else -> "video/mp4"
             }
+        }
+
+        /**
+         * Decodes subtitle bytes supporting UTF-8/UTF-16 BOMs and falling back to
+         * Windows-1256 (common for Arabic SRT files) when strict UTF-8 decoding fails.
+         */
+        internal fun decodeSubtitleBytes(bytes: ByteArray): String {
+            if (bytes.size >= 3 &&
+                bytes[0] == 0xEF.toByte() && bytes[1] == 0xBB.toByte() && bytes[2] == 0xBF.toByte()
+            ) {
+                return String(bytes, 3, bytes.size - 3, StandardCharsets.UTF_8)
+            }
+            if (bytes.size >= 2 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xFE.toByte()) {
+                return String(bytes, 2, bytes.size - 2, StandardCharsets.UTF_16LE)
+            }
+            if (bytes.size >= 2 && bytes[0] == 0xFE.toByte() && bytes[1] == 0xFF.toByte()) {
+                return String(bytes, 2, bytes.size - 2, StandardCharsets.UTF_16BE)
+            }
+            val strictUtf8 = runCatching {
+                StandardCharsets.UTF_8.newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .decode(ByteBuffer.wrap(bytes))
+                    .toString()
+            }.getOrNull()
+            if (strictUtf8 != null) return strictUtf8
+
+            val cp1256 = runCatching {
+                Charset.forName("windows-1256")
+                    .newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPLACE)
+                    .decode(ByteBuffer.wrap(bytes))
+                    .toString()
+            }.getOrNull()
+            return cp1256 ?: String(bytes, StandardCharsets.ISO_8859_1)
         }
 
         internal fun buildSafeStreamFileName(uri: Uri, mimeType: String, hint: String?): String {

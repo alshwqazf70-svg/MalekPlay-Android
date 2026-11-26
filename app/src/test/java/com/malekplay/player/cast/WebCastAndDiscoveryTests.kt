@@ -55,6 +55,16 @@ class WebCastAndDiscoveryTests {
         assertEquals("audio/flac", CastMediaHttpServer.inferMimeFromUriOrName(null, "song.flac"))
         assertEquals("text/vtt", CastMediaHttpServer.inferMimeFromUriOrName(null, "sub.vtt"))
         assertEquals("application/x-subrip", CastMediaHttpServer.inferMimeFromUriOrName(null, "sub.srt"))
+        assertEquals("text/x-ssa", CastMediaHttpServer.inferMimeFromUriOrName(null, "sub.ass"))
+    }
+
+    @Test
+    fun decodesUtf8BomAndWindows1256ArabicSubtitles() {
+        val utf8Bom = byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte()) + "مرحبا".toByteArray(Charsets.UTF_8)
+        assertEquals("مرحبا", CastMediaHttpServer.decodeSubtitleBytes(utf8Bom))
+
+        val cp1256Bytes = "ترجمة عربية".toByteArray(java.nio.charset.Charset.forName("windows-1256"))
+        assertEquals("ترجمة عربية", CastMediaHttpServer.decodeSubtitleBytes(cp1256Bytes))
     }
 
     @Test

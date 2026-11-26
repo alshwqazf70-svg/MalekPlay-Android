@@ -137,7 +137,8 @@ class NetworkDiscoveryClient {
                             descriptionUrl = device.descriptionUrl,
                             manufacturer = device.manufacturer,
                             modelName = device.modelName,
-                            castProtocols = device.castProtocols.toMutableSet()
+                            castProtocols = device.castProtocols.toMutableSet(),
+                            candidateDescriptionUrls = listOfNotNull(device.descriptionUrl).toMutableSet()
                         )
                     )
                 }
@@ -227,6 +228,7 @@ class NetworkDiscoveryClient {
     private suspend fun enrichDiscoveredDevices(devices: List<MutableDevice>) {
         val candidates = devices.filter {
             it.descriptionUrl != null ||
+                it.candidateDescriptionUrls.isNotEmpty() ||
                 "roku:ecp" in it.services ||
                 it.services.any { s -> s.contains("Port 8060") || s.contains("dial", true) }
         }
@@ -236,8 +238,12 @@ class NetworkDiscoveryClient {
             coroutineScope {
                 candidates.map { device ->
                     async(Dispatchers.IO) {
-                        val desc = device.descriptionUrl
-                        if (desc != null) {
+                        val urlsToInspect = synchronized(device) {
+                            (device.candidateDescriptionUrls + listOfNotNull(device.descriptionUrl))
+                                .distinct()
+                                .take(5)
+                        }
+                        for (desc in urlsToInspect) {
                             runCatching {
                                 val xml = readSafeLocalXml(desc, device.host, timeoutMs = 1_100)
                                 applyDescriptionXml(device, desc, xml)
@@ -449,7 +455,14 @@ class NetworkDiscoveryClient {
             socket.soTimeout = RECEIVE_TIMEOUT_MS
             socket.timeToLive = 2
             val bytes = probe.toByteArray(Charsets.UTF_8)
-            socket.send(DatagramPacket(bytes, bytes.size, InetAddress.getByName(SSDP_GROUP), WSD_PORT))
+            val target = InetAddress.getByName(SSDP_GROUP)
+            runCatching { socket.send(DatagramPacket(bytes, bytes.size, target, WSD_PORT)) }
+            findActivePrivateMulticastInterfaces().take(3).forEach { iface ->
+                runCatching {
+                    socket.networkInterface = iface
+                    socket.send(DatagramPacket(bytes, bytes.size, target, WSD_PORT))
+                }
+            }
             receiveUntilQuiet(socket, WSD_WINDOW_MS) { payload, source ->
                 val xml = payload.take(MAX_RESPONSE_CHARS)
                 if (!xml.contains("ProbeMatch", true)) return@receiveUntilQuiet
@@ -532,11 +545,22 @@ class NetworkDiscoveryClient {
 
     private fun merge(found: MutableMap<String, MutableDevice>, key: String, device: MutableDevice) {
         val existing = found[key]
-        if (existing == null) found[key] = device
-        else {
+        if (existing == null) {
+            device.descriptionUrl?.let { device.candidateDescriptionUrls += it }
+            found[key] = device
+        } else {
             existing.services.addAll(device.services)
             existing.castProtocols.addAll(device.castProtocols)
-            if (existing.descriptionUrl == null) existing.descriptionUrl = device.descriptionUrl
+            device.descriptionUrl?.let { incomingDesc ->
+                existing.candidateDescriptionUrls += incomingDesc
+                val existingIsDialOrGeneric = existing.descriptionUrl == null ||
+                    existing.descriptionUrl?.contains(":8008/") == true
+                val incomingIsRenderer = device.kind == NetworkDeviceKind.MEDIA_RENDERER &&
+                    !incomingDesc.contains(":8008/")
+                if (existing.descriptionUrl == null || (existingIsDialOrGeneric && incomingIsRenderer)) {
+                    existing.descriptionUrl = incomingDesc
+                }
+            }
             if (existing.manufacturer == null) existing.manufacturer = device.manufacturer
             if (existing.modelName == null) existing.modelName = device.modelName
             if ("mDNS/DNS-SD" in device.services && device.name.isNotBlank() && isGenericDiscoveryName(existing.name)) {
@@ -572,7 +596,8 @@ class NetworkDiscoveryClient {
         var descriptionUrl: String?,
         var manufacturer: String? = null,
         var modelName: String? = null,
-        val castProtocols: MutableSet<TvCastProtocol> = mutableSetOf()
+        val castProtocols: MutableSet<TvCastProtocol> = mutableSetOf(),
+        val candidateDescriptionUrls: MutableSet<String> = mutableSetOf()
     ) {
         fun toPublic() = DiscoveredNetworkDevice(
             id = "$host:${kind.name}:${services.sorted().joinToString()}",

@@ -81,7 +81,7 @@ sealed interface WebCastRemoteCommand {
  */
 class WebCastServer(
     context: Context,
-    private val upstreamFactory: DataSource.Factory
+    @Volatile private var upstreamFactory: DataSource.Factory
 ) : AutoCloseable {
     private val resolver: ContentResolver = context.applicationContext.contentResolver
     private val random = SecureRandom()
@@ -145,8 +145,32 @@ class WebCastServer(
                 }
             }
         }
+        workers.execute {
+            while (running.get()) {
+                try {
+                    Thread.sleep(4_000L)
+                } catch (_: InterruptedException) {
+                    break
+                }
+                if (!running.get()) break
+                val cutoff = System.currentTimeMillis() - VIEWER_TTL_MS
+                var removedAny = false
+                val iterator = viewersById.entries.iterator()
+                while (iterator.hasNext()) {
+                    if (iterator.next().value.lastSeenMs < cutoff) {
+                        iterator.remove()
+                        removedAny = true
+                    }
+                }
+                if (removedAny) publishUiState()
+            }
+        }
         publishUiState()
         return _state.value
+    }
+
+    fun updateUpstreamFactory(factory: DataSource.Factory) {
+        upstreamFactory = factory
     }
 
     @Synchronized
@@ -499,12 +523,12 @@ class WebCastServer(
                 .put("title", item.title)
                 .put("mimeType", item.mimeType)
                 .put("durationMs", item.durationMs)
-                .put("streamUrl", "/stream/${item.id}/$streamFile")
-                .put("downloadUrl", "/stream/${item.id}/$streamFile?download=1")
+                .put("streamUrl", "/stream/${item.id}/$streamFile?k=$accessToken")
+                .put("downloadUrl", "/stream/${item.id}/$streamFile?download=1&k=$accessToken")
                 .put("hasSubtitle", item.subtitleUri != null)
             if (item.subtitleUri != null) {
-                itemObj.put("subtitleVttUrl", "/sub/${item.id}/sub.vtt")
-                itemObj.put("subtitleSrtUrl", "/sub/${item.id}/sub.srt")
+                itemObj.put("subtitleVttUrl", "/sub/${item.id}/sub.vtt?k=$accessToken")
+                itemObj.put("subtitleSrtUrl", "/sub/${item.id}/sub.srt?k=$accessToken")
             }
             array.put(itemObj)
         }
@@ -572,7 +596,7 @@ class WebCastServer(
                     out.write(buf, 0, n)
                     total += n
                 }
-                String(out.toByteArray(), StandardCharsets.UTF_8)
+                CastMediaHttpServer.decodeSubtitleBytes(out.toByteArray())
             } finally {
                 runCatching { ds.close() }
             }
@@ -1142,7 +1166,6 @@ function loadCurrentItem(seekMs) {
   video.controls = true;
   video.autoplay = true;
   video.playsInline = true;
-  video.crossOrigin = 'anonymous';
   video.src = item.streamUrl;
   video.playbackRate = parseFloat($('speedSel').value) || 1;
   if (item.hasSubtitle && item.subtitleVttUrl) {
