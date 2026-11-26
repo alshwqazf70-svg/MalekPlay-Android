@@ -402,7 +402,15 @@ internal fun extractPreviewLines(
                 .substringBefore("-->")
                 .trim()
             val text = lines.drop(timingIdx + 1)
-                .joinToString(" ") { markup.replace(it, "").trim() }
+                .joinToString(" ") { line ->
+                    // ASS/SSA uses \\N for a dialogue line break and \\h for a
+                    // non-breaking space. Replace them before stripping override
+                    // blocks so adjacent words never collapse together.
+                    val readable = line
+                        .replace(Regex("""\\[Nn]"""), " ")
+                        .replace(Regex("""\\[Hh]"""), " ")
+                    markup.replace(readable, "").trim()
+                }
                 .trim()
             if (text.isBlank()) null else "[$timing] $text"
         }

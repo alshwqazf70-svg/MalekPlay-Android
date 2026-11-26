@@ -150,7 +150,9 @@ Dialogue: 0,0:00:04.00,0:00:05.25,Default,,0,0,0,,Another cue
         val cues = SrtSubtitleParser.splitBlocks(ass, "ass")
         assertEquals(2, cues.size)
         assertEquals("00:00:01,250 --> 00:00:03,500", cues[0].lines()[1])
-        assertEquals("Hello, world\nsecond line", cues[0].lines().drop(2).joinToString("\n"))
+        // Keep ASS override tags and line-break markers intact for the translation
+        // pipeline; preview rendering strips them separately without joining words.
+        assertEquals("""{\i1}Hello, world\Nsecond line""", cues[0].lines().drop(2).joinToString("\n"))
         assertEquals("00:00:04,000 --> 00:00:05,250", cues[1].lines()[1])
         assertEquals(1, SrtSubtitleParser.timingLineIndex(cues[0].lines()))
     }

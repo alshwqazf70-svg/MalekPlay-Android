@@ -679,8 +679,16 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
      * disappeared. Never trusts DocumentsContract.deleteDocument's boolean return value alone.
      */
     fun deleteSourceDocumentAndVerify(uri: Uri): Boolean {
-        runCatching { DocumentsContract.deleteDocument(resolver, uri) }
-            .getOrElse { runCatching { resolver.delete(uri, null, null) }.getOrDefault(0) }
+        // Some SAF providers return false (without throwing) from the document
+        // contract even though their ContentResolver.delete implementation works.
+        // Try that fallback on both false and exceptions, then trust only the
+        // follow-up document query—not either delete return value.
+        val contractDeleted = runCatching {
+            DocumentsContract.deleteDocument(resolver, uri)
+        }.getOrDefault(false)
+        if (!contractDeleted) {
+            runCatching { resolver.delete(uri, null, null) }
+        }
         return !documentStillExists(uri)
     }
 
