@@ -1526,7 +1526,7 @@ object UltraShareWifiDirect {
                     // A missing ActionListener callback is different from an accepted
                     // connect() whose group negotiation is still running. Recover only
                     // the silent request; never cut short the later 30-second negotiation.
-                    if (shouldRetryWifiDirectConnectFailure(WifiP2pManager.ERROR, attempt)) {
+                    if (shouldRetryWifiDirectConnectCallbackTimeout(attempt)) {
                         recoverAndRetryConnect(
                             deviceAddress = deviceAddress,
                             preferThisDeviceAsGroupOwner = preferThisDeviceAsGroupOwner,
@@ -1564,7 +1564,7 @@ object UltraShareWifiDirect {
                                     mapOf("attempt" to attempt, "peerDeviceAddress" to deviceAddress, "timeoutMs" to 30_000)
                                 )
                                 runCatching { manager.cancelConnect(channel, null) }
-                                if (shouldRetryWifiDirectConnectCallbackTimeout(attempt)) {
+                                if (shouldRetryWifiDirectConnectFailure(WifiP2pManager.ERROR, attempt)) {
                                     UltraShareDiagnostics.event(
                                         "WIFI_DIRECT",
                                         "CONNECT_RETRY_SCHEDULED",
