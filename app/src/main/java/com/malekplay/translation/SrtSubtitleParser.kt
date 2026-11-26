@@ -92,7 +92,10 @@ internal object SrtSubtitleParser {
         val normalized = text.removePrefix("\uFEFF").trimStart()
         if (normalized.contains("[Events]", ignoreCase = true) &&
             normalized.lineSequence().any { it.trimStart().startsWith("Dialogue:", ignoreCase = true) }
-        ) return "ass"
+        ) {
+            val isLegacySsa = Regex("""(?im)^\\s*ScriptType:\\s*v4\\.00\\s*$""").containsMatchIn(normalized)
+            return if (isLegacySsa) "ssa" else "ass"
+        }
         if (!hasTimingLine(normalized)) return null
         if (normalized.startsWith("WEBVTT", ignoreCase = true)) return "vtt"
         val vttDotTiming = Regex("""(?m)^\s*(?:\d{1,2}:)?\d{1,2}:\d{2}\.\d{3}\s*-->""")
@@ -203,9 +206,6 @@ internal object SrtSubtitleParser {
             val start = assTimeToSrt(values[startIndex]) ?: return@forEach
             val end = assTimeToSrt(values[endIndex]) ?: return@forEach
             val dialogue = values[textIndex]
-                .replace(assOverridePattern, "")
-                .replace(Regex("""\\[Nn]"""), "\n")
-                .replace(Regex("""\\h"""), " ")
                 .replace(Regex("""<[^>]*>"""), "")
                 .trim()
             if (dialogue.isBlank()) return@forEach
@@ -250,7 +250,8 @@ internal object SrtSubtitleParser {
 
     fun maskMarkup(text: String): Pair<String, List<String>> {
         val tags = mutableListOf<String>()
-        val masked = markupPattern.replace(text) { match ->
+        val protectedMarkup = Regex("""<[^>]+>|\\{\\\\[^}]*}|\\\\[NnHh]""")
+        val masked = protectedMarkup.replace(text) { match ->
             val index = tags.size
             tags += match.value
             "§T$index§"
