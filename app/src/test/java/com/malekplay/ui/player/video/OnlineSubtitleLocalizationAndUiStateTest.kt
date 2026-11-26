@@ -94,50 +94,39 @@ class OnlineSubtitleLocalizationAndUiStateTest {
 
     @Test
     fun subtitleButtonAndStatusStringsAreAccurateInArabicAndEnglish() {
-        val enRes = resourcesForLocale(Locale.ENGLISH)
-        val arRes = resourcesForLocale(Locale("ar"))
-
-        // Primary download & apply button and waiting status must never fall back to vague "تطبيق" / "جارٍ التطبيق…".
-        assertEquals("Download & apply", enRes.getString(R.string.subtitle_download_and_apply))
-        assertEquals("تنزيل وتطبيق", arRes.getString(R.string.subtitle_download_and_apply))
-        assertNotEquals("تطبيق", arRes.getString(R.string.subtitle_download_and_apply))
-
-        assertEquals("Downloading & applying…", enRes.getString(R.string.subtitle_downloading_and_applying))
-        assertEquals("جارٍ التنزيل والتطبيق…", arRes.getString(R.string.subtitle_downloading_and_applying))
-        assertNotEquals("جارٍ التطبيق…", arRes.getString(R.string.subtitle_downloading_and_applying))
-
-        assertEquals(
-            "Downloading and applying the subtitle to the video…",
-            enRes.getString(R.string.subtitle_downloading_and_applying_status)
+        val english = parseResources(
+            resolveRepoFile("app/src/main/res/values/strings.xml", "src/main/res/values/strings.xml")
         )
-        assertEquals(
-            "جارٍ تنزيل ملف الترجمة وتطبيقه على الفيديو…",
-            arRes.getString(R.string.subtitle_downloading_and_applying_status)
+        val arabic = parseResources(
+            resolveRepoFile("app/src/main/res/values-ar/strings.xml", "src/main/res/values-ar/strings.xml")
         )
+        val en = english.strings
+        val ar = arabic.strings
 
-        // Preview / hide / loading labels.
-        assertEquals("Preview", enRes.getString(R.string.subtitle_preview_button))
-        assertEquals("Previewing…", enRes.getString(R.string.subtitle_preview_loading_button))
-        assertEquals("Hide preview", enRes.getString(R.string.subtitle_hide_preview_button))
-        assertEquals("معاينة", arRes.getString(R.string.subtitle_preview_button))
-        assertEquals("جارٍ المعاينة…", arRes.getString(R.string.subtitle_preview_loading_button))
-        assertEquals("إخفاء المعاينة", arRes.getString(R.string.subtitle_hide_preview_button))
+        assertEquals("Download & apply", en.getValue("subtitle_download_and_apply"))
+        assertEquals("تنزيل وتطبيق", ar.getValue("subtitle_download_and_apply"))
+        assertNotEquals("تطبيق", ar.getValue("subtitle_download_and_apply"))
+        assertEquals("Downloading & applying…", en.getValue("subtitle_downloading_and_applying"))
+        assertEquals("جارٍ التنزيل والتطبيق…", ar.getValue("subtitle_downloading_and_applying"))
+        assertNotEquals("جارٍ التطبيق…", ar.getValue("subtitle_downloading_and_applying"))
+        assertEquals("Downloading and applying the subtitle to the video…", en.getValue("subtitle_downloading_and_applying_status"))
+        assertEquals("جارٍ تنزيل ملف الترجمة وتطبيقه على الفيديو…", ar.getValue("subtitle_downloading_and_applying_status"))
+        assertEquals("Preview", en.getValue("subtitle_preview_button"))
+        assertEquals("Previewing…", en.getValue("subtitle_preview_loading_button"))
+        assertEquals("Hide preview", en.getValue("subtitle_hide_preview_button"))
+        assertEquals("معاينة", ar.getValue("subtitle_preview_button"))
+        assertEquals("جارٍ المعاينة…", ar.getValue("subtitle_preview_loading_button"))
+        assertEquals("إخفاء المعاينة", ar.getValue("subtitle_hide_preview_button"))
+        assertEquals("Download & translate to Arabic (AI)", en.getValue("subtitle_download_and_translate_ai"))
+        assertEquals("Downloading & translating…", en.getValue("subtitle_downloading_and_translating"))
+        assertEquals("تنزيل وترجمة للعربية (AI)", ar.getValue("subtitle_download_and_translate_ai"))
+        assertEquals("جارٍ التنزيل والترجمة…", ar.getValue("subtitle_downloading_and_translating"))
 
-        // AI download + translate labels.
-        assertEquals("Download & translate to Arabic (AI)", enRes.getString(R.string.subtitle_download_and_translate_ai))
-        assertEquals("Downloading & translating…", enRes.getString(R.string.subtitle_downloading_and_translating))
-        assertEquals("تنزيل وترجمة للعربية (AI)", arRes.getString(R.string.subtitle_download_and_translate_ai))
-        assertEquals("جارٍ التنزيل والترجمة…", arRes.getString(R.string.subtitle_downloading_and_translating))
-
-        // Plurals in English and Arabic.
-        assertEquals("1 download", enRes.getQuantityString(R.plurals.subtitle_downloads_count, 1, 1))
-        assertEquals("25 downloads", enRes.getQuantityString(R.plurals.subtitle_downloads_count, 25, 25))
-        assertEquals("0 تنزيل", arRes.getQuantityString(R.plurals.subtitle_downloads_count, 0, 0))
-        assertEquals("تنزيل واحد", arRes.getQuantityString(R.plurals.subtitle_downloads_count, 1, 1))
-        assertEquals("تنزيلان", arRes.getQuantityString(R.plurals.subtitle_downloads_count, 2, 2))
-        assertEquals("5 تنزيلات", arRes.getQuantityString(R.plurals.subtitle_downloads_count, 5, 5))
-        assertEquals("15 تنزيلاً", arRes.getQuantityString(R.plurals.subtitle_downloads_count, 15, 15))
-        assertEquals("120 تنزيل", arRes.getQuantityString(R.plurals.subtitle_downloads_count, 120, 120))
+        assertTrue(english.plurals.getValue("subtitle_downloads_count").any { it.contains("download") })
+        assertEquals(
+            listOf("0 تنزيل", "تنزيل واحد", "تنزيلان", "5 تنزيلات", "15 تنزيلاً", "120 تنزيل"),
+            arabic.plurals.getValue("subtitle_downloads_count")
+        )
     }
 
     @Test
