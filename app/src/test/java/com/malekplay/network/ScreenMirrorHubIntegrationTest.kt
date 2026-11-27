@@ -583,71 +583,89 @@ class ScreenMirrorHubIntegrationTest {
 
         // Mutual exclusion guard: SYSTEM_AUDIO and MICROPHONE can never be active simultaneously.
         val guard = MirrorAudioModeGuard()
-        assertFalse(guard.tryActivate(UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE))
-        assertTrue(guard.tryActivate(UltraShareScreenMirrorPolicy.MirrorAudioMode.SYSTEM_AUDIO))
-        assertFalse(guard.tryActivate(UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE))
-        assertEquals(
-            UltraShareScreenMirrorPolicy.MirrorAudioMode.SYSTEM_AUDIO,
-            guard.replaceActiveMode(UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE)
+        val releasedCount = AtomicInteger(0)
+        val activatedSystem = guard.activateExclusive(
+            requestedMode = UltraShareScreenMirrorPolicy.MirrorAudioMode.SYSTEM_AUDIO,
+            sdkInt = 33,
+            recordAudioGranted = true,
+            releaseCurrentPipeline = { releasedCount.incrementAndGet() },
+            startPipeline = { true }
         )
-        assertEquals(UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE, guard.currentActiveMode())
-        guard.deactivate(UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE)
-        assertEquals(UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE, guard.currentActiveMode())
+        assertEquals(UltraShareScreenMirrorPolicy.MirrorAudioMode.SYSTEM_AUDIO, activatedSystem)
+        assertEquals(0, releasedCount.get())
+
+        // Switching to MICROPHONE releases the previous SYSTEM_AUDIO pipeline BEFORE starting mic:
+        val activatedMic = guard.activateExclusive(
+            requestedMode = UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE,
+            sdkInt = 33,
+            recordAudioGranted = true,
+            releaseCurrentPipeline = { releasedCount.incrementAndGet() },
+            startPipeline = { true }
+        )
+        assertEquals(UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE, activatedMic)
+        assertEquals(UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE, guard.currentMode())
+        assertEquals(1, releasedCount.get())
+
+        guard.deactivate { releasedCount.incrementAndGet() }
+        assertEquals(UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE, guard.currentMode())
+        assertEquals(2, releasedCount.get())
 
         // Notification labels reflect actual audio state accurately:
         assertEquals(
             "فيديو فقط (بدون صوت)",
-            UltraShareScreenMirrorPolicy.audioModeLabelAr(
-                UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE,
-                audioActive = false
-            )
+            UltraShareScreenMirrorPolicy.audioModeLabelAr(UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE)
         )
         assertEquals(
-            "صوت الميكروفون مفعّل",
-            UltraShareScreenMirrorPolicy.audioModeLabelAr(
-                UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE,
-                audioActive = true
-            )
+            "صوت الميكروفون",
+            UltraShareScreenMirrorPolicy.audioModeLabelAr(UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE)
         )
         assertEquals(
-            "صوت النظام الداخلي مفعّل",
-            UltraShareScreenMirrorPolicy.audioModeLabelAr(
-                UltraShareScreenMirrorPolicy.MirrorAudioMode.SYSTEM_AUDIO,
-                audioActive = true
-            )
+            "الصوت الداخلي للجهاز",
+            UltraShareScreenMirrorPolicy.audioModeLabelAr(UltraShareScreenMirrorPolicy.MirrorAudioMode.SYSTEM_AUDIO)
         )
     }
 
     @Test
-    fun microphoneCandidateFallbackSelectsFirstWorkingSourceAndReleasesFailedProbes() {
+    fun microphoneCandidateFallbackSelectsFirstWorkingSourceAndSkipsWhenDenied() {
         val candidates = listOf(
-            MicrophoneCaptureCandidate(audioSource = 7, sampleRateHz = 48_000, channelCount = 1),
-            MicrophoneCaptureCandidate(audioSource = 1, sampleRateHz = 44_100, channelCount = 1),
-            MicrophoneCaptureCandidate(audioSource = 5, sampleRateHz = 16_000, channelCount = 1)
+            UltraShareScreenMirrorPolicy.MicrophoneCaptureCandidate(
+                audioSource = 7, sampleRateHz = 48_000, channelMask = 16, channelCount = 1, aacBitrateBps = 64_000
+            ),
+            UltraShareScreenMirrorPolicy.MicrophoneCaptureCandidate(
+                audioSource = 1, sampleRateHz = 44_100, channelMask = 16, channelCount = 1, aacBitrateBps = 64_000
+            ),
+            UltraShareScreenMirrorPolicy.MicrophoneCaptureCandidate(
+                audioSource = 5, sampleRateHz = 16_000, channelMask = 16, channelCount = 1, aacBitrateBps = 32_000
+            )
         )
-        val releasedHandles = mutableListOf<String>()
         val chosen = selectFirstWorkingMicrophoneCandidate(
+            recordAudioGranted = true,
             candidates = candidates,
-            probe = { candidate ->
+            tryStartCandidate = { candidate ->
                 if (candidate.audioSource == 7) {
                     null // e.g. VOICE_COMMUNICATION rejected by OEM HAL
                 } else {
                     "handle-${candidate.audioSource}-${candidate.sampleRateHz}"
                 }
-            },
-            releaseHandle = { handle -> releasedHandles += handle }
+            }
         )
         assertNotNull(chosen)
         assertEquals(1, chosen!!.first.audioSource)
         assertEquals(44_100, chosen.first.sampleRateHz)
         assertEquals("handle-1-44100", chosen.second)
-        assertTrue(releasedHandles.isEmpty())
 
-        // If every candidate fails, returns null cleanly so video mirroring proceeds uninterrupted.
-        val noneWorking = selectFirstWorkingMicrophoneCandidate<String>(
+        // When RECORD_AUDIO is denied or every candidate fails, returns null cleanly so video continues:
+        val deniedResult = selectFirstWorkingMicrophoneCandidate<String>(
+            recordAudioGranted = false,
             candidates = candidates,
-            probe = { null },
-            releaseHandle = { releasedHandles += it }
+            tryStartCandidate = { "should-not-run" }
+        )
+        assertNull(deniedResult)
+
+        val noneWorking = selectFirstWorkingMicrophoneCandidate<String>(
+            recordAudioGranted = true,
+            candidates = candidates,
+            tryStartCandidate = { null }
         )
         assertNull(noneWorking)
     }
@@ -791,21 +809,27 @@ class ScreenMirrorHubIntegrationTest {
     @Test
     fun decoderOutputRenderGateAndBoundedFirstFrameTimeoutPreventInfiniteBlackScreen() {
         // DecoderOutputRenderGate: never renders when surface is invalid; only confirms render on valid surface.
-        val invalidSurfaceDecision = DecoderOutputRenderGate.decide(
-            isCodecConfigBuffer = false,
-            payloadSizeBytes = 4096,
-            surfaceValid = false
+        val decodedCount = AtomicInteger(0)
+        val renderedCount = AtomicInteger(0)
+        val surfaceErrors = mutableListOf<String>()
+        val gate = DecoderOutputRenderGate(
+            onFirstFrameDecoded = { decodedCount.incrementAndGet() },
+            onFirstFrameRendered = { renderedCount.incrementAndGet() },
+            onSurfaceInvalidError = { surfaceErrors += it }
         )
-        assertFalse(invalidSurfaceDecision.renderToSurface)
-        assertFalse(invalidSurfaceDecision.confirmFrameRendered)
+        assertFalse(
+            gate.onDecodedVideoBuffer(renderRequested = true, surfaceAttached = true, surfaceValid = false)
+        )
+        assertEquals(1, decodedCount.get())
+        assertFalse(gate.onSurfaceFrameRenderedCallback(surfaceAttached = true, surfaceValid = false))
+        assertEquals(0, renderedCount.get())
+        assertTrue(surfaceErrors.isNotEmpty())
 
-        val validRenderDecision = DecoderOutputRenderGate.decide(
-            isCodecConfigBuffer = false,
-            payloadSizeBytes = 4096,
-            surfaceValid = true
+        assertTrue(
+            gate.onDecodedVideoBuffer(renderRequested = true, surfaceAttached = true, surfaceValid = true)
         )
-        assertTrue(validRenderDecision.renderToSurface)
-        assertTrue(validRenderDecision.confirmFrameRendered)
+        assertTrue(gate.onSurfaceFrameRenderedCallback(surfaceAttached = true, surfaceValid = true))
+        assertEquals(1, renderedCount.get())
 
         // Bounded first-frame timeout: host sends VIDEO_CONFIG + heartbeats, but NEVER a video frame.
         val authorized = setOf(viewerOneId)
@@ -835,8 +859,8 @@ class ScreenMirrorHubIntegrationTest {
                 maxReconnectAttempts = 1,
                 firstFrameTimeoutMs = 250L,
                 maxFirstFrameTimeoutRetries = 1,
-                onKeyframeNeeded = { idrRequests.incrementAndGet() },
-                onFirstFrameTimeoutReset = { decoderResets.incrementAndGet() },
+                onRequestKeyframe = { idrRequests.incrementAndGet() },
+                onFirstFrameTimeoutRetry = { decoderResets.incrementAndGet() },
                 frameSink = { }
             )
             client.use {

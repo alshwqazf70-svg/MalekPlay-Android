@@ -231,8 +231,8 @@ class UltraShareRoomStateTest {
 
         // Room ends completely: Peer B is cancelled, token rotates, and late callbacks from old token are rejected!
         val rotation = tracker.endSessionAndRotate(
-            reason = "Leave transfer room",
-            nextSessionId = "room-session-beta"
+            newSessionId = "room-session-beta",
+            reason = "Leave transfer room"
         )
         assertEquals("room-session-alpha", rotation.endedToken.sessionId)
         assertEquals("room-session-beta", rotation.newToken.sessionId)
@@ -270,26 +270,29 @@ class UltraShareRoomStateTest {
             val zeroCheckpointPart = File(tempDir, "aborted_zero.mp4.part").apply {
                 writeBytes(ByteArray(512) { 0x11 })
             }
+            val zeroCheckpointTemp = File(tempDir, "aborted_zero.mp4.part.ckpt").apply {
+                writeBytes(ByteArray(32) { 0x22 })
+            }
             val checkpointedPart = File(tempDir, "resumable_episode.mkv.part").apply {
                 writeBytes(ByteArray(4096) { (it and 0xFF).toByte() })
             }
+            val checkpointedTemp = File(tempDir, "resumable_episode.mkv.part.ckpt")
 
             // Zero-checkpoint partial file is removed so no unverified orphan .part stays behind:
-            val zeroKept = UltraShareBatchTransport.sanitizeInterruptedPartialFile(
-                partFile = zeroCheckpointPart,
-                lastCheckpointOffset = 0L,
-                expectedTotalBytes = 10_000L
+            sanitizeInterruptedPartialFile(
+                partial = zeroCheckpointPart,
+                checkpointTemp = zeroCheckpointTemp,
+                lastDurableCheckpointOffset = 0L
             )
-            org.junit.Assert.assertFalse(zeroKept)
             org.junit.Assert.assertFalse(zeroCheckpointPart.exists())
+            org.junit.Assert.assertFalse(zeroCheckpointTemp.exists())
 
             // Partial file with confirmed checkpoint 2048B has its unconfirmed tail truncated to 2048B:
-            val resumableKept = UltraShareBatchTransport.sanitizeInterruptedPartialFile(
-                partFile = checkpointedPart,
-                lastCheckpointOffset = 2048L,
-                expectedTotalBytes = 10_000L
+            sanitizeInterruptedPartialFile(
+                partial = checkpointedPart,
+                checkpointTemp = checkpointedTemp,
+                lastDurableCheckpointOffset = 2048L
             )
-            assertTrue(resumableKept)
             assertTrue(checkpointedPart.exists())
             assertEquals(2048L, checkpointedPart.length())
 

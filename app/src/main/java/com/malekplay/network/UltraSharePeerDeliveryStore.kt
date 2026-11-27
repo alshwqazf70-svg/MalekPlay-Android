@@ -143,6 +143,29 @@ object UltraSharePeerDeliveryStore {
         }
     }
 
+    suspend fun cancelInFlightForSessionEnd(
+        context: Context,
+        endedSessionId: String? = null
+    ) {
+        context.applicationContext.ultraShareDeliveryDataStore.edit { preferences ->
+            val updated = decodeForMutation(preferences[DELIVERIES].orEmpty()).map { entry ->
+                val matchesSession = endedSessionId.isNullOrBlank() ||
+                    entry.transferSessionId.isNullOrBlank() ||
+                    entry.transferSessionId == endedSessionId
+                if (matchesSession && (entry.status == STATUS_SENDING || entry.status == STATUS_PENDING)) {
+                    entry.copy(
+                        status = STATUS_FAILED,
+                        error = "انتهت جلسة غرفة النقل قبل اكتمال الإرسال.",
+                        updatedAtMillis = System.currentTimeMillis()
+                    )
+                } else {
+                    entry
+                }
+            }
+            preferences[DELIVERIES] = encode(updated)
+        }
+    }
+
     suspend fun pending(context: Context, peerSessionId: String): List<UltraSharePeerDeliveryEntry> =
         observe(context).first().filter {
             it.peerSessionId == peerSessionId &&

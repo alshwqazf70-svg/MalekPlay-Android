@@ -161,6 +161,9 @@ class UltraShareTransferSessionTracker(
         }
     }
 
+    fun notePeerPaired(peerId: String?, peerHosts: Collection<String> = emptyList()) =
+        authorizePeerInCurrentSession(peerId = peerId, peerHosts = peerHosts)
+
     /**
      * Registers a task under [token]. If [token] is stale or the peer has already left the
      * current session, the task's [job] and [initialCloseables] are cancelled/closed immediately
@@ -238,6 +241,16 @@ class UltraShareTransferSessionTracker(
             tasksById.values.filter { it.matchesPeer(peerId, hosts) }
         }
     }
+
+    fun cancelPeerTasks(
+        peerId: String? = null,
+        peerHost: String?,
+        reason: String = "Peer left transfer room"
+    ): Int = cancelPeerTasks(
+        peerId = peerId,
+        peerHosts = peerHost?.trim()?.takeIf { it.isNotEmpty() }?.let(::listOf) ?: emptyList(),
+        reason = reason
+    ).cancelledTaskIds.size
 
     /**
      * Cancels all tasks and closes all sockets/streams belonging to the specified departing peer,

@@ -78,7 +78,7 @@ internal fun filterSessionRoomPeerDeliveries(
         } else {
             entry.peerHost == peerHost
         }
-        val matchesSession = if (activeTransferSessionId.isNotBlank() && entry.transferSessionId.isNotBlank()) {
+        val matchesSession = if (activeTransferSessionId.isNotBlank() && !entry.transferSessionId.isNullOrBlank()) {
             entry.transferSessionId == activeTransferSessionId
         } else {
             cutoffMillis <= 0L || entry.updatedAtMillis >= cutoffMillis
@@ -102,7 +102,7 @@ internal fun filterSessionRoomQueueEntries(
 ): List<com.malekplay.network.UltraShareQueueEntry> {
     if (!hasActiveRoom) return emptyList()
     return entries.filter { entry ->
-        if (activeTransferSessionId.isNotBlank() && entry.transferSessionId.isNotBlank()) {
+        if (activeTransferSessionId.isNotBlank() && !entry.transferSessionId.isNullOrBlank()) {
             entry.transferSessionId == activeTransferSessionId
         } else {
             roomStartedAtMillis > 0L && entry.updatedAtMillis >= roomStartedAtMillis
