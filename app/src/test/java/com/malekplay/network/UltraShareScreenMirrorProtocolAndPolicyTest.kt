@@ -802,13 +802,24 @@ class UltraShareScreenMirrorProtocolAndPolicyTest {
         )
 
         // Surface/decoder reset drops back from FIRST_FRAME_RENDERED until new frame renders,
-        // and bounded timeout fires if no rendered frame arrives within FIRST_FRAME_TIMEOUT_MS.
+        // preserving VIDEO_CONFIG_RECEIVED when SPS/PPS was already received, and bounded timeout
+        // fires if no rendered frame arrives within FIRST_FRAME_TOTAL_TIMEOUT_MS.
         tracker.onSurfaceOrDecoderReset(nowMs = 30_000L)
         assertFalse(tracker.firstFrameRendered)
-        assertEquals(MirrorViewerStage.CONNECTED_TO_SOURCE, tracker.stage)
+        assertEquals(MirrorViewerStage.VIDEO_CONFIG_RECEIVED, tracker.stage)
         assertEquals(
             MirrorViewerPlaybackTracker.WatchdogAction.TIMED_OUT,
             tracker.evaluateFirstFrameWatchdog(nowMs = 40_500L)
         )
+
+        // When no VIDEO_CONFIG has arrived yet, surface reset returns to CONNECTED_TO_SOURCE.
+        val noConfigTracker = MirrorViewerPlaybackTracker(MirrorViewerStage.OFFER_ACCEPTED).apply {
+            onConnectedToSource(nowMs = 1_000L)
+            onVideoFrameReceived()
+            onFirstFrameRendered()
+            onSurfaceOrDecoderReset(nowMs = 5_000L)
+        }
+        assertFalse(noConfigTracker.firstFrameRendered)
+        assertEquals(MirrorViewerStage.CONNECTED_TO_SOURCE, noConfigTracker.stage)
     }
 }
