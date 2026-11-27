@@ -2,6 +2,7 @@ package com.malekplay.network
 
 import android.annotation.SuppressLint
 import android.app.ActivityManager
+import android.app.KeyguardManager
 import android.content.Context
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
@@ -14,13 +15,13 @@ import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaCodecList
 import android.media.MediaFormat
+import android.media.MediaRecorder
 import android.media.projection.MediaProjection
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.PowerManager
-import android.app.KeyguardManager
 import android.util.DisplayMetrics
 import android.view.Surface
 import android.view.WindowManager
@@ -51,6 +52,113 @@ internal data class H264EncoderCandidate(
     val fps: Int,
     val bitrateBps: Int
 )
+
+/**
+ * Splits an Annex-B H.264 codec-specific-data buffer into `(csd0, csd1)` = `(SPS, PPS)` when
+ * both NAL units are concatenated in a single `VIDEO_CONFIG` frame. Many Android 6–10 hardware
+ * AVC decoders require `csd-0` and `csd-1` as separate ByteBuffers to output their first frame.
+ */
+internal fun splitAvcCodecConfig(csd: ByteArray): Pair<ByteArray, ByteArray?> {
+    if (csd.size < 8) return csd to null
+    val nalRanges = mutableListOf<IntRange>()
+    var i = 0
+    var currentStart = -1
+    while (i < csd.size - 3) {
+        val is4ByteStart = csd[i] == 0.toByte() && csd[i + 1] == 0.toByte() &&
+            csd[i + 2] == 0.toByte() && csd[i + 3] == 1.toByte()
+        val is3ByteStart = !is4ByteStart &&
+            csd[i] == 0.toByte() && csd[i + 1] == 0.toByte() && csd[i + 2] == 1.toByte()
+        if (is4ByteStart || is3ByteStart) {
+            if (currentStart >= 0 && i > currentStart) {
+                nalRanges += currentStart until i
+            }
+            currentStart = i
+            i += if (is4ByteStart) 4 else 3
+        } else {
+            i++
+        }
+    }
+    if (currentStart >= 0 && currentStart < csd.size) {
+        nalRanges += currentStart until csd.size
+    }
+    if (nalRanges.size < 2) return csd to null
+
+    var spsBytes: ByteArray? = null
+    var ppsBytes: ByteArray? = null
+    for (range in nalRanges) {
+        val slice = csd.copyOfRange(range.first, range.last + 1)
+        val headerIdx = when {
+            slice.size > 4 && slice[0] == 0.toByte() && slice[1] == 0.toByte() &&
+                slice[2] == 0.toByte() && slice[3] == 1.toByte() -> 4
+            slice.size > 3 && slice[0] == 0.toByte() && slice[1] == 0.toByte() &&
+                slice[2] == 1.toByte() -> 3
+            else -> -1
+        }
+        if (headerIdx < 0 || headerIdx >= slice.size) continue
+        when (slice[headerIdx].toInt() and 0x1F) {
+            7 -> if (spsBytes == null) spsBytes = slice
+            8 -> if (ppsBytes == null) ppsBytes = slice
+        }
+    }
+    return if (spsBytes != null && ppsBytes != null) {
+        spsBytes to ppsBytes
+    } else {
+        csd to null
+    }
+}
+
+/**
+ * Duplicates 16-bit little-endian mono PCM samples into interleaved stereo 16-bit PCM
+ * so single-microphone Android 6–16 devices feed the standard stereo AAC-LC stream cleanly.
+ * Returns the number of valid bytes written into [stereoOut] (always a multiple of 4).
+ */
+internal fun upmixMono16BitToStereo(monoPcm: ByteArray, validBytes: Int, stereoOut: ByteArray): Int {
+    val alignedMonoBytes = (validBytes.coerceIn(0, monoPcm.size) / 2) * 2
+    val maxMonoBytes = ((stereoOut.size / 4) * 2).coerceAtMost(alignedMonoBytes)
+    var src = 0
+    var dst = 0
+    while (src < maxMonoBytes) {
+        val lo = monoPcm[src]
+        val hi = monoPcm[src + 1]
+        stereoOut[dst] = lo
+        stereoOut[dst + 1] = hi
+        stereoOut[dst + 2] = lo
+        stereoOut[dst + 3] = hi
+        src += 2
+        dst += 4
+    }
+    return dst
+}
+
+/** Convenience overload returning a newly allocated stereo 16-bit PCM array. */
+internal fun upmixMono16BitToStereo(
+    monoPcm: ByteArray,
+    validBytes: Int = monoPcm.size
+): ByteArray {
+    val alignedMonoBytes = (validBytes.coerceIn(0, monoPcm.size) / 2) * 2
+    val out = ByteArray(alignedMonoBytes * 2)
+    upmixMono16BitToStereo(monoPcm, alignedMonoBytes, out)
+    return out
+}
+
+/**
+ * Extracts `(sampleRateHz, channelCount)` from a 2-byte AAC-LC AudioSpecificConfig (`csd-0`),
+ * falling back to `(48_000, 2)` when non-standard or shorter than 2 bytes.
+ */
+internal fun parseAacAudioSpecificConfig(asc: ByteArray): Pair<Int, Int> {
+    if (asc.size < 2) return 48_000 to 2
+    val b0 = asc[0].toInt() and 0xFF
+    val b1 = asc[1].toInt() and 0xFF
+    val freqIdx = ((b0 and 0x07) shl 1) or ((b1 ushr 7) and 0x01)
+    val channelCfg = (b1 ushr 3) and 0x0F
+    val sampleRates = intArrayOf(
+        96_000, 88_200, 64_000, 48_000, 44_100, 32_000,
+        24_000, 22_050, 16_000, 12_000, 11_025, 8_000, 7_350
+    )
+    val rate = if (freqIdx in sampleRates.indices) sampleRates[freqIdx] else 48_000
+    val channels = if (channelCfg in 1..2) channelCfg else 2
+    return rate to channels
+}
 
 /**
  * Orders viable H.264 encoder candidates across manufacturer hardware encoders and
@@ -296,18 +404,26 @@ internal object VideoDecoderBufferFeeder {
 
 /**
  * Real Android MediaProjection + VirtualDisplay + Hardware/Platform MediaCodec H.264
- * screen capturer with optional Android 10+ AudioPlaybackCapture AAC audio.
+ * screen capturer with SDK-safe audio modes:
+ * - [UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE]: Video only (API 23–36).
+ * - [UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE]: Video + optional independent mic (API 23–36).
+ * - [UltraShareScreenMirrorPolicy.MirrorAudioMode.SYSTEM_AUDIO]: Video + optional internal AudioPlaybackCapture (API 29–36 only).
+ *
+ * Audio failure at startup or mid-stream falls back cleanly to video-only without ever stopping video.
  */
 internal class AndroidScreenMirrorCapturer(
     private val context: Context,
     private val mediaProjection: MediaProjection,
     private val hub: ScreenMirrorBroadcasterHub,
-    private val enableAudio: Boolean,
+    private val requestedAudioMode: UltraShareScreenMirrorPolicy.MirrorAudioMode,
     private val onConfigChanged: (UltraShareScreenMirrorProtocol.StreamConfig) -> Unit,
-    private val onProjectionStopped: (String?) -> Unit
+    private val onProjectionStopped: (String?) -> Unit,
+    private val onFirstVideoFrameEncoded: () -> Unit = {},
+    private val onAudioStatusNote: (activeMode: UltraShareScreenMirrorPolicy.MirrorAudioMode, note: String?) -> Unit = { _, _ -> }
 ) {
     private val started = AtomicBoolean(false)
     private val stopped = AtomicBoolean(false)
+    private val firstVideoFrameEmitted = AtomicBoolean(false)
     private val mediaThread = HandlerThread("MalekMirrorCapture").apply { start() }
     private val mediaHandler = Handler(mediaThread.looper)
 
@@ -328,6 +444,7 @@ internal class AndroidScreenMirrorCapturer(
     @Volatile private var activeFps = UltraShareScreenMirrorPolicy.DEFAULT_FPS
     @Volatile private var activeBitrate = UltraShareScreenMirrorPolicy.DEFAULT_BITRATE_BPS
     @Volatile private var activeAudioRunning = false
+    @Volatile private var activeAudioMode = UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE
     @Volatile private var currentConfig: UltraShareScreenMirrorProtocol.StreamConfig? = null
 
     private val videoSessionGeneration = AtomicLong(0L)
@@ -368,13 +485,77 @@ internal class AndroidScreenMirrorCapturer(
             stop()
             throw err
         }
-        val audioOk = if (enableAudio) startAudioPipelineIfSupported() else false
+
+        val recordGranted = UltraShareScreenMirrorPolicy.hasRecordAudioRuntimePermission(context)
+        val effectiveMode = UltraShareScreenMirrorPolicy.resolveEffectiveAudioMode(
+            requestedMode = requestedAudioMode,
+            sdkInt = Build.VERSION.SDK_INT,
+            recordAudioGranted = recordGranted
+        )
+        val audioOk = when (effectiveMode) {
+            UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE -> {
+                if (requestedAudioMode != UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE) {
+                    val note = when {
+                        requestedAudioMode == UltraShareScreenMirrorPolicy.MirrorAudioMode.SYSTEM_AUDIO &&
+                            !UltraShareScreenMirrorPolicy.supportsSystemAudioCapture(Build.VERSION.SDK_INT) ->
+                            "الصوت الداخلي غير مدعوم على هذا الإصدار من Android؛ يستمر البث بالفيديو فقط."
+                        !recordGranted ->
+                            "لم يُمنح إذن الصوت؛ يستمر بث الشاشة بالفيديو فقط دون انقطاع."
+                        else -> null
+                    }
+                    onAudioStatusNote(UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE, note)
+                } else {
+                    onAudioStatusNote(UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE, null)
+                }
+                false
+            }
+            UltraShareScreenMirrorPolicy.MirrorAudioMode.SYSTEM_AUDIO -> {
+                val ok = startSystemAudioPipelineIfSupported()
+                if (ok) {
+                    activeAudioMode = UltraShareScreenMirrorPolicy.MirrorAudioMode.SYSTEM_AUDIO
+                    onAudioStatusNote(UltraShareScreenMirrorPolicy.MirrorAudioMode.SYSTEM_AUDIO, null)
+                } else {
+                    activeAudioMode = UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE
+                    onAudioStatusNote(
+                        UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE,
+                        "تعذر تشغيل الصوت الداخلي (أو منعه التطبيق المصدر)؛ يستمر بث الفيديو فقط."
+                    )
+                }
+                ok
+            }
+            UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE -> {
+                val ok = startMicrophoneAudioPipelineIfSupported()
+                if (ok) {
+                    activeAudioMode = UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE
+                    onAudioStatusNote(UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE, null)
+                } else {
+                    activeAudioMode = UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE
+                    onAudioStatusNote(
+                        UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE,
+                        "تعذر فتح الميكروفون؛ يستمر بث الشاشة بالفيديو فقط."
+                    )
+                }
+                ok
+            }
+        }
         activeAudioRunning = audioOk
 
         val finalConfig = config.copy(audioEnabled = audioOk)
         currentConfig = finalConfig
         onConfigChanged(finalConfig)
+
+        // Schedule proactive sync-frame pulses right after capture starts so static screens
+        // emit an IDR promptly even if a viewer connects within the first second.
+        scheduleInitialKeyframePulses()
         return finalConfig
+    }
+
+    private fun scheduleInitialKeyframePulses() {
+        for (delayMs in longArrayOf(120L, 450L, 1_100L)) {
+            mediaHandler.postDelayed({
+                if (!stopped.get()) requestKeyframe()
+            }, delayMs)
+        }
     }
 
     fun requestKeyframe() {
@@ -388,6 +569,7 @@ internal class AndroidScreenMirrorCapturer(
     }
 
     fun currentStreamConfig(): UltraShareScreenMirrorProtocol.StreamConfig? = currentConfig
+    fun currentAudioMode(): UltraShareScreenMirrorPolicy.MirrorAudioMode = activeAudioMode
 
     private fun readDisplayMetrics(): Triple<Int, Int, Int> {
         val display = displayManager.getDisplay(android.view.Display.DEFAULT_DISPLAY)
@@ -485,6 +667,9 @@ internal class AndroidScreenMirrorCapturer(
         setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
         setInteger(MediaFormat.KEY_FRAME_RATE, fps)
         setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
+        // Repeat the last surface buffer every 100ms when the host screen is motionless so
+        // VirtualDisplay -> InputSurface immediately produces initial and on-demand IDR frames.
+        setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 100_000L)
         if (includeBitrateMode && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             setInteger(
                 MediaFormat.KEY_BITRATE_MODE,
@@ -649,6 +834,9 @@ internal class AndroidScreenMirrorCapturer(
                             height = height,
                             rotation = activeRotation
                         )
+                        if (isKeyframe && firstVideoFrameEmitted.compareAndSet(false, true)) {
+                            runCatching { onFirstVideoFrameEncoded() }
+                        }
                     }
                 }
             } finally {
@@ -689,6 +877,7 @@ internal class AndroidScreenMirrorCapturer(
                 }
                 currentConfig = updated
                 onConfigChanged(updated)
+                scheduleInitialKeyframePulses()
             }.onFailure { err ->
                 UltraShareDiagnostics.failure("SCREEN_MIRROR_RESIZE", err)
                 stop()
@@ -697,7 +886,7 @@ internal class AndroidScreenMirrorCapturer(
         }
     }
 
-    private fun startAudioPipelineIfSupported(): Boolean {
+    private fun startSystemAudioPipelineIfSupported(): Boolean {
         if (!UltraShareScreenMirrorPolicy.hasAudioCapturePermission(context)) {
             return false
         }
@@ -705,18 +894,29 @@ internal class AndroidScreenMirrorCapturer(
             return false
         }
         return runCatching {
-            startAudioPipelineApi29()
+            startSystemAudioPipelineApi29()
         }.onFailure { failure ->
             UltraShareDiagnostics.failure("SCREEN_MIRROR_AUDIO_INIT", failure)
             releaseAudioOnly()
         }.getOrDefault(false)
     }
 
+    private fun startMicrophoneAudioPipelineIfSupported(): Boolean {
+        if (!UltraShareScreenMirrorPolicy.hasMicrophoneCapturePermission(context)) {
+            return false
+        }
+        return runCatching {
+            startMicrophoneAudioPipeline()
+        }.onFailure { failure ->
+            UltraShareDiagnostics.failure("SCREEN_MIRROR_MIC_INIT", failure)
+            releaseAudioOnly()
+        }.getOrDefault(false)
+    }
+
     @SuppressLint("MissingPermission")
     @RequiresApi(Build.VERSION_CODES.Q)
-    private fun startAudioPipelineApi29(): Boolean {
+    private fun startSystemAudioPipelineApi29(): Boolean {
         val sampleRate = 48_000
-        val channelCount = 2
         val captureConfig = AudioPlaybackCaptureConfiguration.Builder(mediaProjection)
             .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
             .addMatchingUsage(AudioAttributes.USAGE_GAME)
@@ -746,6 +946,66 @@ internal class AndroidScreenMirrorCapturer(
             return false
         }
 
+        return startAacEncoderAndPump(
+            record = record,
+            sampleRate = sampleRate,
+            inputIsMono = false,
+            threadName = "MalekMirrorSysAudioPump"
+        )
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun startMicrophoneAudioPipeline(): Boolean {
+        val candidateRates = intArrayOf(48_000, 44_100)
+        val candidateSources = intArrayOf(
+            MediaRecorder.AudioSource.MIC,
+            MediaRecorder.AudioSource.VOICE_RECOGNITION
+        )
+        for (rate in candidateRates) {
+            val minBuf = AudioRecord.getMinBufferSize(
+                rate,
+                AudioFormat.CHANNEL_IN_MONO,
+                AudioFormat.ENCODING_PCM_16BIT
+            )
+            if (minBuf <= 0) continue
+            for (source in candidateSources) {
+                val record = try {
+                    AudioRecord(
+                        source,
+                        rate,
+                        AudioFormat.CHANNEL_IN_MONO,
+                        AudioFormat.ENCODING_PCM_16BIT,
+                        (minBuf * 2).coerceAtLeast(8192)
+                    )
+                } catch (_: Throwable) {
+                    null
+                } ?: continue
+                if (record.state != AudioRecord.STATE_INITIALIZED) {
+                    runCatching { record.release() }
+                    continue
+                }
+                val startedOk = runCatching {
+                    startAacEncoderAndPump(
+                        record = record,
+                        sampleRate = rate,
+                        inputIsMono = true,
+                        threadName = "MalekMirrorMicAudioPump"
+                    )
+                }.getOrDefault(false)
+                if (startedOk) return true
+                runCatching { record.release() }
+            }
+        }
+        return false
+    }
+
+    private fun startAacEncoderAndPump(
+        record: AudioRecord,
+        sampleRate: Int,
+        inputIsMono: Boolean,
+        threadName: String
+    ): Boolean {
+        val channelCount = 2
         var aac: MediaCodec? = null
         try {
             val encFormat = MediaFormat.createAudioFormat(
@@ -774,68 +1034,109 @@ internal class AndroidScreenMirrorCapturer(
         audioEncoder = activeAac
 
         audioPumpThread = Thread({
-            val pcm = ByteArray(4096)
-            val outInfo = MediaCodec.BufferInfo()
-            while (!stopped.get() && audioEncoder === activeAac) {
-                val readBytes = record.read(pcm, 0, pcm.size)
-                var offset = 0
-                val alignedTotal = (readBytes / 4) * 4
-                while (offset < alignedTotal && !stopped.get() && audioEncoder === activeAac) {
-                    val inIdx = runCatching { activeAac.dequeueInputBuffer(10_000L) }.getOrDefault(-1)
-                    if (inIdx < 0) break
-                    val inBuf = activeAac.getInputBuffer(inIdx)
-                    if (inBuf == null) {
-                        runCatching { activeAac.queueInputBuffer(inIdx, 0, 0, 0L, 0) }
+            try {
+                val rawReadBuf = ByteArray(if (inputIsMono) 2048 else 4096)
+                val stereoBuf = if (inputIsMono) ByteArray(4096) else rawReadBuf
+                val outInfo = MediaCodec.BufferInfo()
+                while (!stopped.get() && audioEncoder === activeAac) {
+                    val readBytes = record.read(rawReadBuf, 0, rawReadBuf.size)
+                    if (readBytes < 0) {
+                        UltraShareDiagnostics.event(
+                            "SCREEN_MIRROR",
+                            "AUDIO_READ_ERROR_FALLBACK_VIDEO_ONLY",
+                            mapOf("errorCode" to readBytes)
+                        )
+                        handleMidStreamAudioFailure()
                         break
                     }
-                    inBuf.clear()
-                    val writable = ((minOf(alignedTotal - offset, inBuf.remaining())) / 4) * 4
-                    if (writable <= 0) {
-                        runCatching { activeAac.queueInputBuffer(inIdx, 0, 0, 0L, 0) }
-                        break
+                    if (readBytes == 0) continue
+
+                    val stereoValidBytes = if (inputIsMono) {
+                        upmixMono16BitToStereo(rawReadBuf, readBytes, stereoBuf)
+                    } else {
+                        (readBytes / 4) * 4
                     }
-                    inBuf.put(pcm, offset, writable)
-                    val ptsUs = System.nanoTime() / 1_000L
-                    activeAac.queueInputBuffer(inIdx, 0, writable, ptsUs, 0)
-                    offset += writable
-                }
-                while (!stopped.get()) {
-                    val outIdx = runCatching { activeAac.dequeueOutputBuffer(outInfo, 0L) }.getOrDefault(-1)
-                    if (outIdx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-                        val csd = runCatching { activeAac.outputFormat.getByteBuffer("csd-0") }.getOrNull()
-                        if (csd != null) {
-                            val asc = ByteArray(csd.remaining()).also { csd.duplicate().get(it) }
-                            if (asc.isNotEmpty()) hub.publishAudioConfig(asc)
+                    var offset = 0
+                    while (offset < stereoValidBytes && !stopped.get() && audioEncoder === activeAac) {
+                        val inIdx = runCatching { activeAac.dequeueInputBuffer(10_000L) }.getOrDefault(-1)
+                        if (inIdx < 0) break
+                        val inBuf = activeAac.getInputBuffer(inIdx)
+                        if (inBuf == null) {
+                            runCatching { activeAac.queueInputBuffer(inIdx, 0, 0, 0L, 0) }
+                            break
                         }
-                    } else if (outIdx >= 0) {
-                        try {
-                            val outBuf = activeAac.getOutputBuffer(outIdx)
-                            if (outBuf != null && outInfo.size > 0) {
-                                outBuf.position(outInfo.offset)
-                                outBuf.limit(outInfo.offset + outInfo.size)
-                                val encoded = ByteArray(outInfo.size).also { outBuf.get(it) }
-                                if ((outInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) {
-                                    hub.publishAudioConfig(encoded)
-                                } else {
-                                    hub.publishAudioFrame(encoded, outInfo.presentationTimeUs)
-                                }
+                        inBuf.clear()
+                        val writable = ((minOf(stereoValidBytes - offset, inBuf.remaining())) / 4) * 4
+                        if (writable <= 0) {
+                            runCatching { activeAac.queueInputBuffer(inIdx, 0, 0, 0L, 0) }
+                            break
+                        }
+                        inBuf.put(stereoBuf, offset, writable)
+                        val ptsUs = System.nanoTime() / 1_000L
+                        activeAac.queueInputBuffer(inIdx, 0, writable, ptsUs, 0)
+                        offset += writable
+                    }
+                    while (!stopped.get() && audioEncoder === activeAac) {
+                        val outIdx = runCatching { activeAac.dequeueOutputBuffer(outInfo, 0L) }.getOrDefault(-1)
+                        if (outIdx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                            val csd = runCatching { activeAac.outputFormat.getByteBuffer("csd-0") }.getOrNull()
+                            if (csd != null) {
+                                val asc = ByteArray(csd.remaining()).also { csd.duplicate().get(it) }
+                                if (asc.isNotEmpty()) hub.publishAudioConfig(asc)
                             }
-                        } finally {
-                            runCatching { activeAac.releaseOutputBuffer(outIdx, false) }
-                        }
-                    } else break
+                        } else if (outIdx >= 0) {
+                            try {
+                                val outBuf = activeAac.getOutputBuffer(outIdx)
+                                if (outBuf != null && outInfo.size > 0) {
+                                    outBuf.position(outInfo.offset)
+                                    outBuf.limit(outInfo.offset + outInfo.size)
+                                    val encoded = ByteArray(outInfo.size).also { outBuf.get(it) }
+                                    if ((outInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) {
+                                        hub.publishAudioConfig(encoded)
+                                    } else {
+                                        hub.publishAudioFrame(encoded, outInfo.presentationTimeUs)
+                                    }
+                                }
+                            } finally {
+                                runCatching { activeAac.releaseOutputBuffer(outIdx, false) }
+                            }
+                        } else break
+                    }
+                }
+            } catch (err: Throwable) {
+                if (!stopped.get()) {
+                    UltraShareDiagnostics.failure("SCREEN_MIRROR_AUDIO_PUMP", err)
+                    handleMidStreamAudioFailure()
                 }
             }
-        }, "MalekMirrorAudioPump").apply {
+        }, threadName).apply {
             isDaemon = true
             start()
         }
         return true
     }
 
+    private fun handleMidStreamAudioFailure() {
+        releaseAudioOnly()
+        activeAudioMode = UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE
+        val updated = currentConfig?.copy(audioEnabled = false)
+        if (updated != null) {
+            currentConfig = updated
+            runCatching { onConfigChanged(updated) }
+        }
+        runCatching {
+            onAudioStatusNote(
+                UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE,
+                "توقف التقاط الصوت تلقائياً؛ يستمر بث الشاشة بالفيديو فقط دون انقطاع."
+            )
+        }
+    }
+
     private fun releaseVideoEncoderOnly() {
         videoSessionGeneration.incrementAndGet()
-        runCatching { videoDrainThread?.join(400L) }
+        if (Thread.currentThread() !== videoDrainThread) {
+            runCatching { videoDrainThread?.join(400L) }
+        }
         videoDrainThread = null
         runCatching { videoEncoder?.stop() }
         runCatching { videoEncoder?.release() }
@@ -848,18 +1149,22 @@ internal class AndroidScreenMirrorCapturer(
         activeAudioRunning = false
         val rec = audioRecord
         val enc = audioEncoder
+        val pump = audioPumpThread
         audioRecord = null
         audioEncoder = null
+        audioPumpThread = null
         runCatching { rec?.stop() }
         runCatching { rec?.release() }
-        runCatching { audioPumpThread?.join(400L) }
-        audioPumpThread = null
+        if (pump != null && Thread.currentThread() !== pump) {
+            runCatching { pump.join(400L) }
+        }
         runCatching { enc?.stop() }
         runCatching { enc?.release() }
     }
 
     fun stop() {
         if (!stopped.compareAndSet(false, true)) return
+        mediaHandler.removeCallbacksAndMessages(null)
         runCatching { displayManager.unregisterDisplayListener(displayListener) }
         runCatching { mediaProjection.unregisterCallback(projectionCallback) }
         releaseAudioOnly()
@@ -881,19 +1186,33 @@ internal class AndroidScreenMirrorCapturer(
 
 /**
  * Hardware/platform MediaCodec H.264 + AAC decoder rendering directly to a viewer Surface.
- * Handles missing frames safely by discarding orphan P-frames until the next IDR arrives.
+ *
+ * Guarantees:
+ * - Splits Annex-B SPS/PPS into `csd-0` + `csd-1` for Android 6–16 hardware decoder compatibility.
+ * - Preserves an IDR frame that arrives before `SurfaceHolder.surfaceCreated` attaches the `Surface`,
+ *   feeding it immediately once the decoder is configured.
+ * - Schedules asynchronous output draining so a single static-screen IDR renders immediately without
+ *   waiting for a second network frame.
+ * - Emits [onFirstFrameRendered] strictly after `releaseOutputBuffer(outIdx, true)` paints the `Surface`.
  */
 internal class AndroidScreenMirrorDecoder(
     private val onVideoDimensionsChanged: (width: Int, height: Int, rotation: Int) -> Unit,
     private val onRequestKeyframe: () -> Unit,
-    private val onDecoderError: (String) -> Unit
+    private val onDecoderError: (String) -> Unit,
+    private val onFirstFrameRendered: () -> Unit = {}
 ) {
     private val lock = Any()
+    private val drainThread = HandlerThread("MalekMirrorDecodeDrain").apply { start() }
+    private val drainHandler = Handler(drainThread.looper)
+
     private var outputSurface: Surface? = null
     private var videoDecoder: MediaCodec? = null
     private var lastVideoConfig: ByteArray? = null
+    private var pendingPreSurfaceIdr: UltraShareScreenMirrorProtocol.MediaFrame? = null
     private var configuredWidth = 0
     private var configuredHeight = 0
+    private var configuredRotation = 0
+    private var firstFrameRenderedOnCurrentSurface = false
     private val sequenceTracker = VideoStreamSequenceTracker()
     private val droppedInputFrames = AtomicLong(0L)
 
@@ -906,15 +1225,33 @@ internal class AndroidScreenMirrorDecoder(
     fun attachSurface(surface: Surface?) {
         synchronized(lock) {
             if (closed) return
+            if (surface != null && surface === outputSurface && videoDecoder != null) {
+                return
+            }
             outputSurface = surface
+            firstFrameRenderedOnCurrentSurface = false
             if (surface == null) {
                 releaseVideoDecoderOnly()
                 sequenceTracker.reset(awaitIdr = true)
             } else if (lastVideoConfig != null && configuredWidth > 0 && configuredHeight > 0) {
-                runCatching {
+                val configuredOk = runCatching {
                     configureVideoDecoderLocked(lastVideoConfig!!, configuredWidth, configuredHeight)
                 }.onFailure { err ->
                     onDecoderError(err.localizedMessage ?: "تعذر تهيئة مفكك ترميز الفيديو.")
+                }.isSuccess
+
+                val cachedIdr = pendingPreSurfaceIdr
+                pendingPreSurfaceIdr = null
+                if (configuredOk && cachedIdr != null && videoDecoder != null) {
+                    val decision = sequenceTracker.onVideoFrame(cachedIdr.header.mediaSeq, isIdr = true)
+                    if (decision.shouldFeedToDecoder) {
+                        feedVideoBufferLocked(
+                            codec = videoDecoder!!,
+                            bytes = cachedIdr.payload,
+                            ptsUs = cachedIdr.header.timestampUs,
+                            isIdr = true
+                        )
+                    }
                 }
                 onRequestKeyframe()
             }
@@ -935,9 +1272,13 @@ internal class AndroidScreenMirrorDecoder(
                     val configChanged = lastVideoConfig == null ||
                         !lastVideoConfig!!.contentEquals(frame.payload) ||
                         w != configuredWidth || h != configuredHeight
+                    if (configChanged) {
+                        pendingPreSurfaceIdr = null
+                    }
                     lastVideoConfig = frame.payload.copyOf()
                     configuredWidth = w
                     configuredHeight = h
+                    configuredRotation = frame.header.rotation
                     onVideoDimensionsChanged(w, h, frame.header.rotation)
                     if (outputSurface != null && (configChanged || videoDecoder == null)) {
                         runCatching {
@@ -950,6 +1291,16 @@ internal class AndroidScreenMirrorDecoder(
                 UltraShareScreenMirrorProtocol.FrameType.VIDEO_IDR,
                 UltraShareScreenMirrorProtocol.FrameType.VIDEO_DELTA -> {
                     val isIdr = frame.header.frameType == UltraShareScreenMirrorProtocol.FrameType.VIDEO_IDR
+                    val codec = videoDecoder
+                    if (codec == null) {
+                        // Surface has not attached yet: retain the latest IDR so attachSurface()
+                        // can decode and render immediately without waiting for another network IDR.
+                        if (isIdr) {
+                            pendingPreSurfaceIdr = frame
+                        }
+                        return
+                    }
+
                     val decision = sequenceTracker.onVideoFrame(frame.header.mediaSeq, isIdr)
                     if (decision.shouldRequestKeyframe) {
                         onRequestKeyframe()
@@ -958,12 +1309,15 @@ internal class AndroidScreenMirrorDecoder(
                         return
                     }
 
-                    val codec = videoDecoder ?: return
                     if (frame.header.width > 0 && frame.header.height > 0) {
-                        if (frame.header.width != configuredWidth || frame.header.height != configuredHeight) {
+                        if (frame.header.width != configuredWidth ||
+                            frame.header.height != configuredHeight ||
+                            frame.header.rotation != configuredRotation
+                        ) {
                             configuredWidth = frame.header.width
                             configuredHeight = frame.header.height
-                            onVideoDimensionsChanged(configuredWidth, configuredHeight, frame.header.rotation)
+                            configuredRotation = frame.header.rotation
+                            onVideoDimensionsChanged(configuredWidth, configuredHeight, configuredRotation)
                         }
                     }
                     feedVideoBufferLocked(codec, frame.payload, frame.header.timestampUs, isIdr)
@@ -987,23 +1341,106 @@ internal class AndroidScreenMirrorDecoder(
     private fun configureVideoDecoderLocked(csd: ByteArray, width: Int, height: Int) {
         releaseVideoDecoderOnly()
         val surface = outputSurface ?: return
-        val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height).apply {
-            setByteBuffer("csd-0", ByteBuffer.wrap(csd))
+        val (csd0, csd1) = splitAvcCodecConfig(csd)
+
+        fun buildDecoderFormat(enableLowLatency: Boolean): MediaFormat =
+            MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height).apply {
+                setByteBuffer("csd-0", ByteBuffer.wrap(csd0))
+                if (csd1 != null) {
+                    setByteBuffer("csd-1", ByteBuffer.wrap(csd1))
+                }
+                if (enableLowLatency && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
+                }
+            }
+
+        val attempts = buildList<Pair<String?, Boolean>> {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
+                add(null to true)
+            }
+            add(null to false)
+            add("c2.android.avc.decoder" to false)
+            add("OMX.google.h264.decoder" to false)
+        }
+
+        var lastError: Throwable? = null
+        for ((explicitName, lowLatency) in attempts) {
+            var codec: MediaCodec? = null
+            try {
+                codec = if (explicitName != null) {
+                    MediaCodec.createByCodecName(explicitName)
+                } else {
+                    MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
+                }
+                codec.configure(buildDecoderFormat(lowLatency), surface, null, 0)
+                codec.start()
+                videoDecoder = codec
+                sequenceTracker.reset(awaitIdr = true)
+                return
+            } catch (err: Throwable) {
+                lastError = err
+                runCatching { codec?.stop() }
+                runCatching { codec?.release() }
             }
         }
-        var codec: MediaCodec? = null
-        try {
-            codec = MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
-            codec.configure(format, surface, null, 0)
-            codec.start()
-            videoDecoder = codec
-            sequenceTracker.awaitingIdr = true
-        } catch (err: Throwable) {
-            runCatching { codec?.stop() }
-            runCatching { codec?.release() }
-            throw err
+        throw IllegalStateException(
+            lastError?.localizedMessage ?: "تعذر تهيئة مفكك فيديو H.264 على هذا الجهاز.",
+            lastError
+        )
+    }
+
+    private fun drainDecoderOutputsLocked(codec: MediaCodec, renderToSurface: Boolean, waitForFirstFrameUs: Long) {
+        val info = MediaCodec.BufferInfo()
+        var waitBudgetUs = if (!firstFrameRenderedOnCurrentSurface && renderToSurface) waitForFirstFrameUs else 0L
+        var safetyIterations = 0
+        while (safetyIterations++ < 16) {
+            val outIdx = codec.dequeueOutputBuffer(info, waitBudgetUs)
+            waitBudgetUs = 0L
+            when {
+                outIdx >= 0 -> {
+                    val shouldRender = renderToSurface && outputSurface != null
+                    codec.releaseOutputBuffer(outIdx, shouldRender)
+                    if (shouldRender && !firstFrameRenderedOnCurrentSurface) {
+                        firstFrameRenderedOnCurrentSurface = true
+                        runCatching { onFirstFrameRendered() }
+                    }
+                }
+                outIdx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
+                    val fmt = runCatching { codec.outputFormat }.getOrNull()
+                    if (fmt != null) {
+                        val outW = runCatching { fmt.getInteger(MediaFormat.KEY_WIDTH) }.getOrDefault(configuredWidth)
+                        val outH = runCatching { fmt.getInteger(MediaFormat.KEY_HEIGHT) }.getOrDefault(configuredHeight)
+                        if (outW > 0 && outH > 0 && (outW != configuredWidth || outH != configuredHeight)) {
+                            configuredWidth = outW
+                            configuredHeight = outH
+                            onVideoDimensionsChanged(outW, outH, configuredRotation)
+                        }
+                    }
+                    if (!firstFrameRenderedOnCurrentSurface && renderToSurface) {
+                        waitBudgetUs = waitForFirstFrameUs
+                    }
+                }
+                @Suppress("DEPRECATION")
+                (outIdx == MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED) -> {
+                    if (!firstFrameRenderedOnCurrentSurface && renderToSurface) {
+                        waitBudgetUs = waitForFirstFrameUs
+                    }
+                }
+                else -> break
+            }
+        }
+    }
+
+    private fun scheduleAsyncFirstFrameDrain() {
+        for (delayMs in longArrayOf(15L, 45L, 100L)) {
+            drainHandler.postDelayed({
+                synchronized(lock) {
+                    if (closed || firstFrameRenderedOnCurrentSurface) return@synchronized
+                    val codec = videoDecoder ?: return@synchronized
+                    val render = outputSurface != null
+                    runCatching { drainDecoderOutputsLocked(codec, render, 5_000L) }
+                }
+            }, delayMs)
         }
     }
 
@@ -1015,21 +1452,13 @@ internal class AndroidScreenMirrorDecoder(
     ) {
         try {
             val adapter = object : VideoCodecBufferAdapter {
-                private val info = MediaCodec.BufferInfo()
                 override fun dequeueInputBuffer(timeoutUs: Long): Int = codec.dequeueInputBuffer(timeoutUs)
                 override fun getInputBuffer(index: Int): ByteBuffer? = codec.getInputBuffer(index)
                 override fun queueInputBuffer(index: Int, offset: Int, size: Int, ptsUs: Long, flags: Int) {
                     codec.queueInputBuffer(index, offset, size, ptsUs, flags)
                 }
                 override fun drainOutputs(renderToSurface: Boolean) {
-                    while (true) {
-                        val outIdx = codec.dequeueOutputBuffer(info, 0L)
-                        if (outIdx >= 0) {
-                            codec.releaseOutputBuffer(outIdx, renderToSurface)
-                        } else {
-                            break
-                        }
-                    }
+                    drainDecoderOutputsLocked(codec, renderToSurface, waitForFirstFrameUs = 8_000L)
                 }
             }
             val result = VideoDecoderBufferFeeder.feedFrame(
@@ -1049,10 +1478,12 @@ internal class AndroidScreenMirrorDecoder(
                     )
                 }
             )
-            if (result != VideoInputFeedResult.FED && isIdr) {
+            if (result == VideoInputFeedResult.FED && !firstFrameRenderedOnCurrentSurface) {
+                scheduleAsyncFirstFrameDrain()
+            } else if (result != VideoInputFeedResult.FED && isIdr) {
                 sequenceTracker.awaitingIdr = true
             }
-        } catch (err: Exception) {
+        } catch (_: Exception) {
             sequenceTracker.awaitingIdr = true
             releaseVideoDecoderOnly()
             lastVideoConfig?.let { cfg ->
@@ -1066,8 +1497,12 @@ internal class AndroidScreenMirrorDecoder(
 
     private fun configureAudioDecoderLocked(asc: ByteArray) {
         releaseAudioOnly()
-        val sampleRate = 48_000
-        val channelCount = 2
+        val (sampleRate, channelCount) = parseAacAudioSpecificConfig(asc)
+        val outChannelMask = if (channelCount == 1) {
+            AudioFormat.CHANNEL_OUT_MONO
+        } else {
+            AudioFormat.CHANNEL_OUT_STEREO
+        }
         val format = MediaFormat.createAudioFormat(
             MediaFormat.MIMETYPE_AUDIO_AAC,
             sampleRate,
@@ -1084,7 +1519,7 @@ internal class AndroidScreenMirrorDecoder(
 
             val minBuf = AudioTrack.getMinBufferSize(
                 sampleRate,
-                AudioFormat.CHANNEL_OUT_STEREO,
+                outChannelMask,
                 AudioFormat.ENCODING_PCM_16BIT
             ).coerceAtLeast(8192)
             track = AudioTrack.Builder()
@@ -1098,7 +1533,7 @@ internal class AndroidScreenMirrorDecoder(
                     AudioFormat.Builder()
                         .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                         .setSampleRate(sampleRate)
-                        .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
+                        .setChannelMask(outChannelMask)
                         .build()
                 )
                 .setTransferMode(AudioTrack.MODE_STREAM)
@@ -1156,6 +1591,7 @@ internal class AndroidScreenMirrorDecoder(
     }
 
     private fun releaseVideoDecoderOnly() {
+        drainHandler.removeCallbacksAndMessages(null)
         runCatching { videoDecoder?.stop() }
         runCatching { videoDecoder?.release() }
         videoDecoder = null
@@ -1176,8 +1612,10 @@ internal class AndroidScreenMirrorDecoder(
             if (closed) return
             closed = true
             outputSurface = null
+            pendingPreSurfaceIdr = null
             releaseVideoDecoderOnly()
             releaseAudioOnly()
+            runCatching { drainThread.quitSafely() }
         }
     }
 }

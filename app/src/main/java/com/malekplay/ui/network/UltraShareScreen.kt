@@ -894,7 +894,7 @@ class LegacyUltraShareViewModel @Inject constructor(
                     _state.value = _state.value.copy(
                         hotspotStarting = false,
                         error = failure.localizedMessage
-                            ?: "تعذر تشغيل نقطة الاتصال المحلية البديلة. تحقق من إذن الأجهزة القريبة ودعم Wi-Fi في الجهاز."
+                            ?: UltraSharePlatformCompatibility.securityExceptionMessage(context, "لتشغيل نقطة الاتصال المحلية البديلة")
                     )
                     publishStableReceiverQrIfReady()
                 }

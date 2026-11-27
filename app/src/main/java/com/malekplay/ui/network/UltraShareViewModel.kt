@@ -100,13 +100,34 @@ data class UltraShareUiState(
     val approvedSenderPeerHosts: List<String> = emptyList(),
     val reconnectableSenderPeerHosts: List<String> = emptyList(),
     val peerDeliveryEntries: List<com.malekplay.network.UltraSharePeerDeliveryEntry> = emptyList(),
+    val roomStartedAtMillis: Long = 0L,
     val roomResetGeneration: Long = 0L,
     val mirrorHostState: UltraShareScreenMirrorService.MirrorHostState =
         UltraShareScreenMirrorService.MirrorHostState(),
     val incomingMirrorOffer: IncomingMirrorOffer? = null,
     val watchingMirrorSession: IncomingMirrorOffer? = null,
-    val mirrorAudioRequested: Boolean = false
+    val mirrorAudioRequested: Boolean = false,
+    val mirrorAudioMode: com.malekplay.network.UltraShareScreenMirrorPolicy.MirrorAudioMode =
+        com.malekplay.network.UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE
 )
+
+/**
+ * Pure policy deciding whether a newly received [IncomingMirrorOffer] should automatically open
+ * the viewer modal on paired peers:
+ * - Opens once per distinct `sessionId` when this device is not currently hosting a mirror stream.
+ * - Never force-reopens a session the user already viewed and manually closed (`lastAutoOpenedSessionId`).
+ */
+internal fun shouldAutoOpenIncomingMirrorOffer(
+    incomingSessionId: String?,
+    currentWatchingSessionId: String?,
+    lastAutoOpenedSessionId: String?,
+    localMirrorHostActive: Boolean
+): Boolean {
+    if (incomingSessionId.isNullOrBlank()) return false
+    if (localMirrorHostActive) return false
+    if (!currentWatchingSessionId.isNullOrBlank()) return false
+    return incomingSessionId != lastAutoOpenedSessionId
+}
 
 @HiltViewModel
 class UltraShareViewModel @Inject constructor(
@@ -182,6 +203,7 @@ class UltraShareViewModel @Inject constructor(
     private var dnsSdQrFallbackScheduledFor: String? = null
     @Volatile private var wifiDirectAdvertisedInvitationId: String? = null
     private var wifiDirectCleanupInProgress = false
+    private var lastAutoOpenedMirrorSessionId: String? = null
     private companion object {
         const val PEER_SIGHTING_TTL_MS = 12_000L
         @Volatile private var retainedHotspotNetworkCallback:
@@ -219,11 +241,31 @@ class UltraShareViewModel @Inject constructor(
                 val current = _state.value
                 val received = serviceState.receivedFile
                 val roomPresentationWasReset = serviceState.roomResetGeneration != current.roomResetGeneration
+                if (roomPresentationWasReset) {
+                    lastAutoOpenedMirrorSessionId = null
+                }
+                val incomingOffer = serviceState.incomingMirrorOffer
+                val autoOpenOffer = shouldAutoOpenIncomingMirrorOffer(
+                    incomingSessionId = incomingOffer?.sessionId,
+                    currentWatchingSessionId = current.watchingMirrorSession?.sessionId,
+                    lastAutoOpenedSessionId = lastAutoOpenedMirrorSessionId,
+                    localMirrorHostActive = current.mirrorHostState.active || current.mirrorHostState.starting
+                )
+                if (autoOpenOffer && incomingOffer != null) {
+                    lastAutoOpenedMirrorSessionId = incomingOffer.sessionId
+                    UltraShareForegroundService.sendMirrorViewerAction(
+                        context = context,
+                        hostAddress = incomingOffer.hostAddress,
+                        sessionId = incomingOffer.sessionId,
+                        action = UltraShareScreenMirrorProtocol.ViewerAction.JOINED
+                    )
+                }
                 val updatedWatching = when {
+                    autoOpenOffer && incomingOffer != null -> incomingOffer
                     current.watchingMirrorSession == null -> null
-                    serviceState.incomingMirrorOffer == null -> null
-                    serviceState.incomingMirrorOffer.sessionId == current.watchingMirrorSession.sessionId ->
-                        serviceState.incomingMirrorOffer
+                    incomingOffer == null -> null
+                    incomingOffer.sessionId == current.watchingMirrorSession.sessionId ->
+                        incomingOffer
                     else -> current.watchingMirrorSession
                 }
                 val stoppedWatchingNotice = current.watchingMirrorSession != null && updatedWatching == null
@@ -277,6 +319,7 @@ class UltraShareViewModel @Inject constructor(
                     activePeers = serviceState.roomPeers.ifEmpty { serviceState.activePeers },
                     reconnectablePeers = serviceState.reconnectablePeers,
                     peerTransfers = serviceState.peerTransfers,
+                    roomStartedAtMillis = serviceState.roomStartedAtMillis,
                     roomResetGeneration = serviceState.roomResetGeneration,
                     approvedSenderPeerCount = serviceState.approvedSenderPeerHosts.size,
                     approvedSenderPeerHosts = serviceState.approvedSenderPeerHosts,
@@ -497,14 +540,24 @@ class UltraShareViewModel @Inject constructor(
             return
         }
 
-        val requiredPermissions = UltraSharePlatformCompatibility.wifiDirectRuntimePermissions(Build.VERSION.SDK_INT)
-        val missingPermissions = requiredPermissions.filter {
-            androidx.core.content.ContextCompat.checkSelfPermission(context, it) !=
-                android.content.pm.PackageManager.PERMISSION_GRANTED
-        }
-        if (missingPermissions.isNotEmpty()) {
-            UltraShareDiagnostics.event("PAIRING", "WIFI_DIRECT_PERMISSION_MISSING_FALLING_BACK_TO_LAN")
-            startHotspotFallback("لم يُمنح إذن Wi-Fi Direct؛ تم الانتقال تلقائياً إلى الشبكة المحلية (LAN).")
+        val wifiDirectPrereq = UltraSharePlatformCompatibility.evaluateWifiDirectPrerequisite(context)
+        if (wifiDirectPrereq != UltraSharePlatformCompatibility.WifiDirectPrerequisiteResult.OK) {
+            UltraShareDiagnostics.event(
+                "PAIRING",
+                "WIFI_DIRECT_PREREQUISITE_MISSING_FALLING_BACK_TO_LAN",
+                mapOf("reason" to wifiDirectPrereq.name)
+            )
+            val fallbackMessage = when (wifiDirectPrereq) {
+                UltraSharePlatformCompatibility.WifiDirectPrerequisiteResult.LOCATION_SERVICE_DISABLED ->
+                    "خدمة الموقع متوقفة في إعدادات الهاتف؛ تم الانتقال تلقائياً إلى نقطة الاتصال / الشبكة المحلية (LAN)."
+                UltraSharePlatformCompatibility.WifiDirectPrerequisiteResult.LOCATION_PERMISSION_MISSING ->
+                    "لم يُمنح إذن الموقع؛ تم الانتقال تلقائياً إلى الشبكة المحلية (LAN)."
+                UltraSharePlatformCompatibility.WifiDirectPrerequisiteResult.NEARBY_PERMISSION_MISSING ->
+                    "لم يُمنح إذن الأجهزة القريبة؛ تم الانتقال تلقائياً إلى الشبكة المحلية (LAN)."
+                UltraSharePlatformCompatibility.WifiDirectPrerequisiteResult.OK ->
+                    "تم الانتقال تلقائياً إلى الشبكة المحلية (LAN)."
+            }
+            startHotspotFallback(fallbackMessage)
             return
         }
 
@@ -820,6 +873,7 @@ class UltraShareViewModel @Inject constructor(
                                 networks = routeNetworks.drop(1),
                                 peerId = UltraShareDiscovery.localPeerId(context),
                                 expectedPeerId = expectedRemotePeerId,
+                                notifyClientSessionReady = true,
                                 onSessionClosed = { disconnectedHost ->
                                     UltraShareForegroundService.disconnectApprovedPeer(disconnectedHost)
                                     forgetApprovedSenderTarget(disconnectedHost)
@@ -941,6 +995,11 @@ class UltraShareViewModel @Inject constructor(
                         routeCandidates = sendRoutes,
                         sessionId = sessionId
                     )
+                    // Ensure the client-side Mesh room handshake & MPC2 mirror control pump
+                    // start immediately even when Service.onCreate() had not run before request().
+                    runCatching {
+                        UltraShareForegroundService.startMeshSession(context, connectedHost)
+                    }
                     _state.value = _state.value.copy(
                         approvedPeerHost = connectedHost,
                         peerDataChannelReady = dataReady,
@@ -1011,6 +1070,14 @@ private fun forgetApprovedSenderTarget(host: String) {
         UltraShareForegroundService.disconnectApprovedPeer(host)
         forgetApprovedSenderTarget(host)
         if (UltraShareForegroundService.approvedSendTargets().isEmpty()) releaseLegacyWifiNetwork()
+        // When no authenticated peers remain this is a full session end. Cancel any
+        // in-flight send/receive jobs and clear the live transfer room, while preserving
+        // completed files on disk and the permanent transfer history.
+        if (UltraShareForegroundService.approvedSendTargets().isEmpty() &&
+            UltraShareForegroundService.state.value.activePeers.isEmpty()
+        ) {
+            UltraShareForegroundService.clearRoomTransferPresentationForSessionEnd(context)
+        }
         // This is an explicit user disconnect. Stop only an otherwise-idle sender
         // service; an active receiver remains available for other incoming peers.
         UltraShareForegroundService.stopIfUnpaired(context)
@@ -1029,6 +1096,11 @@ private fun forgetApprovedSenderTarget(host: String) {
         UltraShareForegroundService.disconnectApprovedPeer(host)
         forgetApprovedSenderTarget(host)
         if (UltraShareForegroundService.approvedSendTargets().isEmpty()) releaseLegacyWifiNetwork()
+        if (UltraShareForegroundService.approvedSendTargets().isEmpty() &&
+            UltraShareForegroundService.state.value.activePeers.isEmpty()
+        ) {
+            UltraShareForegroundService.clearRoomTransferPresentationForSessionEnd(context)
+        }
         UltraShareForegroundService.stopIfUnpaired(context)
     }
 
@@ -1038,7 +1110,60 @@ private fun forgetApprovedSenderTarget(host: String) {
         UltraShareForegroundService.disconnectApprovedPeer(currentHost)
         forgetApprovedSenderTarget(currentHost)
         if (UltraShareForegroundService.approvedSendTargets().isEmpty()) releaseLegacyWifiNetwork()
+        if (UltraShareForegroundService.approvedSendTargets().isEmpty() &&
+            UltraShareForegroundService.state.value.activePeers.isEmpty()
+        ) {
+            UltraShareForegroundService.clearRoomTransferPresentationForSessionEnd(context)
+        }
         UltraShareForegroundService.stopIfUnpaired(context)
+    }
+
+    /**
+     * Leaves the temporary Transfer Room cleanly regardless of whether this device created or
+     * joined the group: stops any active mirror viewer/host, cancels in-flight transfers, closes
+     * peer sessions and group routes, and resets transient room UI while preserving completed
+     * files in Downloads/MalekPlayer and permanent transfer history.
+     */
+    fun leaveSessionRoom() {
+        leaveMirrorViewer()
+        stopHostScreenMirroring()
+        val allHosts = (
+            _state.value.activePeers.map { it.host } +
+                _state.value.approvedSenderPeerHosts +
+                UltraShareForegroundService.state.value.activePeers.map { it.host } +
+                UltraShareForegroundService.approvedSendTargets().map { it.host }
+            ).distinct()
+        allHosts.forEach { host ->
+            UltraShareForegroundService.disconnectApprovedPeer(host)
+            forgetApprovedSenderTarget(host)
+        }
+        UltraShareForegroundService.clearRoomTransferPresentationForSessionEnd(context)
+        if (_state.value.receiving || UltraShareForegroundService.state.value.receiving) {
+            stopReceiving()
+        } else {
+            releaseLegacyWifiNetwork()
+            UltraShareForegroundService.stopIfUnpaired(context)
+        }
+        lastAutoOpenedMirrorSessionId = null
+        _state.value = _state.value.copy(
+            activePeers = emptyList(),
+            approvedPeerHost = null,
+            approvedSenderPeerCount = 0,
+            approvedSenderPeerHosts = emptyList(),
+            peerTransfers = emptyList(),
+            progress = null,
+            sendProgress = null,
+            receiveProgress = null,
+            receivedFile = null,
+            queueCompleted = 0,
+            queueTotal = 0,
+            queueCurrentName = null,
+            queueTotalBytes = 0L,
+            queueTransferredBytes = 0L,
+            incomingMirrorOffer = null,
+            watchingMirrorSession = null,
+            error = null
+        )
     }
 
     fun acceptConnection() {
@@ -1084,11 +1209,19 @@ private fun forgetApprovedSenderTarget(host: String) {
         // End the logical receive session before asynchronous P2P cleanup callbacks
         // arrive; otherwise an old discovery error can accidentally start hotspot
         // fallback while the user is explicitly stopping reception.
+        val allHosts = (
+            _state.value.activePeers.map { it.host } +
+                _state.value.approvedSenderPeerHosts +
+                UltraShareForegroundService.approvedSendTargets().map { it.host }
+            ).distinct()
+        allHosts.forEach(::forgetApprovedSenderTarget)
         UltraShareForegroundService.stopReceiving(context)
-        if (UltraShareForegroundService.approvedSendTargets().isEmpty()) releaseLegacyWifiNetwork()
+        releaseLegacyWifiNetwork()
         clearStoredInvitation()
+        lastAutoOpenedMirrorSessionId = null
         _state.value = _state.value.copy(
             receiving = false,
+            sending = false,
             receiverQrPayload = null,
             controlChannelReady = false,
             dataChannelReady = false,
@@ -1106,7 +1239,22 @@ private fun forgetApprovedSenderTarget(host: String) {
             requestingConnection = false,
             lanFallbackReady = false,
             localAddresses = emptyList(),
-            progress = if (_state.value.sending) UltraShareForegroundService.state.value.sendProgress else null,
+            activePeers = emptyList(),
+            approvedPeerHost = null,
+            approvedSenderPeerCount = 0,
+            approvedSenderPeerHosts = emptyList(),
+            peerTransfers = emptyList(),
+            progress = null,
+            sendProgress = null,
+            receiveProgress = null,
+            receivedFile = null,
+            queueCompleted = 0,
+            queueTotal = 0,
+            queueCurrentName = null,
+            queueTotalBytes = 0L,
+            queueTransferredBytes = 0L,
+            incomingMirrorOffer = null,
+            watchingMirrorSession = null,
             status = context.getString(R.string.ultra_share_stopped)
         )
         if (session != null) {
@@ -1179,15 +1327,11 @@ private fun forgetApprovedSenderTarget(host: String) {
         reason: String
     ): Boolean {
         val invitationId = pairing.invitationId?.takeIf { it.isNotBlank() } ?: return false
-        val required = UltraSharePlatformCompatibility.wifiDirectRuntimePermissions(Build.VERSION.SDK_INT)
-        val missing = required.filter {
-            androidx.core.content.ContextCompat.checkSelfPermission(context, it) !=
-                android.content.pm.PackageManager.PERMISSION_GRANTED
-        }
-        if (missing.isNotEmpty()) {
+        val prereq = UltraSharePlatformCompatibility.evaluateWifiDirectPrerequisite(context)
+        if (prereq != UltraSharePlatformCompatibility.WifiDirectPrerequisiteResult.OK) {
             _state.value = _state.value.copy(
                 requestingConnection = false,
-                error = "$reason امنح إذن Wi-Fi Direct ثم أعد محاولة الانضمام."
+                error = "$reason ${UltraSharePlatformCompatibility.messageFor(prereq)}"
             )
             return true
         }
@@ -1228,6 +1372,8 @@ private fun forgetApprovedSenderTarget(host: String) {
     }
 
     @Suppress("DEPRECATION")
+    @Suppress("DEPRECATION")
+    @android.annotation.SuppressLint("MissingPermission")
     private fun connectLegacyWifiNetwork(
         pairing: com.malekplay.network.UltraShareQrCode.PairingDetails,
         allowWifiDirectFallback: Boolean = true
@@ -1245,6 +1391,29 @@ private fun forgetApprovedSenderTarget(host: String) {
         val password = pairing.hotspotPassword ?: return
         runCatching {
             if (!wifi.isWifiEnabled) wifi.isWifiEnabled = true
+            val wifiPreferences = context.getSharedPreferences("ultra_share_wifi", Context.MODE_PRIVATE)
+            val staleId = wifiPreferences.getInt("legacy_network_id", -1).takeIf { it >= 0 }
+            if (staleId != null) {
+                runCatching { wifi.disableNetwork(staleId) }
+                runCatching { wifi.removeNetwork(staleId) }
+                wifiPreferences.edit().remove("legacy_network_id").apply()
+            }
+            // Remove any leftover temporary DIRECT-* profile with the exact same SSID from an
+            // interrupted attempt so WifiManager.addNetwork does not fail with -1 on Android 6–8.
+            val normalizedTargetSsid = ssid.trim().removeSurrounding("\"")
+            if (normalizedTargetSsid.startsWith("DIRECT-")) {
+                runCatching {
+                    wifi.configuredNetworks?.forEach { existing ->
+                        val existingSsid = existing.SSID?.trim()?.removeSurrounding("\"")
+                        if (existingSsid == normalizedTargetSsid) {
+                            runCatching { wifi.removeNetwork(existing.networkId) }
+                        }
+                    }
+                }
+            }
+            // Refresh wpa_supplicant BSS cache so newly created GO channels are visible promptly.
+            runCatching { wifi.startScan() }
+
             val configuration = com.malekplay.network.buildUltraShareLegacyWifiConfiguration(
                 ssid,
                 password
@@ -1262,26 +1431,25 @@ private fun forgetApprovedSenderTarget(host: String) {
             // reconnect() may return false on OEM builds while association is
             // already in progress; enableNetwork() is the authoritative result.
             runCatching { wifi.reconnect() }
-            val wifiPreferences = context.getSharedPreferences("ultra_share_wifi", Context.MODE_PRIVATE)
-            val previousNetworkId = wifiPreferences.getInt("legacy_network_id", -1)
-                .takeIf { it >= 0 }
-            previousNetworkId?.takeIf { it != networkId }?.let { oldId ->
-                runCatching { wifi.removeNetwork(oldId) }
-            }
             wifiPreferences.edit().putInt("legacy_network_id", networkId).apply()
             _state.value = _state.value.copy(
                 requestingConnection = true,
                 error = null,
-                status = "تم إعداد الاتصال بشبكة المجموعة؛ جارٍ انتظار اتصال Wi-Fi ثم توثيق MPC2..."
+                status = "تم إعداد الاتصال بشبكة المجموعة؛ جارٍ انتظار اتصال Wi-Fi وتعيين العنوان ثم توثيق MPC2..."
             )
             viewModelScope.launch {
+                val hosts = (pairing.hosts + pairing.host).distinct()
+                val targetHost = hosts.firstOrNull { UltraShareCore.isValidPrivateLanHost(it) }
                 // Association is asynchronous on Android 6–9 and differs across OEMs.
                 // Wait for the actual supplicant/network ID instead of assuming a
                 // fixed delay means the phone has joined the DIRECT SoftAP.
-                val associated = kotlinx.coroutines.withTimeoutOrNull(10_000L) {
+                val associated = kotlinx.coroutines.withTimeoutOrNull(12_000L) {
                     var connected = false
                     while (!connected) {
                         val info = runCatching { wifi.connectionInfo }.getOrNull()
+                        val hasSubnetRoute = targetHost != null &&
+                            com.malekplay.network.ScreenMirrorViewerClient
+                                .findMatchingLocalInterfaceAddress(targetHost) != null
                         connected = com.malekplay.network.UltraSharePlatformCompatibility
                             .isLegacyWifiNetworkConnected(
                                 expectedNetworkId = networkId,
@@ -1289,7 +1457,8 @@ private fun forgetApprovedSenderTarget(host: String) {
                                 expectedSsid = ssid,
                                 actualSsid = info?.ssid,
                                 supplicantCompleted = info?.supplicantState ==
-                                    android.net.wifi.SupplicantState.COMPLETED
+                                    android.net.wifi.SupplicantState.COMPLETED,
+                                hasVerifiedTargetSubnetRoute = hasSubnetRoute
                             )
                         if (!connected) delay(250L)
                     }
@@ -1303,8 +1472,6 @@ private fun forgetApprovedSenderTarget(host: String) {
                     }
                     return@launch
                 }
-                val hosts = (pairing.hosts + pairing.host).distinct()
-                val targetHost = hosts.firstOrNull { UltraShareCore.isValidPrivateLanHost(it) }
                 if (targetHost == null) {
                     releaseLegacyWifiNetwork()
                     _state.value = _state.value.copy(
@@ -1312,6 +1479,17 @@ private fun forgetApprovedSenderTarget(host: String) {
                         error = "لا يحتوي رمز QR على عنوان صالح للوصول إلى الجهاز."
                     )
                     return@launch
+                }
+                // Wait boundedly for DHCP IPv4 / subnet assignment after SupplicantState.COMPLETED
+                // (Android 6 dhcpcd commonly takes 1–3s after association before packets can route).
+                kotlinx.coroutines.withTimeoutOrNull(4_500L) {
+                    while (true) {
+                        val ipAssigned = (runCatching { wifi.connectionInfo?.ipAddress }.getOrNull() ?: 0) != 0
+                        val routeReady = com.malekplay.network.ScreenMirrorViewerClient
+                            .findMatchingLocalInterfaceAddress(targetHost) != null
+                        if (ipAssigned || routeReady) break
+                        delay(200L)
+                    }
                 }
                 requestConnection(
                     host = targetHost,
@@ -3125,21 +3303,41 @@ private fun forgetApprovedSenderTarget(host: String) {
         _state.value = _state.value.copy(error = null, status = null)
     }
 
+    fun setMirrorAudioMode(mode: com.malekplay.network.UltraShareScreenMirrorPolicy.MirrorAudioMode) {
+        val allowed = com.malekplay.network.UltraShareScreenMirrorPolicy.availableAudioModes(Build.VERSION.SDK_INT)
+        val safeMode = if (mode in allowed) {
+            mode
+        } else {
+            com.malekplay.network.UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE
+        }
+        _state.value = _state.value.copy(
+            mirrorAudioMode = safeMode,
+            mirrorAudioRequested = safeMode != com.malekplay.network.UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE
+        )
+    }
+
     fun setMirrorAudioRequested(enabled: Boolean) {
-        _state.value = _state.value.copy(mirrorAudioRequested = enabled)
+        val nextMode = if (!enabled) {
+            com.malekplay.network.UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE
+        } else if (com.malekplay.network.UltraShareScreenMirrorPolicy.supportsSystemAudioCapture(Build.VERSION.SDK_INT)) {
+            com.malekplay.network.UltraShareScreenMirrorPolicy.MirrorAudioMode.SYSTEM_AUDIO
+        } else {
+            com.malekplay.network.UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE
+        }
+        setMirrorAudioMode(nextMode)
     }
 
     fun startHostScreenMirroring(resultCode: Int, data: android.content.Intent) {
         val current = _state.value
-        if (!current.receiving && current.activePeers.isEmpty()) {
-            _state.value = current.copy(error = "يجب أن تكون منشئ المجموعة أولاً.")
+        if (!current.receiving && current.activePeers.isEmpty() && current.approvedSenderPeerHosts.isEmpty()) {
+            _state.value = current.copy(error = "يجب إنشاء مجموعة أو الاقتران بجهاز أولاً قبل مشاركة الشاشة.")
             return
         }
         UltraShareScreenMirrorService.startMirroring(
             context = context,
             resultCode = resultCode,
             data = data,
-            enableAudio = current.mirrorAudioRequested
+            audioMode = current.mirrorAudioMode
         )
     }
 

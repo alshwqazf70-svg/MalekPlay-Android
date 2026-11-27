@@ -76,6 +76,7 @@ class ScreenMirrorBroadcasterHub internal constructor(
     private val configLock = Any()
     @Volatile private var latestVideoConfig: QueuedFrame? = null
     @Volatile private var latestAudioConfig: QueuedFrame? = null
+    @Volatile private var latestVideoKeyframe: QueuedFrame? = null
     @Volatile private var latestProtectedMarker: QueuedFrame? = null
 
     private val viewers = ConcurrentHashMap<String, ViewerConnection>()
@@ -93,6 +94,20 @@ class ScreenMirrorBroadcasterHub internal constructor(
         var awaitingKeyframe = true
         val closedFlag = AtomicBoolean(false)
         @Volatile var writerJob: Job? = null
+
+        fun enqueueInitialKeyframeSnapshot(snapshot: QueuedFrame, needsFreshReferenceChain: Boolean) {
+            if (closedFlag.get()) return
+            synchronized(queueLock) {
+                if (closedFlag.get()) return
+                queue.addLast(snapshot)
+                queuedBytes += snapshot.payload.size
+                // If delta frames had already been encoded after this cached IDR, keep
+                // awaitingKeyframe = true so subsequent deltas referencing missing P-frames
+                // are skipped until the newly requested live IDR arrives.
+                awaitingKeyframe = needsFreshReferenceChain
+                queueLock.notifyAll()
+            }
+        }
 
         fun enqueue(frame: QueuedFrame, isConfig: Boolean) {
             if (closedFlag.get()) return
@@ -303,11 +318,24 @@ class ScreenMirrorBroadcasterHub internal constructor(
             registeredViewer = connection
             notifyViewerCount()
 
-            // Immediately enqueue latest configs & protected indicator, and ask encoder for an IDR.
+            // Immediately enqueue latest configs, protected indicator or cached IDR snapshot,
+            // and ask the upstream encoder for a fresh live IDR.
             synchronized(configLock) {
                 latestVideoConfig?.let { connection.enqueue(it, isConfig = true) }
                 latestAudioConfig?.let { connection.enqueue(it, isConfig = true) }
-                latestProtectedMarker?.let { connection.enqueue(it, isConfig = false) }
+                val protectedMarker = latestProtectedMarker
+                if (protectedMarker != null) {
+                    connection.enqueue(protectedMarker, isConfig = false)
+                } else {
+                    latestVideoKeyframe?.let { cachedIdr ->
+                        val currentSeq = nextVideoFrameSeq.get()
+                        val hadSubsequentDeltas = cachedIdr.mediaSeq < currentSeq
+                        connection.enqueueInitialKeyframeSnapshot(
+                            snapshot = cachedIdr.copy(mediaSeq = currentSeq),
+                            needsFreshReferenceChain = hadSubsequentDeltas
+                        )
+                    }
+                }
             }
             onKeyframeRequested()
 
@@ -390,6 +418,7 @@ class ScreenMirrorBroadcasterHub internal constructor(
         )
         synchronized(configLock) {
             latestVideoConfig = frame
+            latestVideoKeyframe = null
         }
         viewers.values.forEach { it.enqueue(frame, isConfig = true) }
     }
@@ -420,21 +449,27 @@ class ScreenMirrorBroadcasterHub internal constructor(
         rotation: Int
     ) {
         if (!running.get() || encodedBytes.isEmpty()) return
-        synchronized(configLock) { latestProtectedMarker = null }
-        val frame = QueuedFrame(
-            frameType = if (isKeyframe) {
-                UltraShareScreenMirrorProtocol.FrameType.VIDEO_IDR
-            } else {
-                UltraShareScreenMirrorProtocol.FrameType.VIDEO_DELTA
-            },
-            flags = if (isKeyframe) UltraShareScreenMirrorProtocol.FLAG_KEYFRAME else 0,
-            mediaSeq = nextVideoFrameSeq.incrementAndGet(),
-            timestampUs = timestampUs,
-            width = width,
-            height = height,
-            rotation = rotation,
-            payload = encodedBytes.copyOf()
-        )
+        val frame = synchronized(configLock) {
+            latestProtectedMarker = null
+            val created = QueuedFrame(
+                frameType = if (isKeyframe) {
+                    UltraShareScreenMirrorProtocol.FrameType.VIDEO_IDR
+                } else {
+                    UltraShareScreenMirrorProtocol.FrameType.VIDEO_DELTA
+                },
+                flags = if (isKeyframe) UltraShareScreenMirrorProtocol.FLAG_KEYFRAME else 0,
+                mediaSeq = nextVideoFrameSeq.incrementAndGet(),
+                timestampUs = timestampUs,
+                width = width,
+                height = height,
+                rotation = rotation,
+                payload = encodedBytes.copyOf()
+            )
+            if (isKeyframe) {
+                latestVideoKeyframe = created
+            }
+            created
+        }
         viewers.values.forEach { it.enqueue(frame, isConfig = false) }
     }
 
@@ -467,6 +502,9 @@ class ScreenMirrorBroadcasterHub internal constructor(
         )
         synchronized(configLock) {
             latestProtectedMarker = if (active) frame else null
+            if (active) {
+                latestVideoKeyframe = null
+            }
         }
         viewers.values.forEach { it.enqueue(frame, isConfig = false) }
     }
@@ -481,6 +519,12 @@ class ScreenMirrorBroadcasterHub internal constructor(
         runCatching { serverSocket?.close() }
         serverSocket = null
         boundPort = 0
+        synchronized(configLock) {
+            latestVideoConfig = null
+            latestAudioConfig = null
+            latestVideoKeyframe = null
+            latestProtectedMarker = null
+        }
         viewers.values.forEach { it.close() }
         viewers.clear()
         activeSockets.toList().forEach { sock ->

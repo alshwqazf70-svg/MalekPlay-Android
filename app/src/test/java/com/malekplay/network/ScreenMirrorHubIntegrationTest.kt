@@ -11,6 +11,7 @@ import java.net.Socket
 import java.util.Collections
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 class ScreenMirrorHubIntegrationTest {
@@ -362,6 +363,151 @@ class ScreenMirrorHubIntegrationTest {
                 assertEquals(listOf(1L, 2L, 3L, 4L), videoSeqs)
                 assertEquals(0L, client.status.value.audioPacketsReceived)
                 assertEquals(0L, client.status.value.droppedMediaFrames)
+            }
+        }
+    }
+
+    @Test fun lateJoiningViewerAlwaysReceivesVideoConfigBeforeFirstVideoFrame() {
+        val authorized = setOf(viewerOneId)
+        val hub = ScreenMirrorBroadcasterHub(
+            sessionId = sessionId,
+            hostPeerId = hostPeerId,
+            streamKey = streamKey,
+            authorizedViewerIdsProvider = { authorized },
+            allowLoopbackForTest = true
+        )
+
+        hub.use { server ->
+            val port = server.start(0)
+            // Publish the codec config BEFORE the viewer connects: this exercises the
+            // late-join cache that lets a viewer decode the very first frame it receives.
+            val spsPps = byteArrayOf(0, 0, 0, 1, 0x67, 0x42, 0, 0x1e, 0, 0, 0, 1, 0x68, 0xce.toByte(), 0x3c, 0x80.toByte())
+            server.publishVideoConfig(spsPps, 720, 1280, 0)
+
+            val received = Collections.synchronizedList(mutableListOf<UltraShareScreenMirrorProtocol.MediaFrame>())
+            val configSeen = AtomicBoolean(false)
+            val videoBeforeConfig = AtomicBoolean(false)
+            val videoReady = CountDownLatch(1)
+
+            val client = ScreenMirrorViewerClient(
+                context = null,
+                hostAddress = "127.0.0.1",
+                streamPort = port,
+                sessionId = sessionId,
+                hostPeerId = hostPeerId,
+                localViewerPeerId = viewerOneId,
+                streamKey = streamKey,
+                allowLoopbackForTest = true,
+                maxReconnectAttempts = 1,
+                frameSink = { frame ->
+                    received.add(frame)
+                    when (frame.header.frameType) {
+                        UltraShareScreenMirrorProtocol.FrameType.VIDEO_CONFIG -> configSeen.set(true)
+                        UltraShareScreenMirrorProtocol.FrameType.VIDEO_IDR,
+                        UltraShareScreenMirrorProtocol.FrameType.VIDEO_DELTA -> {
+                            if (!configSeen.get()) videoBeforeConfig.set(true)
+                            videoReady.countDown()
+                        }
+                        else -> Unit
+                    }
+                }
+            )
+
+            client.use {
+                client.start()
+                // Let the viewer receive the cached config before the host pushes video.
+                Thread.sleep(500L)
+                server.publishVideoFrame(byteArrayOf(0, 0, 0, 1, 0x65, 1, 2, 3), isKeyframe = true, 1_000L, 720, 1280, 0)
+
+                assertTrue("Viewer must receive at least one video frame", videoReady.await(5, TimeUnit.SECONDS))
+                assertTrue("Viewer must receive VIDEO_CONFIG before any video frame", configSeen.get())
+                assertFalse("A video frame must never arrive before its codec config", videoBeforeConfig.get())
+                assertEquals(
+                    spsPps.toList(),
+                    received.first { it.header.frameType == UltraShareScreenMirrorProtocol.FrameType.VIDEO_CONFIG }.payload.toList()
+                )
+            }
+        }
+    }
+
+    @Test
+    fun lateJoiningViewerImmediatelyReceivesConfigThenCachedKeyframeAndEntersStreamingOnlyAfterRender() {
+        val authorized = setOf(viewerOneId)
+        val hub = ScreenMirrorBroadcasterHub(
+            sessionId = sessionId,
+            hostPeerId = hostPeerId,
+            streamKey = streamKey,
+            authorizedViewerIdsProvider = { authorized },
+            allowLoopbackForTest = true
+        )
+        hub.use { server ->
+            val port = server.start(0)
+            val spsPps = byteArrayOf(0, 0, 0, 1, 0x67, 0x42, 0x00, 0x1E, 0, 0, 0, 1, 0x68, 0xCE.toByte(), 0x38, 0x80.toByte())
+            val keyframePayload = byteArrayOf(0, 0, 0, 1, 0x65, 9, 8, 7, 6)
+            // Host publishes both VIDEO_CONFIG and the initial IDR BEFORE the viewer connects
+            // (simulating a static Android 6/10 screen where no new frame is emitted right after join).
+            server.publishVideoConfig(spsPps, 720, 1280, 0)
+            server.publishVideoFrame(
+                encodedBytes = keyframePayload,
+                isKeyframe = true,
+                timestampUs = 42_000L,
+                width = 720,
+                height = 1280,
+                rotation = 0
+            )
+
+            val receivedTypes = Collections.synchronizedList(mutableListOf<UltraShareScreenMirrorProtocol.FrameType>())
+            val idrLatch = CountDownLatch(1)
+
+            val client = ScreenMirrorViewerClient(
+                context = null,
+                hostAddress = "127.0.0.1",
+                streamPort = port,
+                sessionId = sessionId,
+                hostPeerId = hostPeerId,
+                localViewerPeerId = viewerOneId,
+                streamKey = streamKey,
+                allowLoopbackForTest = true,
+                maxReconnectAttempts = 1,
+                frameSink = { frame ->
+                    receivedTypes.add(frame.header.frameType)
+                    if (frame.header.frameType == UltraShareScreenMirrorProtocol.FrameType.VIDEO_IDR) {
+                        idrLatch.countDown()
+                    }
+                }
+            )
+
+            client.use {
+                client.start()
+                assertTrue("Late-joining viewer must receive cached VIDEO_IDR immediately without waiting for new screen movement", idrLatch.await(5, TimeUnit.SECONDS))
+                assertEquals(
+                    listOf(
+                        UltraShareScreenMirrorProtocol.FrameType.VIDEO_CONFIG,
+                        UltraShareScreenMirrorProtocol.FrameType.VIDEO_IDR
+                    ),
+                    receivedTypes.take(2)
+                )
+
+                // Before Surface renders the decoded frame, viewer must NOT falsely claim STREAMING:
+                val beforeRender = client.status.value
+                assertFalse("Viewer must not report firstFrameRendered before Surface render callback", beforeRender.firstFrameRendered)
+                assertEquals(
+                    ScreenMirrorViewerClient.ConnectionPhase.FRAME_RECEIVED_RENDERING,
+                    beforeRender.phase
+                )
+
+                // Once the decoder renders onto Surface, phase transitions to STREAMING:
+                client.notifyFirstFrameRendered()
+                val afterRender = client.status.value
+                assertTrue(afterRender.firstFrameRendered)
+                assertEquals(
+                    ScreenMirrorViewerClient.ConnectionPhase.STREAMING,
+                    afterRender.phase
+                )
+
+                // Detaching Surface resets firstFrameRendered cleanly:
+                client.notifySurfaceDetached()
+                assertFalse(client.status.value.firstFrameRendered)
             }
         }
     }

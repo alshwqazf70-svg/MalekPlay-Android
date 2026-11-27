@@ -234,4 +234,98 @@ class UltraShareWifiDirectPolicyTest {
         assertFalse(shouldRetryWifiDirectConnectFailure(2, -1))
     }
 
+    @Test
+    fun retriesTransientNullGroupOwnerAddressWithinBoundedBudget() {
+        assertTrue(shouldRetryMissingWifiDirectGroupOwnerAddress(attempt = 0))
+        assertTrue(shouldRetryMissingWifiDirectGroupOwnerAddress(attempt = 7))
+        assertFalse(shouldRetryMissingWifiDirectGroupOwnerAddress(attempt = 8))
+        assertFalse(shouldRetryMissingWifiDirectGroupOwnerAddress(attempt = -1))
+        assertFalse(shouldRetryMissingWifiDirectGroupOwnerAddress(attempt = 0, maxAttempts = 0))
+    }
+
+    @Test
+    fun authorizesBothExplicitJoinClientAndRoleReversedGroupCreatorWhileBlockingAmbientGroups() {
+        // Explicit client that scanned a QR or tapped Connect:
+        assertTrue(
+            hasAuthorizedWifiDirectClientContext(
+                pairingTargetDeviceAddress = "02:11:22:33:44:55",
+                activeAdvertisedInvitationId = null
+            )
+        )
+        // Device that displayed a QR / opened receiving, when Android 6/10 P2P negotiation
+        // elects the remote joiner as Group Owner (`isGroupOwner == false` locally):
+        assertTrue(
+            hasAuthorizedWifiDirectClientContext(
+                pairingTargetDeviceAddress = null,
+                activeAdvertisedInvitationId = "inv-123456"
+            )
+        )
+        // Ambient / remembered OS-level P2P group with no user-initiated session in MalekPlayer:
+        assertFalse(
+            hasAuthorizedWifiDirectClientContext(
+                pairingTargetDeviceAddress = null,
+                activeAdvertisedInvitationId = null
+            )
+        )
+        assertFalse(
+            hasAuthorizedWifiDirectClientContext(
+                pairingTargetDeviceAddress = "   ",
+                activeAdvertisedInvitationId = ""
+            )
+        )
+    }
+
+    @Test
+    fun autoOpensIncomingMirrorOfferOncePerNewSessionWithoutReopeningAfterManualDismiss() {
+        val offerA = IncomingMirrorOffer(
+            sessionId = "mirror-session-A",
+            hostAddress = "192.168.49.1",
+            hostPeerId = "peer-a6",
+            hostName = "Galaxy J7 (Android 6)",
+            streamPort = 46321,
+            streamKey = ByteArray(16) { it.toByte() },
+            width = 720,
+            height = 1280,
+            fps = 30,
+            audioEnabled = false,
+            revision = 1L
+        )
+        // Fresh incoming offer when viewer is idle -> auto-open!
+        assertTrue(
+            com.malekplay.ui.network.shouldAutoOpenIncomingMirrorOffer(
+                incomingSessionId = offerA.sessionId,
+                currentWatchingSessionId = null,
+                lastAutoOpenedSessionId = null,
+                localMirrorHostActive = false
+            )
+        )
+        // Subsequent MIRROR_UPDATE for the same session after user closed viewer -> do NOT force-reopen!
+        assertFalse(
+            com.malekplay.ui.network.shouldAutoOpenIncomingMirrorOffer(
+                incomingSessionId = offerA.copy(revision = 2L).sessionId,
+                currentWatchingSessionId = null,
+                lastAutoOpenedSessionId = "mirror-session-A",
+                localMirrorHostActive = false
+            )
+        )
+        // Brand-new session started later by the host -> auto-open again!
+        assertTrue(
+            com.malekplay.ui.network.shouldAutoOpenIncomingMirrorOffer(
+                incomingSessionId = offerA.copy(sessionId = "mirror-session-B").sessionId,
+                currentWatchingSessionId = null,
+                lastAutoOpenedSessionId = "mirror-session-A",
+                localMirrorHostActive = false
+            )
+        )
+        // Local device is already hosting its own screen -> never auto-open over local host!
+        assertFalse(
+            com.malekplay.ui.network.shouldAutoOpenIncomingMirrorOffer(
+                incomingSessionId = "mirror-session-C",
+                currentWatchingSessionId = null,
+                lastAutoOpenedSessionId = null,
+                localMirrorHostActive = true
+            )
+        )
+    }
+
 }

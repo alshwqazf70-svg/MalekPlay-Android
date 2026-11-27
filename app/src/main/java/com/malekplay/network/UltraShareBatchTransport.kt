@@ -51,6 +51,44 @@ object UltraShareBatchTransport {
     internal const val MAX_PARALLEL_SOURCE_PREPARATION = 2
     const val MAX_CONCURRENT_PEERS = 16
 
+    private data class ActiveReceiveSocketHandle(
+        val peerHost: String,
+        val socket: Socket,
+        val abortedBySessionReset: java.util.concurrent.atomic.AtomicBoolean =
+            java.util.concurrent.atomic.AtomicBoolean(false)
+    )
+
+    private val activeReceiveSockets =
+        java.util.concurrent.ConcurrentHashMap<Socket, ActiveReceiveSocketHandle>()
+
+    /**
+     * Closes any active incoming batch-receive sockets from [peerHost] without deleting completed
+     * files or corrupting `.part` checkpoints, and suppresses close-induced peer-error noise.
+     */
+    fun abortPeerReceiveSessions(peerHost: String): Int {
+        if (peerHost.isBlank()) return 0
+        var count = 0
+        activeReceiveSockets.values.toList().forEach { handle ->
+            if (handle.peerHost == peerHost) {
+                handle.abortedBySessionReset.set(true)
+                runCatching { handle.socket.close() }
+                count++
+            }
+        }
+        return count
+    }
+
+    /** Closes all active incoming batch-receive sockets when the Transfer Room session ends. */
+    fun abortAllActiveReceiveSessions(): Int {
+        var count = 0
+        activeReceiveSockets.values.toList().forEach { handle ->
+            handle.abortedBySessionReset.set(true)
+            runCatching { handle.socket.close() }
+            count++
+        }
+        return count
+    }
+
     /** Scale parallel receive workers to the Android app heap rather than risking OOM on old phones. */
     internal fun recommendedMaxPeers(memoryClassMb: Int): Int {
         require(memoryClassMb > 0)
@@ -225,6 +263,8 @@ object UltraShareBatchTransport {
                         }
                         launch {
                             val peer = socket.inetAddress.hostAddress ?: "unknown"
+                            val receiveHandle = ActiveReceiveSocketHandle(peerHost = peer, socket = socket)
+                            activeReceiveSockets[socket] = receiveHandle
                             var authenticated = false
                             val socketCancellation = closeSocketOnJobCancellation(
                                 currentCoroutineContext()[Job] ?: error("جلسة النقل بلا Job نشط."),
@@ -287,7 +327,7 @@ object UltraShareBatchTransport {
                                         "PRE_AUTH_PROBE_DISCONNECTED",
                                         mapOf("peerHost" to peer, "reason" to "EOF_BEFORE_PROOF")
                                     )
-                                } else {
+                                } else if (!receiveHandle.abortedBySessionReset.get()) {
                                     UltraShareDiagnostics.failure(
                                         "DATA_RECEIVE_SESSION",
                                         failure,
@@ -296,19 +336,24 @@ object UltraShareBatchTransport {
                                     onPeerError(peer, failure)
                                 }
                             } catch (failure: Exception) {
-                                // Socket.close() is used to unblock a suspended read on cancellation.
-                                // Do not report that expected close-induced IOException as a peer failure.
+                                // Socket.close() is used to unblock a suspended read on cancellation
+                                // or session reset. Do not report that expected close-induced IOException.
                                 currentCoroutineContext().ensureActive()
-                                UltraShareDiagnostics.failure(
-                                    "DATA_RECEIVE_SESSION",
-                                    failure,
-                                    "peerHost=" + peer
-                                )
-                                onPeerError(peer, failure)
+                                if (!receiveHandle.abortedBySessionReset.get()) {
+                                    UltraShareDiagnostics.failure(
+                                        "DATA_RECEIVE_SESSION",
+                                        failure,
+                                        "peerHost=" + peer
+                                    )
+                                    onPeerError(peer, failure)
+                                }
                             } finally {
+                                activeReceiveSockets.remove(socket)
                                 socketCancellation.dispose()
                                 runCatching { socket.close() }
-                                if (authenticated) runCatching { onPeerFinished(peer) }
+                                if (authenticated && !receiveHandle.abortedBySessionReset.get()) {
+                                    runCatching { onPeerFinished(peer) }
+                                }
                                 permits.release()
                             }
                         }

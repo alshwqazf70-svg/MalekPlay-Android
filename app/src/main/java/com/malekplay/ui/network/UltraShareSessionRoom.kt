@@ -53,6 +53,34 @@ import java.util.Date
 import java.util.Locale
 import com.malekplay.core.ui.theme.MalekPlayColors
 import com.malekplay.network.UltraShareQueueStore
+import com.malekplay.network.UltraShareScreenMirrorPolicy
+
+/**
+ * Scopes durable per-peer delivery receipts to the currently active temporary Transfer Room.
+ * Completed entries from older ended sessions stay preserved in DataStore for resume/dedup,
+ * while never leaking into a freshly paired Transfer Room.
+ */
+internal fun filterSessionRoomPeerDeliveries(
+    entries: List<com.malekplay.network.UltraSharePeerDeliveryEntry>,
+    peer: com.malekplay.network.UltraSharePeerSession?,
+    peerHost: String,
+    roomStartedAtMillis: Long
+): List<com.malekplay.network.UltraSharePeerDeliveryEntry> {
+    val cutoffMillis = if (roomStartedAtMillis > 0L) {
+        roomStartedAtMillis
+    } else {
+        peer?.approvedAtMillis ?: 0L
+    }
+    return entries.filter { entry ->
+        val matchesPeer = if (peer != null) {
+            entry.peerSessionId == peer.sessionId
+        } else {
+            entry.peerHost == peerHost
+        }
+        matchesPeer && (cutoffMillis <= 0L || entry.updatedAtMillis >= cutoffMillis)
+    }
+}
+
 @Composable
 fun UltraShareSessionRoom(
     state: UltraShareUiState,
@@ -67,6 +95,9 @@ fun UltraShareSessionRoom(
     onShowGroupQr: () -> Unit,
     onLeaveRoom: () -> Unit,
     onToggleMirrorAudio: (Boolean) -> Unit = {},
+    onSelectMirrorAudioMode: (UltraShareScreenMirrorPolicy.MirrorAudioMode) -> Unit = { mode ->
+        onToggleMirrorAudio(mode != UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE)
+    },
     onStartScreenMirror: () -> Unit = {},
     onStopScreenMirror: () -> Unit = {},
     onJoinScreenMirror: () -> Unit = {},
@@ -241,7 +272,7 @@ fun UltraShareSessionRoom(
             GroupScreenMirrorCard(
                 state = state,
                 connected = connected,
-                onToggleMirrorAudio = onToggleMirrorAudio,
+                onSelectMirrorAudioMode = onSelectMirrorAudioMode,
                 onStartScreenMirror = onStartScreenMirror,
                 onStopScreenMirror = onStopScreenMirror,
                 onJoinScreenMirror = onJoinScreenMirror,
@@ -306,11 +337,13 @@ fun UltraShareSessionRoom(
                         val peer = state.activePeers.firstOrNull { it.host == peerHost }
                         val transfer = state.peerTransfers.firstOrNull { it.host == peerHost }
                         // Keep delivery history attached to the authenticated device
-                        // when its IP changes; host is only a display/routing attribute.
-                        val peerFiles = state.peerDeliveryEntries.filter {
-                            if (peer != null) it.peerSessionId == peer.sessionId
-                            else it.peerHost == peerHost
-                        }
+                        // when its IP changes, while scoping visible items to the active room.
+                        val peerFiles = filterSessionRoomPeerDeliveries(
+                            entries = state.peerDeliveryEntries,
+                            peer = peer,
+                            peerHost = peerHost,
+                            roomStartedAtMillis = state.roomStartedAtMillis
+                        )
                         Column(
                             modifier = Modifier.fillMaxWidth()
                                 .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(12.dp))
@@ -987,10 +1020,77 @@ private fun formatSessionTransferBytes(value: Long): String {
 }
 
 @Composable
+private fun MirrorAudioModeSelector(
+    selectedMode: UltraShareScreenMirrorPolicy.MirrorAudioMode,
+    availableModes: List<UltraShareScreenMirrorPolicy.MirrorAudioMode>,
+    onSelectMode: (UltraShareScreenMirrorPolicy.MirrorAudioMode) -> Unit
+) {
+    val systemAudioSupported = UltraShareScreenMirrorPolicy.MirrorAudioMode.SYSTEM_AUDIO in availableModes
+    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Text(
+            "وضع الصوت أثناء مشاركة الشاشة",
+            color = MaterialTheme.colorScheme.onSurface,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            availableModes.forEach { mode ->
+                val isSelected = selectedMode == mode
+                val label = when (mode) {
+                    UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE -> "فيديو فقط"
+                    UltraShareScreenMirrorPolicy.MirrorAudioMode.SYSTEM_AUDIO -> "صوت الهاتف"
+                    UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE -> "الميكروفون"
+                }
+                if (isSelected) {
+                    Button(
+                        onClick = { onSelectMode(mode) },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MalekPlayColors.PurpleBright,
+                            contentColor = Color(0xFF190F22)
+                        )
+                    ) {
+                        Text(label, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                } else {
+                    OutlinedButton(
+                        onClick = { onSelectMode(mode) },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFD7A0FF)),
+                        border = BorderStroke(1.dp, Color(0xFF9A63C7).copy(alpha = 0.65f))
+                    ) {
+                        Text(label, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+        }
+        Text(
+            when (selectedMode) {
+                UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE ->
+                    "يتم بث صورة الشاشة فقط بأقل استهلاك وأعلى ثبات."
+                UltraShareScreenMirrorPolicy.MirrorAudioMode.SYSTEM_AUDIO ->
+                    "يلتقط صوت الوسائط والتطبيقات التي تسمح بذلك (Android 10+)؛ عند المنع يستمر الفيديو تلقائياً."
+                UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE ->
+                    if (systemAudioSupported) {
+                        "يلتقط صوت الميكروفون الخارجي بشكل مستقل؛ في حال تعذّر الصوت يستمر الفيديو دون توقف."
+                    } else {
+                        "على هذا الإصدار من Android يتوفر فيديو الشاشة مع خيار الميكروفون المستقل؛ يستمر الفيديو دائماً حتى بدون صوت."
+                    }
+            },
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.labelSmall
+        )
+    }
+}
+
+@Composable
 private fun GroupScreenMirrorCard(
     state: UltraShareUiState,
     connected: Boolean,
-    onToggleMirrorAudio: (Boolean) -> Unit,
+    onSelectMirrorAudioMode: (UltraShareScreenMirrorPolicy.MirrorAudioMode) -> Unit,
     onStartScreenMirror: () -> Unit,
     onStopScreenMirror: () -> Unit,
     onJoinScreenMirror: () -> Unit,
@@ -999,10 +1099,9 @@ private fun GroupScreenMirrorCard(
 ) {
     val hostMirror = state.mirrorHostState
     val incomingOffer = state.incomingMirrorOffer
-    val isHostRole = (state.receiving && incomingOffer == null) &&
-        (state.activePeers.isNotEmpty() || hostMirror.active || hostMirror.starting)
+    val canStartLocalMirror = (connected || state.receiving) && incomingOffer == null
     val isWaitingHost = state.receiving && !connected && !hostMirror.active && !hostMirror.starting && incomingOffer == null
-    val audioCaptureSupported = com.malekplay.network.UltraShareScreenMirrorPolicy.supportsAudioPlaybackCapture()
+    val availableAudioModes = UltraShareScreenMirrorPolicy.availableAudioModes()
 
     Column(
         modifier = Modifier
@@ -1043,18 +1142,20 @@ private fun GroupScreenMirrorCard(
                 )
                 Text(
                     when {
+                        hostMirror.starting -> "جارٍ تهيئة التقاط الشاشة والمشفر…"
+                        hostMirror.active && !hostMirror.firstFrameEncoded ->
+                            "بدأ التقاط الشاشة؛ في انتظار أول إطار مشفّر…"
                         hostMirror.active -> "بث شاشة هذا الهاتف نشط الآن (${hostMirror.viewerCount} مشاهد)"
                         incomingOffer != null -> "بث مباشر متاح من ${incomingOffer.hostName}"
-                        isHostRole -> "شارك شاشة هذا الهاتف مع جميع أجهزة المجموعة"
+                        canStartLocalMirror -> "شارك شاشة هذا الهاتف مع أجهزة المجموعة المتصلة"
                         isWaitingHost -> "الغرفة جاهزة — شارك رمز QR أو ابدأ البث فوراً"
-                        connected -> "بانتظار بدء الشاشة الجماعية من منشئ المجموعة"
                         else -> "أنشئ مجموعة لمشاركة شاشتك أو امسح QR لمشاهدة شاشة المضيف"
                     },
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.labelSmall
                 )
             }
-            if (hostMirror.active || incomingOffer != null) {
+            if ((hostMirror.active && hostMirror.firstFrameEncoded) || incomingOffer != null) {
                 Box(
                     modifier = Modifier
                         .background(Color(0xFF65D6A2).copy(alpha = 0.16f), RoundedCornerShape(14.dp))
@@ -1095,6 +1196,11 @@ private fun GroupScreenMirrorCard(
                 }
             }
         } else if (isWaitingHost) {
+            MirrorAudioModeSelector(
+                selectedMode = state.mirrorAudioMode,
+                availableModes = availableAudioModes,
+                onSelectMode = onSelectMirrorAudioMode
+            )
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -1140,7 +1246,7 @@ private fun GroupScreenMirrorCard(
                     fontWeight = FontWeight.ExtraBold
                 )
             }
-        } else if (isHostRole || hostMirror.active || hostMirror.starting) {
+        } else if (canStartLocalMirror || hostMirror.active || hostMirror.starting) {
             if (hostMirror.active || hostMirror.starting) {
                 hostMirror.statusMessage?.let { msg ->
                     Text(
@@ -1150,9 +1256,14 @@ private fun GroupScreenMirrorCard(
                     )
                 }
                 if (hostMirror.width > 0 && hostMirror.height > 0) {
+                    val audioTag = when {
+                        !hostMirror.audioActive -> "فيديو فقط"
+                        hostMirror.audioMode == UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE ->
+                            "الميكروفون مفعّل"
+                        else -> "صوت الهاتف مفعّل"
+                    }
                     Text(
-                        "البث: ${hostMirror.width}×${hostMirror.height} • ${hostMirror.fps} إطار/ث • " +
-                            if (hostMirror.audioActive) "صوت الجهاز مفعّل" else "فيديو فقط",
+                        "البث: ${hostMirror.width}×${hostMirror.height} • ${hostMirror.fps} إطار/ث • $audioTag",
                         color = Color(0xFF65D6A2),
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.SemiBold
@@ -1172,34 +1283,11 @@ private fun GroupScreenMirrorCard(
                     )
                 }
             } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text(
-                            "مشاركة صوت الوسائط والتطبيقات",
-                            color = MaterialTheme.colorScheme.onSurface,
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Text(
-                            if (audioCaptureSupported) {
-                                "يعمل على Android 10 فأعلى للتطبيقات التي تسمح بالتقاط الصوت"
-                            } else {
-                                "غير مدعوم على هذا الإصدار؛ سيعمل البث فيديو فقط تلقائياً"
-                            },
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.labelSmall
-                        )
-                    }
-                    Switch(
-                        checked = state.mirrorAudioRequested && audioCaptureSupported,
-                        onCheckedChange = onToggleMirrorAudio,
-                        enabled = audioCaptureSupported
-                    )
-                }
+                MirrorAudioModeSelector(
+                    selectedMode = state.mirrorAudioMode,
+                    availableModes = availableAudioModes,
+                    onSelectMode = onSelectMirrorAudioMode
+                )
                 Button(
                     onClick = onStartScreenMirror,
                     modifier = Modifier.fillMaxWidth(),
@@ -1218,7 +1306,7 @@ private fun GroupScreenMirrorCard(
             }
         } else {
             Text(
-                "منشئ المجموعة فقط يبدأ مشاركة شاشته؛ سيظهر لك زر المشاهدة تلقائياً فور بدء البث.",
+                "أنشئ مجموعة أو اقترن بجهاز لمشاركة الشاشة الجماعية.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.labelSmall
             )

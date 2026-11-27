@@ -14,6 +14,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.SystemClock
 import android.provider.OpenableColumns
+import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -230,10 +231,10 @@ fun UltraShareExperienceScreen(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (!granted) {
-            viewModel.setMirrorAudioRequested(false)
+            viewModel.setMirrorAudioMode(UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE)
             Toast.makeText(
                 context,
-                "لم يُمنح إذن الصوت؛ ستبدأ الشاشة الجماعية فيديو فقط.",
+                "لم يُمنح إذن الصوت؛ ستبدأ الشاشة الجماعية بالفيديو فقط دون توقف.",
                 Toast.LENGTH_SHORT
             ).show()
         }
@@ -305,87 +306,208 @@ fun UltraShareExperienceScreen(
         if (missing.isEmpty()) mediaPickerViewModel.loadMedia(type) else mediaPermission.launch(missing.toTypedArray())
     }
 
-    val wifiPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
-        if (grants.values.all { it }) {
-            val pairing = pendingQrPairing
-            if (pairing != null) {
-                pendingQrPairing = null
-                // Route every QR through the single policy owner. In particular, a
-                // P2P room may also carry its group SSID/PSK; those credentials are
-                // fallback data and must not bypass WifiP2pManager negotiation.
-                viewModel.joinUnifiedInvitation(pairing)
-            } else if (pendingReceiverStart) {
-                pendingReceiverStart = false
-                viewModel.startReceiving()
-            } else if (pendingInvitationAdvertisement) {
-                pendingInvitationAdvertisement = false
-                viewModel.advertiseCurrentWifiDirectInvitation()
-            } else viewModel.scanWifiDirectPeers()
-        } else {
-            val pairing = pendingQrPairing
-            val wasAdvertisingInvitation = pendingInvitationAdvertisement
+    // Holds the operation to resume after the user enables Location in system Settings
+    // (API 23–32) or grants the runtime permission. Decouples the pending QR / receiver / scan
+    // state from system prerequisite resolution so returning from Settings resumes safely
+    // without losing the scanned QR or session, and without re-opening Settings in a loop.
+    var pendingWifiDirectAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+    var wifiPermissionPromptInFlight by remember { mutableStateOf(false) }
+    val wifiPermissionLauncherRef = remember {
+        arrayOf<androidx.activity.result.ActivityResultLauncher<Array<String>>?>(null)
+    }
+
+    fun isWifiDirectLocationServiceEnabled(): Boolean =
+        UltraSharePlatformCompatibility.isLocationServiceEnabled(context)
+
+    /** Resume the pending Wi-Fi Direct operation after prerequisites are satisfied. */
+    fun runPendingWifiDirectAction() {
+        val pairing = pendingQrPairing
+        if (pairing != null) {
             pendingQrPairing = null
+            // Route every QR through the single policy owner. In particular, a
+            // P2P room may also carry its group SSID/PSK; those credentials are
+            // fallback data and must not bypass WifiP2pManager negotiation.
+            viewModel.joinUnifiedInvitation(pairing)
+        } else if (pendingReceiverStart) {
+            pendingReceiverStart = false
+            viewModel.startReceiving()
+        } else if (pendingInvitationAdvertisement) {
             pendingInvitationAdvertisement = false
-            if (pairing != null) {
-                val hasWifiCredentials = !pairing.hotspotSsid.isNullOrBlank() &&
-                    !pairing.hotspotPassword.isNullOrBlank()
-                val lanFallbacks = UltraShareNetworkRouting.findNonP2pLanFallbackHosts(context, pairing.hosts)
-                    .ifEmpty {
-                        pairing.hosts.filter {
-                            UltraShareCore.isValidPrivateLanHost(it) &&
-                                !UltraShareNetworkRouting.isWifiDirectGroupHost(it) &&
-                                !UltraShareNetworkRouting.isLocalAddress(context, it)
-                        }
+            viewModel.advertiseCurrentWifiDirectInvitation()
+        } else viewModel.scanWifiDirectPeers()
+    }
+
+    /** Handle a denied permission or cancelled Location Settings without losing available fallbacks. */
+    fun runPendingWifiDirectFallback(reasonOverride: String? = null) {
+        val prereq = UltraSharePlatformCompatibility.evaluateWifiDirectPrerequisite(context)
+        val reasonToast = reasonOverride ?: UltraSharePlatformCompatibility.messageFor(prereq)
+        val pairing = pendingQrPairing
+        val wasAdvertisingInvitation = pendingInvitationAdvertisement
+        pendingQrPairing = null
+        pendingInvitationAdvertisement = false
+        if (pairing != null) {
+            val hasWifiCredentials = !pairing.hotspotSsid.isNullOrBlank() &&
+                !pairing.hotspotPassword.isNullOrBlank()
+            val lanFallbacks = UltraShareNetworkRouting.findNonP2pLanFallbackHosts(context, pairing.hosts)
+                .ifEmpty {
+                    pairing.hosts.filter {
+                        UltraShareCore.isValidPrivateLanHost(it) &&
+                            !UltraShareNetworkRouting.isWifiDirectGroupHost(it) &&
+                            !UltraShareNetworkRouting.isLocalAddress(context, it)
                     }
-                val preferHotspotDirect = hasWifiCredentials &&
-                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
-                    (UltraShareNetworkRouting.hasCaptivePortalWifi(context) || lanFallbacks.isEmpty())
-                if (preferHotspotDirect) {
-                    Toast.makeText(
-                        context,
-                        "لم يُمنح إذن Wi-Fi Direct؛ سيتم الانضمام مباشرةً عبر شبكة MalekPlay.",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                    viewModel.connectHotspotInvitation(pairing, allowWifiDirectFallback = false)
-                } else if (lanFallbacks.isNotEmpty()) {
-                    Toast.makeText(
-                        context,
-                        "لم يُمنح إذن Wi-Fi Direct؛ سيتم الاتصال تلقائياً عبر الشبكة المحلية (LAN).",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                    viewModel.requestConnection(
-                        lanFallbacks.first(),
-                        pairing.pairingSecret,
-                        alternateHosts = lanFallbacks.drop(1),
-                        port = pairing.port,
-                        onConnectionFailed = { rejected, _ ->
-                            if (!rejected && hasWifiCredentials && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                                viewModel.connectHotspotInvitation(pairing, allowWifiDirectFallback = false)
-                            }
-                        }
-                    )
-                } else if (hasWifiCredentials && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    viewModel.connectHotspotInvitation(pairing, allowWifiDirectFallback = false)
-                } else if (hasWifiCredentials) {
-                    Toast.makeText(
-                        context,
-                        "يلزم إذن الأجهزة القريبة للانضمام تلقائياً إلى شبكة MalekPlayer. امنح الإذن ثم أعد مسح QR.",
-                        Toast.LENGTH_LONG
-                    ).show()
                 }
-            } else if (pendingReceiverStart) {
-                pendingReceiverStart = false
-                // Permission denial disables only the optional Wi-Fi Direct route.
-                // Start the authenticated receiver anyway; the ViewModel falls back
-                // to a same-LAN invitation when a usable non-P2P route exists.
-                viewModel.startReceiving()
+            val preferHotspotDirect = hasWifiCredentials &&
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+                (UltraShareNetworkRouting.hasCaptivePortalWifi(context) || lanFallbacks.isEmpty())
+            if (preferHotspotDirect) {
                 Toast.makeText(
                     context,
-                    "لم يُمنح إذن Wi-Fi Direct؛ سيستمر الاستقبال عبر الشبكة المحلية إذا كانت متاحة.",
+                    "تعذّر استخدام Wi-Fi Direct؛ سيتم الانضمام مباشرةً عبر شبكة MalekPlay.",
+                    Toast.LENGTH_SHORT
+                ).show()
+                viewModel.connectHotspotInvitation(pairing, allowWifiDirectFallback = false)
+            } else if (lanFallbacks.isNotEmpty()) {
+                Toast.makeText(
+                    context,
+                    "تعذّر استخدام Wi-Fi Direct؛ سيتم الاتصال تلقائياً عبر الشبكة المحلية (LAN).",
+                    Toast.LENGTH_SHORT
+                ).show()
+                viewModel.requestConnection(
+                    lanFallbacks.first(),
+                    pairing.pairingSecret,
+                    alternateHosts = lanFallbacks.drop(1),
+                    port = pairing.port,
+                    onConnectionFailed = { rejected, _ ->
+                        if (!rejected && hasWifiCredentials && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            viewModel.connectHotspotInvitation(pairing, allowWifiDirectFallback = false)
+                        }
+                    }
+                )
+            } else if (hasWifiCredentials && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                viewModel.connectHotspotInvitation(pairing, allowWifiDirectFallback = false)
+            } else {
+                val msg = reasonToast.ifBlank {
+                    UltraSharePlatformCompatibility.securityExceptionMessage(
+                        context,
+                        "للانضمام إلى شبكة MalekPlayer"
+                    )
+                }
+                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+            }
+        } else if (pendingReceiverStart) {
+            pendingReceiverStart = false
+            // Prerequisite denial disables only the Wi-Fi Direct route; the ViewModel
+            // falls back cleanly to LocalOnlyHotspot or same-LAN reception.
+            viewModel.startReceiving()
+            if (reasonToast.isNotBlank()) {
+                Toast.makeText(context, reasonToast, Toast.LENGTH_LONG).show()
+            }
+        } else if (wasAdvertisingInvitation) {
+            viewModel.disableWifiDirectInvitation()
+            if (reasonToast.isNotBlank()) {
+                Toast.makeText(context, reasonToast, Toast.LENGTH_LONG).show()
+            }
+        } else if (reasonToast.isNotBlank()) {
+            Toast.makeText(context, reasonToast, Toast.LENGTH_LONG).show()
+        }
+    }
+
+    val locationSettingsLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        val action = pendingWifiDirectAction
+        pendingWifiDirectAction = null
+        val missing = UltraSharePlatformCompatibility.wifiDirectRuntimePermissions(Build.VERSION.SDK_INT)
+            .filter { ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED }
+        val result = UltraSharePlatformCompatibility.evaluateWifiDirectPrerequisite(
+            sdkInt = Build.VERSION.SDK_INT,
+            permissionGranted = missing.isEmpty(),
+            locationServiceEnabled = isWifiDirectLocationServiceEnabled()
+        )
+        when (result) {
+            UltraSharePlatformCompatibility.WifiDirectPrerequisiteResult.OK -> {
+                if (action != null) action() else runPendingWifiDirectAction()
+            }
+            UltraSharePlatformCompatibility.WifiDirectPrerequisiteResult.LOCATION_PERMISSION_MISSING,
+            UltraSharePlatformCompatibility.WifiDirectPrerequisiteResult.NEARBY_PERMISSION_MISSING -> {
+                // Location service was enabled in Settings; now request the runtime permission once.
+                pendingWifiDirectAction = action
+                if (!wifiPermissionPromptInFlight && missing.isNotEmpty()) {
+                    wifiPermissionPromptInFlight = true
+                    wifiPermissionLauncherRef[0]?.launch(missing.toTypedArray())
+                }
+            }
+            UltraSharePlatformCompatibility.WifiDirectPrerequisiteResult.LOCATION_SERVICE_DISABLED -> {
+                // User returned from Settings without enabling Location: do not loop back into Settings.
+                runPendingWifiDirectFallback(
+                    "لا تزال خدمة الموقع (Location) متوقفة في إعدادات الهاتف؛ لم يكتمل الاتصال عبر Wi-Fi Direct."
+                )
+            }
+        }
+    }
+
+    val wifiPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
+        wifiPermissionPromptInFlight = false
+        val action = pendingWifiDirectAction
+        pendingWifiDirectAction = null
+        val granted = grants.isNotEmpty() && grants.values.all { it }
+        val result = UltraSharePlatformCompatibility.evaluateWifiDirectPrerequisite(
+            sdkInt = Build.VERSION.SDK_INT,
+            permissionGranted = granted,
+            locationServiceEnabled = isWifiDirectLocationServiceEnabled()
+        )
+        when (result) {
+            UltraSharePlatformCompatibility.WifiDirectPrerequisiteResult.OK -> {
+                if (action != null) action() else runPendingWifiDirectAction()
+            }
+            UltraSharePlatformCompatibility.WifiDirectPrerequisiteResult.LOCATION_SERVICE_DISABLED -> {
+                pendingWifiDirectAction = action
+                Toast.makeText(
+                    context,
+                    UltraSharePlatformCompatibility.messageFor(result),
                     Toast.LENGTH_LONG
                 ).show()
-            } else if (wasAdvertisingInvitation) {
-                viewModel.disableWifiDirectInvitation()
+                locationSettingsLauncher.launch(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+            }
+            else -> runPendingWifiDirectFallback()
+        }
+    }
+    wifiPermissionLauncherRef[0] = wifiPermission
+
+    /**
+     * Single gate for every Wi-Fi Direct operation. Keeps the three concerns separate:
+     *   1. App runtime permission (`ACCESS_FINE_LOCATION` on API 23–32, `NEARBY_WIFI_DEVICES` on 33+).
+     *   2. Location service enabled in system Settings (API 23–32 only).
+     *   3. Accurate SDK-specific Arabic messaging without duplicate permission prompts.
+     */
+    fun ensureWifiDirectReadyThen(action: () -> Unit) {
+        val missing = UltraSharePlatformCompatibility.wifiDirectRuntimePermissions(Build.VERSION.SDK_INT)
+            .filter { ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED }
+        val result = UltraSharePlatformCompatibility.evaluateWifiDirectPrerequisite(
+            sdkInt = Build.VERSION.SDK_INT,
+            permissionGranted = missing.isEmpty(),
+            locationServiceEnabled = isWifiDirectLocationServiceEnabled()
+        )
+        when (result) {
+            UltraSharePlatformCompatibility.WifiDirectPrerequisiteResult.OK -> {
+                pendingWifiDirectAction = null
+                action()
+            }
+            UltraSharePlatformCompatibility.WifiDirectPrerequisiteResult.LOCATION_SERVICE_DISABLED -> {
+                pendingWifiDirectAction = action
+                Toast.makeText(
+                    context,
+                    UltraSharePlatformCompatibility.messageFor(result),
+                    Toast.LENGTH_LONG
+                ).show()
+                locationSettingsLauncher.launch(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+            }
+            else -> {
+                pendingWifiDirectAction = action
+                if (!wifiPermissionPromptInFlight && missing.isNotEmpty()) {
+                    wifiPermissionPromptInFlight = true
+                    wifiPermission.launch(missing.toTypedArray())
+                }
             }
         }
     }
@@ -397,10 +519,16 @@ fun UltraShareExperienceScreen(
             grants[Manifest.permission.BLUETOOTH_SCAN] == true &&
                 grants[Manifest.permission.BLUETOOTH_CONNECT] == true
         } else grants[Manifest.permission.ACCESS_FINE_LOCATION] == true
-        if (wifiGranted) viewModel.scanWifiDirectPeers()
+        if (wifiGranted) {
+            if (isWifiDirectLocationServiceEnabled()) {
+                viewModel.scanWifiDirectPeers()
+            } else {
+                ensureWifiDirectReadyThen { viewModel.scanWifiDirectPeers() }
+            }
+        }
         if (bluetoothGranted) viewModel.scanBluetoothPeers()
         if (!wifiGranted && !bluetoothGranted) {
-            Toast.makeText(context, "لم يتم منح أذونات اكتشاف الأجهزة القريبة.", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "لم يتم منح أذونات البحث المطلوبة.", Toast.LENGTH_LONG).show()
         }
     }
     val bluetoothPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
@@ -409,11 +537,32 @@ fun UltraShareExperienceScreen(
                 grants[Manifest.permission.BLUETOOTH_CONNECT] == true
         } else grants.values.all { it }
         if (scanGranted) viewModel.scanBluetoothPeers()
-        else Toast.makeText(context, "يلزم منح إذن Bluetooth Scan وConnect لاكتشاف الأجهزة.", Toast.LENGTH_LONG).show()
+        else Toast.makeText(context, "يلزم منح إذن Bluetooth لاكتشاف الأجهزة.", Toast.LENGTH_LONG).show()
     }
     val hotspotPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
-        if (grants.values.all { it }) viewModel.startHotspot()
-        else Toast.makeText(context, "يلزم إذن الأجهزة القريبة لإنشاء شبكة محلية.", Toast.LENGTH_LONG).show()
+        val granted = grants.isNotEmpty() && grants.values.all { it }
+        val prereq = UltraSharePlatformCompatibility.evaluateWifiDirectPrerequisite(
+            sdkInt = Build.VERSION.SDK_INT,
+            permissionGranted = granted,
+            locationServiceEnabled = isWifiDirectLocationServiceEnabled()
+        )
+        when (prereq) {
+            UltraSharePlatformCompatibility.WifiDirectPrerequisiteResult.OK -> viewModel.startHotspot()
+            UltraSharePlatformCompatibility.WifiDirectPrerequisiteResult.LOCATION_SERVICE_DISABLED -> {
+                pendingWifiDirectAction = { viewModel.startHotspot() }
+                Toast.makeText(
+                    context,
+                    UltraSharePlatformCompatibility.messageFor(prereq),
+                    Toast.LENGTH_LONG
+                ).show()
+                locationSettingsLauncher.launch(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+            }
+            else -> Toast.makeText(
+                context,
+                UltraSharePlatformCompatibility.securityExceptionMessage(context, "لإنشاء شبكة محلية"),
+                Toast.LENGTH_LONG
+            ).show()
+        }
     }
 
     fun scanQr() {
@@ -424,11 +573,9 @@ fun UltraShareExperienceScreen(
         }
     }
     fun scanWifiDirect() {
-        val required = UltraSharePlatformCompatibility.wifiDirectRuntimePermissions(Build.VERSION.SDK_INT).toTypedArray()
-        val missing = required.filter {
-            ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
-        }
-        if (missing.isEmpty()) viewModel.scanWifiDirectPeers() else wifiPermission.launch(missing.toTypedArray())
+        // Route through the single prerequisite gate so the location service (API 23–32)
+        // is checked before any permission request and the scanned QR/session is kept.
+        ensureWifiDirectReadyThen { runPendingWifiDirectAction() }
     }
     fun scanBluetooth() {
         val required = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -465,7 +612,11 @@ fun UltraShareExperienceScreen(
                 ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
             }
             if (missing.isEmpty()) {
-                viewModel.scanWifiDirectPeers()
+                if (isWifiDirectLocationServiceEnabled()) {
+                    viewModel.scanWifiDirectPeers()
+                } else {
+                    ensureWifiDirectReadyThen { viewModel.scanWifiDirectPeers() }
+                }
                 viewModel.scanBluetoothPeers()
             } else allNearbyPermission.launch(missing.toTypedArray())
         }
@@ -521,27 +672,29 @@ fun UltraShareExperienceScreen(
     }
 
     fun startHotspot() {
-        val required = UltraSharePlatformCompatibility.wifiDirectRuntimePermissions(Build.VERSION.SDK_INT).toTypedArray()
-        val missing = required.filter {
-            ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
+        val prereq = UltraSharePlatformCompatibility.evaluateWifiDirectPrerequisite(context)
+        if (prereq == UltraSharePlatformCompatibility.WifiDirectPrerequisiteResult.OK) {
+            viewModel.startHotspot()
+        } else if (prereq == UltraSharePlatformCompatibility.WifiDirectPrerequisiteResult.LOCATION_SERVICE_DISABLED) {
+            ensureWifiDirectReadyThen { viewModel.startHotspot() }
+        } else {
+            val missing = UltraSharePlatformCompatibility.wifiDirectRuntimePermissions(Build.VERSION.SDK_INT)
+                .filter { ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED }
+            if (missing.isNotEmpty()) hotspotPermission.launch(missing.toTypedArray())
         }
-        if (missing.isEmpty()) viewModel.startHotspot() else hotspotPermission.launch(missing.toTypedArray())
     }
 
     fun startReceivingGroup() {
         if (state.receiving) return
-        val required = UltraSharePlatformCompatibility.wifiDirectRuntimePermissions(Build.VERSION.SDK_INT).toTypedArray()
-        val missing = required.filter {
-            ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
-        }
-        if (missing.isEmpty()) {
+        val prereq = UltraSharePlatformCompatibility.evaluateWifiDirectPrerequisite(context)
+        if (prereq == UltraSharePlatformCompatibility.WifiDirectPrerequisiteResult.OK) {
             // Wi-Fi Direct is the primary no-router transport. The ViewModel starts
             // the receiver listeners, creates the P2P group and advertises its QR;
             // LocalOnlyHotspot starts only after a confirmed P2P cleanup on failure.
             viewModel.startReceiving()
         } else {
             pendingReceiverStart = true
-            wifiPermission.launch(missing.toTypedArray())
+            ensureWifiDirectReadyThen { runPendingWifiDirectAction() }
         }
     }
     fun stopReceivingGroup() {
@@ -628,12 +781,11 @@ fun UltraShareExperienceScreen(
             !pairing.invitationId.isNullOrBlank() ||
                 (hasWifiCredentials && Build.VERSION.SDK_INT < Build.VERSION_CODES.Q)
         if (needsRuntimePermission) {
-            val required = UltraSharePlatformCompatibility.wifiDirectRuntimePermissions(Build.VERSION.SDK_INT)
-            val missing = required.filter {
-                ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
-            }
-            if (missing.isNotEmpty()) {
-                wifiPermission.launch(missing.toTypedArray())
+            val prereq = UltraSharePlatformCompatibility.evaluateWifiDirectPrerequisite(context)
+            if (prereq != UltraSharePlatformCompatibility.WifiDirectPrerequisiteResult.OK) {
+                // Re-check both permission AND Location service (API 23–32) and preserve
+                // pendingQrPairing until resolved so returning from Settings resumes cleanly.
+                ensureWifiDirectReadyThen { runPendingWifiDirectAction() }
                 return@LaunchedEffect
             }
         }
@@ -1437,18 +1589,14 @@ fun UltraShareExperienceScreen(
                             page = UltraSharePage.RECEIVE
                         },
                         onLeaveRoom = {
-                            viewModel.stopHostScreenMirroring()
-                            viewModel.leaveMirrorViewer()
-                            (state.activePeers.map { it.host } + state.approvedSenderPeerHosts).distinct()
-                                .forEach(viewModel::forgetPeer)
-                            stopReceivingGroup()
+                            viewModel.leaveSessionRoom()
                             page = UltraSharePage.HOME
                         },
                         onToggleMirrorAudio = viewModel::setMirrorAudioRequested,
+                        onSelectMirrorAudioMode = viewModel::setMirrorAudioMode,
                         onStartScreenMirror = {
-                            if (state.mirrorAudioRequested &&
-                                UltraShareScreenMirrorPolicy.supportsAudioPlaybackCapture() &&
-                                !UltraShareScreenMirrorPolicy.hasAudioCapturePermission(context)
+                            if (state.mirrorAudioMode != UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE &&
+                                !UltraShareScreenMirrorPolicy.hasRecordAudioRuntimePermission(context)
                             ) {
                                 mirrorAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                             } else {

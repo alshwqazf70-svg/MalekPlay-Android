@@ -69,9 +69,13 @@ object UltraSharePeerDeliveryStore {
                 // A successful delivery is immutable across retries: never resend it just
                 // because the user retries the remaining recipients for the same file.
                 merged[entryKey] = if (preserveCompleted && previous?.status == STATUS_COMPLETED) {
-                    // Keep the durable receipt, but refresh the route metadata after the
-                    // same authenticated device re-pairs on a different IP address.
-                    previous.copy(peerHost = entry.peerHost, displayName = entry.displayName)
+                    // Keep the durable receipt, and refresh route metadata + timestamp when the
+                    // same authenticated device re-queues this batch in a later session.
+                    previous.copy(
+                        peerHost = entry.peerHost,
+                        displayName = entry.displayName,
+                        updatedAtMillis = entry.updatedAtMillis
+                    )
                 } else entry
             }
             preferences[DELIVERIES] = encode(merged.values.toList())

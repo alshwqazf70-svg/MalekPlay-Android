@@ -47,7 +47,12 @@ object UltraShareBluetoothDiscovery {
                             peers = mergePeers(peers, peer)
                             onPeers(peers)
                         }.onFailure {
-                            onError("تعذر قراءة بيانات جهاز Bluetooth؛ تحقق من إذن الأجهزة القريبة.")
+                            val permHint = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                "تحقق من إذن Bluetooth (الأجهزة القريبة)."
+                            } else {
+                                "تحقق من إذن الموقع وتشغيل خدمة الموقع."
+                            }
+                            onError("تعذر قراءة بيانات جهاز Bluetooth؛ $permHint")
                         }
                     }
                     BluetoothAdapter.ACTION_DISCOVERY_FINISHED -> onScanning(false)
@@ -95,7 +100,12 @@ object UltraShareBluetoothDiscovery {
                 if (!started) onError("تعذر بدء اكتشاف Bluetooth. أغلق البحث في التطبيقات الأخرى ثم حاول مجدداً.")
             } catch (_: SecurityException) {
                 onScanning(false)
-                onError("يلزم منح إذن الأجهزة القريبة لاكتشاف Bluetooth.")
+                val msg = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    "يلزم منح إذن Bluetooth (الأجهزة القريبة) لاكتشاف الأجهزة."
+                } else {
+                    "يلزم منح إذن الموقع وتشغيل خدمة الموقع في إعدادات الهاتف لاكتشاف Bluetooth."
+                }
+                onError(msg)
             } catch (failure: Exception) {
                 onScanning(false)
                 onError(failure.localizedMessage ?: "تعذر بدء اكتشاف Bluetooth.")

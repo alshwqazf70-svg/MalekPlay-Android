@@ -618,4 +618,33 @@ class UltraShareScreenMirrorProtocolAndPolicyTest {
         )
         assertEquals(null, replayOld)
     }
+
+    @Test fun mirrorStartOfferIsDistinctFromRawVideoFrameAndCarriesSessionHandshake() {
+        val startMsg = UltraShareScreenMirrorProtocol.ControlMessage(
+            type = UltraShareScreenMirrorProtocol.ControlType.MIRROR_START,
+            sessionId = sessionId,
+            senderPeerId = hostPeerId,
+            revision = 1L,
+            streamPort = UltraShareScreenMirrorPolicy.DEFAULT_STREAM_PORT,
+            streamKey = streamKey,
+            config = UltraShareScreenMirrorProtocol.StreamConfig(1280, 720, 30, 2_500_000, audioEnabled = true)
+        )
+        val encoded = UltraShareScreenMirrorProtocol.encodeControl(startMsg)
+        assertTrue(UltraShareScreenMirrorProtocol.isMirrorControlPayload(encoded))
+
+        val decoded = requireNotNull(UltraShareScreenMirrorProtocol.decodeControl(encoded))
+        assertEquals(sessionId, decoded.sessionId)
+        assertEquals(UltraShareScreenMirrorPolicy.DEFAULT_STREAM_PORT, decoded.streamPort)
+        assertArrayEquals(streamKey, decoded.streamKey)
+        assertEquals(1280, decoded.config?.width)
+        assertEquals(720, decoded.config?.height)
+        assertEquals(true, decoded.config?.audioEnabled)
+
+        // A raw H.264 NAL must NOT be mistaken for a mirror control message. This is the
+        // guarantee that the UI only reports a successful broadcast after a real control/offer
+        // handshake, never merely because a video frame byte stream arrived.
+        val rawFrame = byteArrayOf(0, 0, 0, 1, 0x65, 0x01, 0x02, 0x03)
+        assertFalse(UltraShareScreenMirrorProtocol.isMirrorControlPayload(rawFrame))
+        assertNull(UltraShareScreenMirrorProtocol.decodeControl(rawFrame))
+    }
 }

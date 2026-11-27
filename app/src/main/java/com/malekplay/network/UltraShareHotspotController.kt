@@ -120,7 +120,7 @@ internal class UltraShareHotspotController(
         } catch (failure: SecurityException) {
             callback = null
             isStarting = false
-            onFailure("يلزم منح إذن الأجهزة القريبة لإنشاء شبكة Wi-Fi محلية.")
+            onFailure(UltraSharePlatformCompatibility.securityExceptionMessage(appContext, "لإنشاء شبكة Wi-Fi محلية"))
         } catch (failure: Exception) {
             callback = null
             isStarting = false

@@ -1,5 +1,6 @@
 package com.malekplay.ui.network
 
+import android.view.Surface as AndroidSurface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import androidx.compose.animation.AnimatedVisibility
@@ -76,12 +77,15 @@ fun ScreenMirrorViewerModal(
     var decoderError by remember { mutableStateOf<String?>(null) }
     var reconnectNonce by remember { mutableIntStateOf(0) }
     val streamKeyHash = remember(offer.streamKey) { offer.streamKey.contentHashCode() }
+    val viewerClientRef = remember { arrayOf<ScreenMirrorViewerClient?>(null) }
+    val decoderRef = remember { arrayOf<AndroidScreenMirrorDecoder?>(null) }
+    val attachedSurfaceRef = remember { arrayOf<AndroidSurface?>(null) }
 
     val localViewerId = remember(context) {
         UltraShareScreenMirrorProtocol.canonicalId(UltraShareDiscovery.localPeerId(context)).orEmpty()
     }
 
-    val decoder = remember(offer.sessionId) {
+    val decoder = remember(offer.sessionId, reconnectNonce) {
         AndroidScreenMirrorDecoder(
             onVideoDimensionsChanged = { _, _, _ -> },
             onRequestKeyframe = {
@@ -92,7 +96,10 @@ fun ScreenMirrorViewerModal(
                     action = UltraShareScreenMirrorProtocol.ViewerAction.REQUEST_IDR
                 )
             },
-            onDecoderError = { msg -> decoderError = msg }
+            onDecoderError = { msg -> decoderError = msg },
+            onFirstFrameRendered = {
+                viewerClientRef[0]?.notifyFirstFrameRendered()
+            }
         )
     }
 
@@ -123,11 +130,29 @@ fun ScreenMirrorViewerModal(
         )
     }
 
-    DisposableEffect(viewerClient, decoder) {
+    DisposableEffect(decoder) {
+        decoderRef[0] = decoder
+        val existingSurface = attachedSurfaceRef[0]
+        if (existingSurface != null && existingSurface.isValid) {
+            decoder.attachSurface(existingSurface)
+        }
+        decoder.setMuted(audioMuted)
+        onDispose {
+            if (decoderRef[0] === decoder) {
+                decoderRef[0] = null
+            }
+            decoder.close()
+        }
+    }
+
+    DisposableEffect(viewerClient) {
+        viewerClientRef[0] = viewerClient
         viewerClient.start()
         onDispose {
+            if (viewerClientRef[0] === viewerClient) {
+                viewerClientRef[0] = null
+            }
             viewerClient.close()
-            decoder.close()
         }
     }
 
@@ -170,7 +195,8 @@ fun ScreenMirrorViewerModal(
                             keepScreenOn = true
                             holder.addCallback(object : SurfaceHolder.Callback {
                                 override fun surfaceCreated(holder: SurfaceHolder) {
-                                    decoder.attachSurface(holder.surface)
+                                    attachedSurfaceRef[0] = holder.surface
+                                    decoderRef[0]?.attachSurface(holder.surface)
                                 }
 
                                 override fun surfaceChanged(
@@ -179,11 +205,14 @@ fun ScreenMirrorViewerModal(
                                     width: Int,
                                     height: Int
                                 ) {
-                                    decoder.attachSurface(holder.surface)
+                                    attachedSurfaceRef[0] = holder.surface
+                                    decoderRef[0]?.attachSurface(holder.surface)
                                 }
 
                                 override fun surfaceDestroyed(holder: SurfaceHolder) {
-                                    decoder.attachSurface(null)
+                                    attachedSurfaceRef[0] = null
+                                    decoderRef[0]?.attachSurface(null)
+                                    viewerClientRef[0]?.notifySurfaceDetached()
                                 }
                             })
                         }
@@ -191,7 +220,7 @@ fun ScreenMirrorViewerModal(
                 )
             }
 
-            // Center state overlay (connecting / reconnecting / locked screen / error)
+            // Distinct, truthful overlay per phase — disappears ONLY after first frame renders on Surface.
             val centerMessage: Pair<String, String?>? = when {
                 decoderError != null -> "تعذر عرض البث" to decoderError
                 status.phase == ScreenMirrorViewerClient.ConnectionPhase.ERROR ->
@@ -199,11 +228,25 @@ fun ScreenMirrorViewerModal(
                 status.phase == ScreenMirrorViewerClient.ConnectionPhase.SCREEN_PROTECTED ->
                     "شاشة المضيف مقفلة أو محمية حالياً" to "يعود العرض تلقائياً عند فتح الشاشة أو مغادرة المحتوى المحمي."
                 status.phase == ScreenMirrorViewerClient.ConnectionPhase.CONNECTING ->
-                    "جارٍ الاتصال بالشاشة الجماعية..." to "${offer.hostName} • ${offer.width}×${offer.height}"
+                    "جارٍ الاتصال ببث الشاشة الجماعية…" to "${offer.hostName} • ${offer.width}×${offer.height}"
+                status.phase == ScreenMirrorViewerClient.ConnectionPhase.CONNECTED_WAITING_CONFIG ->
+                    "تم الاتصال بالبث…" to "في انتظار استلام تهيئة الفيديو (VIDEO_CONFIG) من المنشئ"
+                status.phase == ScreenMirrorViewerClient.ConnectionPhase.CONFIG_RECEIVED_WAITING_FRAME ->
+                    "تم استلام تهيئة الفيديو (${videoWidth}×${videoHeight})…" to "في انتظار استلام الإطار الأول من المنشئ"
+                status.phase == ScreenMirrorViewerClient.ConnectionPhase.FRAME_RECEIVED_RENDERING ->
+                    "تم استلام الإطار الأول…" to "جارٍ فك الترميز والعرض على الشاشة"
                 status.phase == ScreenMirrorViewerClient.ConnectionPhase.RECONNECTING ->
-                    "إعادة الاتصال التلقائي..." to "محاولة ${status.reconnectAttempt}"
+                    "إعادة الاتصال التلقائي…" to "محاولة ${status.reconnectAttempt}"
                 else -> null
             }
+
+            val showLoadingSpinner = decoderError == null && (
+                status.phase == ScreenMirrorViewerClient.ConnectionPhase.CONNECTING ||
+                    status.phase == ScreenMirrorViewerClient.ConnectionPhase.CONNECTED_WAITING_CONFIG ||
+                    status.phase == ScreenMirrorViewerClient.ConnectionPhase.CONFIG_RECEIVED_WAITING_FRAME ||
+                    status.phase == ScreenMirrorViewerClient.ConnectionPhase.FRAME_RECEIVED_RENDERING ||
+                    status.phase == ScreenMirrorViewerClient.ConnectionPhase.RECONNECTING
+                )
 
             if (centerMessage != null) {
                 Surface(
@@ -223,9 +266,7 @@ fun ScreenMirrorViewerModal(
                                 tint = Color(0xFFFFC66D),
                                 modifier = Modifier.size(34.dp)
                             )
-                        } else if (status.phase == ScreenMirrorViewerClient.ConnectionPhase.CONNECTING ||
-                            status.phase == ScreenMirrorViewerClient.ConnectionPhase.RECONNECTING
-                        ) {
+                        } else if (showLoadingSpinner) {
                             CircularProgressIndicator(
                                 color = MalekPlayColors.PurpleBright,
                                 modifier = Modifier.size(34.dp)
@@ -303,7 +344,9 @@ fun ScreenMirrorViewerModal(
                                 modifier = Modifier
                                     .size(8.dp)
                                     .background(
-                                        if (status.phase == ScreenMirrorViewerClient.ConnectionPhase.STREAMING) {
+                                        if (status.phase == ScreenMirrorViewerClient.ConnectionPhase.STREAMING &&
+                                            status.firstFrameRendered
+                                        ) {
                                             Color(0xFF65D6A2)
                                         } else {
                                             Color(0xFFFFC66D)
@@ -320,8 +363,18 @@ fun ScreenMirrorViewerModal(
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
+                        val statusTag = when (status.phase) {
+                            ScreenMirrorViewerClient.ConnectionPhase.STREAMING -> "يعرض الآن"
+                            ScreenMirrorViewerClient.ConnectionPhase.FRAME_RECEIVED_RENDERING -> "جارٍ العرض"
+                            ScreenMirrorViewerClient.ConnectionPhase.CONFIG_RECEIVED_WAITING_FRAME -> "تهيئة جاهزة"
+                            ScreenMirrorViewerClient.ConnectionPhase.CONNECTED_WAITING_CONFIG -> "متصل بالبث"
+                            ScreenMirrorViewerClient.ConnectionPhase.SCREEN_PROTECTED -> "شاشة مقفلة"
+                            ScreenMirrorViewerClient.ConnectionPhase.RECONNECTING -> "يعيد الاتصال"
+                            ScreenMirrorViewerClient.ConnectionPhase.ERROR -> "متوقف"
+                            else -> "يتصل"
+                        }
                         val qualityLabel = buildString {
-                            append("${videoWidth}×${videoHeight}")
+                            append("$statusTag • ${videoWidth}×${videoHeight}")
                             if (status.estimatedFps > 0) append(" • ${status.estimatedFps} fps")
                             if (status.bitrateKbps > 0) append(" • ${status.bitrateKbps} kbps")
                             append(if (offer.audioEnabled) " • صوت + صورة" else " • فيديو فقط")
