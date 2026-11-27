@@ -171,11 +171,18 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
-    /** Reconcile MediaStore, then remove moved source IDs from all library-derived views. */
+    /** Remove moved source IDs immediately from all library-derived views, then reconcile MediaStore. */
     fun reconcileMovedMediaUris(uris: Collection<String>) {
         if (uris.isEmpty()) return
         viewModelScope.launch {
-            runCatching { mediaRepository.refresh() }
+            mediaRepository.removeMediaUris(uris)
+            try {
+                mediaRepository.refresh()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // Keep immediate removal even if a background MediaStore refresh throws transiently.
+            }
             mediaRepository.removeMediaUris(uris)
         }
     }

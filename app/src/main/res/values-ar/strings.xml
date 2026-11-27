@@ -520,7 +520,7 @@
     <string name="vault_shield_active">حماية الشاشة مفعّلة · AES-256-GCM</string>
     <string name="vault_copy_folder">نسخ مجلد</string>
     <string name="vault_move_folder">نقل مجلد</string>
-    <string name="vault_browse">تصفح</string>
+    <string name="vault_browse">إضافة من المكتبة</string>
     <string name="vault_search_hint">ابحث داخل الخزنة</string>
     <string name="vault_sort_label">ترتيب</string>
     <string name="vault_sort_newest">الأحدث</string>
@@ -532,7 +532,7 @@
     <string name="vault_filter_image">صور</string>
     <string name="vault_filter_other">ملفات</string>
     <string name="vault_processing">جارٍ تشفير أو فك تشفير الملف…</string>
-    <string name="vault_empty_state">الخزنة فارغة. اضغط على + لإضافة ملفات مشفّرة أو اختر مجلداً من الأعلى.</string>
+    <string name="vault_empty_state">الخزنة فارغة. اضغط على + لنقل فيديوهات أو ملفات صوتية من مكتبة MalekPlayer إلى الخزنة.</string>
     <string name="vault_no_search_results">لا توجد عناصر مطابقة لبحثك داخل الخزنة.</string>
     <string name="vault_selected_count">تم تحديد %1$d</string>
     <string name="vault_select_item">تحديد العنصر</string>
@@ -598,7 +598,8 @@
     <string name="vault_browser_sort_descending">تنازلي</string>
     <string name="vault_browser_folder_items_count">%1$d عنصر</string>
     <string name="vault_browser_folder_label">مجلد</string>
-    <string name="vault_browser_empty_folder">هذا المجلد فارغ أو لم يمنح النظام صلاحية قراءته.</string>
+    <string name="vault_browser_empty_folder">لا توجد فيديوهات أو ملفات صوتية متاحة في هذا المجلد.</string>
+    <string name="vault_browser_empty_library_folders">لم يتم العثور على مجلدات مكتبة تحتوي على فيديو أو صوت متاح.</string>
     <string name="vault_browser_no_matches">لا توجد ملفات أو مجلدات مطابقة.</string>
     <string name="vault_browser_selected_summary">المحدد: %1$d · %2$s</string>
     <string name="vault_browser_copy_to_vault">نسخ إلى الخزنة</string>
@@ -630,22 +631,23 @@
     <string name="vault_archive_cancelled">تم إلغاء العملية بأمان.</string>
     <string name="vault_error_insufficient_storage">مساحة التخزين غير كافية لإتمام العملية.</string>
     <string name="vault_take_out_delete_failed">تم إخراج %1$d عنصر بنجاح، لكن النسخ المشفّرة لا تزال داخل الخزنة.</string>
-    <string name="vault_browser_folders_title">مجلدات الجهاز</string>
-    <string name="vault_browser_folders_subtitle">اختر مجلداً لتصفح ملفاته وإضافتها إلى الخزنة</string>
-    <string name="vault_browser_save_to_vault">حفظ (%1$d)</string>
+    <string name="vault_browser_folders_title">مجلدات الوسائط</string>
+    <string name="vault_browser_folders_subtitle">اختر مجلداً لتحديد الفيديوهات أو المقاطع الصوتية ونقلها إلى الخزنة</string>
+    <string name="vault_browser_save_to_vault">نقل إلى الخزنة (%1$d)</string>
     <string name="vault_browser_already_saved_badge">محمي</string>
     <string name="vault_browser_subfolder_count">%1$d مجلد فرعي</string>
     <string name="vault_browser_refresh_folders">تحديث المجلدات</string>
     <string name="vault_browser_saf_folder_option">تصفح مجلد تخزين آخر (SAF)</string>
     <string name="vault_browser_saf_saved_folder">مجلد خارجي (SAF)</string>
     <string name="vault_browser_grant_media_access">منح صلاحية الوسائط</string>
-    <string name="vault_browser_permission_banner">امنح صلاحية الوسائط لعرض مجلدات الجهاز مباشرة، أو تصفح مجلداً عبر النظام من الأسفل.</string>
-    <string name="vault_browser_save_result_banner">تم حفظ وحماية %1$d ملف في الخزنة. يمكنك متابعة التصفح أو الضغط على × للإنهاء.</string>
+    <string name="vault_browser_permission_banner">امنح صلاحية الفيديو والصوت لعرض مجلدات مكتبة MalekPlayer.</string>
+    <string name="vault_browser_save_result_banner">تم نقل %1$d ملف بأمان إلى الخزنة. يمكنك متابعة التصفح أو الضغط على × للإنهاء.</string>
     <string name="vault_browser_save_partial_banner">تمت حماية %1$d ملف وفشل %2$d؛ لم يُحذف أو يُسجل أي ملف فاشل.</string>
     <string name="vault_browser_load_more">عرض المزيد (%1$d متبقٍ)</string>
     <string name="vault_browser_current_folder">المجلد الحالي: %1$s</string>
     <string name="vault_browser_pending_selected">المحدد: %1$d · %2$s</string>
     <string name="vault_take_out_original_fallback_needed">المجلد الأصلي غير متاح لـ %1$d عنصر. اختر مجلداً لاستعادتها إليه.</string>
+    <string name="vault_take_out_original_failed">تعذرت الاستعادة إلى المجلد الأصلي لعدم توفره أو رفض الصلاحية. بقيت النسخ المشفّرة محفوظة بأمان داخل الخزنة.</string>
     <string name="vault_browser_media_delete_pending">تم تشفير %1$d ملف. وافق على رسالة النظام لحذف الملفات الأصلية من الجهاز.</string>
     <string name="vault_browser_media_delete_kept">تم تشفير وحفظ %1$d ملف بأمان في الخزنة؛ وبقيت الملفات الأصلية على الجهاز.</string>
 

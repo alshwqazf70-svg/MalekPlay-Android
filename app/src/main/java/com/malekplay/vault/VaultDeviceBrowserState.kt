@@ -102,10 +102,10 @@ data class VaultBrowserSessionSnapshot(
 }
 
 /**
- * Explicit state holder for the MX Player–style Private Vault internal browser.
+ * Explicit state holder for the MalekPlayer Private Vault in-app library browser.
  *
- * Keeps navigation, cross-folder pending selection, already-saved item separation,
- * re-entrant save protection, and the exact X / Android Back semantics decoupled from Compose.
+ * Keeps navigation, cross-folder pending selection, already-moved item separation,
+ * re-entrant move protection, and the exact X / Android Back semantics decoupled from Compose.
  */
 class VaultBrowserStateHolder(
     pageSize: Int = VaultBrowserSessionSnapshot.DEFAULT_PAGE_SIZE
@@ -168,10 +168,10 @@ class VaultBrowserStateHolder(
     }
 
     /**
-     * Exact MX Player X button contract:
-     * - Case A (inside any folder / subfolder): return to FolderList, keeping all pending
+     * Exact X button contract:
+     * - Inside any folder / subfolder: return to FolderList, keeping all pending
      *   selections and active add-session state intact.
-     * - Case B (at FolderList): close browser, finish add-session, and return to Vault.
+     * - At FolderList: close browser, finish add-session, and return to Vault.
      */
     fun onCloseButtonPressed(): VaultBrowserSessionSnapshot {
         if (_snapshot.isSaving) return _snapshot
@@ -232,6 +232,7 @@ class VaultBrowserStateHolder(
 
     fun toggleSelection(item: VaultDeviceItem): Boolean {
         if (item.isDirectory || _snapshot.isSaving) return false
+        if (!isVaultAllowedMediaMime(item.mimeType)) return false
         val key = item.selectionKey
         if (key in _snapshot.savedKeys) return false
         val updated = LinkedHashMap(_snapshot.pendingSelectedByKey)
@@ -248,6 +249,7 @@ class VaultBrowserStateHolder(
 
     fun setSelected(item: VaultDeviceItem, selected: Boolean) {
         if (item.isDirectory || _snapshot.isSaving) return
+        if (!isVaultAllowedMediaMime(item.mimeType)) return
         val key = item.selectionKey
         if (selected && key in _snapshot.savedKeys) return
         val updated = LinkedHashMap(_snapshot.pendingSelectedByKey)
@@ -259,7 +261,10 @@ class VaultBrowserStateHolder(
         if (_snapshot.isSaving) return
         val updated = LinkedHashMap(_snapshot.pendingSelectedByKey)
         items.forEach { item ->
-            if (!item.isDirectory && item.selectionKey !in _snapshot.savedKeys) {
+            if (!item.isDirectory &&
+                isVaultAllowedMediaMime(item.mimeType) &&
+                item.selectionKey !in _snapshot.savedKeys
+            ) {
                 updated[item.selectionKey] = item
             }
         }
@@ -284,29 +289,31 @@ class VaultBrowserStateHolder(
     }
 
     /**
-     * Guards against double-taps / concurrent save launches.
-     * Returns the ordered batch to save if acquired, or null if a save is already running or nothing is pending.
+     * Guards against double-taps / concurrent move launches.
+     * Returns the ordered batch to move if acquired, or null if a move is already running or nothing is pending.
      */
     fun tryBeginSave(): List<VaultDeviceItem>? {
         if (_snapshot.isSaving || _snapshot.pendingSelectedByKey.isEmpty()) return null
-        val batch = _snapshot.pendingSelectedByKey.values.toList()
+        val batch = _snapshot.pendingSelectedByKey.values
+            .filter { !it.isDirectory && isVaultAllowedMediaMime(it.mimeType) }
+        if (batch.isEmpty()) return null
         _snapshot = _snapshot.copy(isSaving = true, lastSaveResultMessage = null)
         return batch
     }
 
     /**
-     * Separates newly protected items from still-pending/failed items:
-     * - Successfully saved keys are removed from [pendingSelectedByKey] and recorded in [savedKeys].
-     * - Failed items remain selectable/pending (or kept for retry) and are never marked saved.
-     * - Keeps the current browser step open so the user can continue browsing other folders!
+     * Updates pending and encrypted keys after a move attempt:
+     * - [encryptedKeys]: keys whose encrypted vault copy succeeded and is verified (removed from pending
+     *   and marked saved/hidden from re-selection so they are never duplicated in the vault).
+     * - Failed encryption keys remain pending and selectable for retry.
      */
     fun finishSave(
-        succeededKeys: Set<String>,
+        encryptedKeys: Set<String>,
         resultMessage: String? = null
     ): VaultBrowserSessionSnapshot {
         val nextPending = LinkedHashMap(_snapshot.pendingSelectedByKey)
-        succeededKeys.forEach { nextPending.remove(it) }
-        val nextSaved = LinkedHashSet(_snapshot.savedKeys).apply { addAll(succeededKeys) }
+        encryptedKeys.forEach { nextPending.remove(it) }
+        val nextSaved = LinkedHashSet(_snapshot.savedKeys).apply { addAll(encryptedKeys) }
         _snapshot = _snapshot.copy(
             pendingSelectedByKey = nextPending,
             savedKeys = nextSaved,
@@ -323,66 +330,134 @@ class VaultBrowserStateHolder(
     }
 
     fun areAllSelectableFilesSelected(items: List<VaultDeviceItem>): Boolean {
-        val candidates = items.filter { !it.isDirectory && it.selectionKey !in _snapshot.savedKeys }
+        val candidates = items.filter {
+            !it.isDirectory &&
+                isVaultAllowedMediaMime(it.mimeType) &&
+                it.selectionKey !in _snapshot.savedKeys
+        }
         return candidates.isNotEmpty() && candidates.all { it.selectionKey in _snapshot.pendingSelectedByKey }
     }
 }
 
+fun isVaultAllowedMediaMime(mimeType: String): Boolean =
+    mimeType.startsWith("video/", ignoreCase = true) || mimeType.startsWith("audio/", ignoreCase = true)
+
+fun LibraryItem.toVaultDeviceItem(folderPathOverride: String? = null): VaultDeviceItem? {
+    if (!isVaultAllowedMediaMime(media.mimeType)) return null
+    val normalizedFolder = normalizeRelativeFolderPath(folderPathOverride ?: media.folderPath)
+    val rawName = media.title.trim().ifBlank { media.displayTitle }
+    val ext = extractExtension(rawName, media.mimeType)
+    val displayWithExt = ensureDisplayNameHasExtension(rawName, ext)
+    val collectionName = if (media.isVideo) "video" else "audio"
+    return VaultDeviceItem(
+        id = media.id,
+        uri = media.uri,
+        displayName = displayWithExt,
+        extension = ext,
+        mimeType = media.mimeType,
+        sizeBytes = media.sizeBytes,
+        lastModifiedMs = media.addedAtMs,
+        folderPath = normalizedFolder,
+        folderDisplayPath = normalizedFolder,
+        folderDisplayName = media.folderName.ifBlank { normalizedFolder.substringAfterLast('/') },
+        isDirectory = false,
+        sourceKind = VaultDeviceSourceKind.MEDIA_STORE,
+        mediaStoreCollection = collectionName
+    )
+}
+
 /**
- * Builds an organized folder list combining [LibraryViewModel] folders with any additional
- * MediaStore folders (e.g. images or accessible files) without duplicating paths.
+ * Checks whether a library item matches an entry already stored inside the Private Vault so
+ * already-protected items are excluded from the add browser list.
  */
-fun combineLibraryAndExtraDeviceFolders(
+fun isDeviceItemAlreadyInVault(
+    item: VaultDeviceItem,
+    existingVaultEntries: List<PrivateVaultEntry>
+): Boolean {
+    if (item.isDirectory || existingVaultEntries.isEmpty()) return false
+    val itemNameLower = item.displayName.trim().lowercase(Locale.ROOT)
+    val itemStemLower = itemNameLower.substringBeforeLast('.', itemNameLower)
+    val itemFolderNorm = normalizeRelativeFolderPath(item.folderPath)
+    return existingVaultEntries.any { entry ->
+        if (!isVaultAllowedMediaMime(entry.mimeType)) return@any false
+        if (entry.sizeBytes > 0L && item.sizeBytes > 0L && entry.sizeBytes != item.sizeBytes) {
+            return@any false
+        }
+        val entryNameLower = entry.displayName.trim().lowercase(Locale.ROOT)
+        val entryStemLower = entryNameLower.substringBeforeLast('.', entryNameLower)
+        val nameMatches = entryNameLower == itemNameLower ||
+            (entryStemLower.isNotEmpty() && entryStemLower == itemStemLower)
+        if (!nameMatches) return@any false
+
+        val originParent = entry.sourceParentDocumentId?.let(::normalizeRelativeFolderPath)
+        val originDisplay = entry.sourceDisplayPath?.let(::normalizeRelativeFolderPath)
+        when {
+            originParent != null && originParent == itemFolderNorm -> true
+            originDisplay != null && originDisplay == itemFolderNorm -> true
+            originParent == null && originDisplay == null ->
+                entry.mimeType.substringBefore('/').equals(item.mimeType.substringBefore('/'), ignoreCase = true)
+            else -> false
+        }
+    }
+}
+
+/**
+ * Builds the Private Vault folder list strictly from MalekPlayer's existing media library
+ * (video & audio only), excluding items that are already inside the vault.
+ */
+fun buildVaultLibraryFolders(
     libraryFolders: List<MediaFolder>,
-    extraItems: List<VaultDeviceItem>,
-    safRootFolder: VaultDeviceFolder? = null
+    allLibraryMedia: List<LibraryItem>,
+    existingVaultEntries: List<PrivateVaultEntry> = emptyList(),
+    savedKeys: Set<String> = emptySet()
 ): List<VaultDeviceFolder> {
     val byPath = LinkedHashMap<String, VaultDeviceFolder>()
-    libraryFolders.forEach { folder ->
-        val normalized = normalizeRelativeFolderPath(folder.path)
-        byPath[normalized] = VaultDeviceFolder(
-            path = normalized,
-            name = folder.name.ifBlank { normalized.substringAfterLast('/').ifBlank { "/" } },
-            itemCount = folder.itemCount,
-            totalBytes = folder.totalBytes,
-            lastModifiedMs = folder.lastAddedMs,
-            sampleUri = folder.sampleUri,
-            sourceKind = VaultDeviceSourceKind.MEDIA_STORE
-        )
-    }
 
-    val seenExtraUris = HashSet<String>()
-    extraItems.forEach { item ->
-        if (!seenExtraUris.add(item.selectionKey)) return@forEach
-        val normalized = normalizeRelativeFolderPath(item.folderPath)
-        val existing = byPath[normalized]
-        if (existing == null) {
-            val friendlyName = item.folderDisplayName.trim().ifBlank {
-                normalized.substringAfterLast('/').ifBlank { normalized }
-            }
-            byPath[normalized] = VaultDeviceFolder(
-                path = normalized,
+    if (allLibraryMedia.isNotEmpty()) {
+        val folderNamesByPath = libraryFolders.associate {
+            normalizeRelativeFolderPath(it.path) to it.name
+        }
+        val itemsByFolder = LinkedHashMap<String, MutableList<VaultDeviceItem>>()
+        allLibraryMedia.forEach { libItem ->
+            val deviceItem = libItem.toVaultDeviceItem() ?: return@forEach
+            if (deviceItem.selectionKey in savedKeys) return@forEach
+            if (isDeviceItemAlreadyInVault(deviceItem, existingVaultEntries)) return@forEach
+            itemsByFolder.getOrPut(deviceItem.folderPath) { mutableListOf() }.add(deviceItem)
+        }
+        itemsByFolder.forEach { (path, items) ->
+            val friendlyName = folderNamesByPath[path]?.takeIf { it.isNotBlank() }
+                ?: items.firstOrNull()?.folderDisplayName?.takeIf { it.isNotBlank() }
+                ?: path.substringAfterLast('/').ifBlank { "/" }
+            byPath[path] = VaultDeviceFolder(
+                path = path,
                 name = friendlyName,
-                itemCount = 1,
-                totalBytes = item.sizeBytes.coerceAtLeast(0L),
-                lastModifiedMs = item.lastModifiedMs,
-                sampleUri = if (item.mimeType.startsWith("image/") || item.mimeType.startsWith("video/")) item.uri else null,
+                itemCount = items.size,
+                totalBytes = items.sumOf { it.sizeBytes.coerceAtLeast(0L) },
+                lastModifiedMs = items.maxOfOrNull { it.lastModifiedMs } ?: 0L,
+                sampleUri = items.firstOrNull { it.mimeType.startsWith("video/") }?.uri
+                    ?: items.firstOrNull()?.uri,
                 sourceKind = VaultDeviceSourceKind.MEDIA_STORE
             )
-        } else {
-            byPath[normalized] = existing.copy(
-                itemCount = existing.itemCount + 1,
-                totalBytes = existing.totalBytes + item.sizeBytes.coerceAtLeast(0L),
-                lastModifiedMs = maxOf(existing.lastModifiedMs, item.lastModifiedMs),
-                sampleUri = existing.sampleUri
-                    ?: item.uri.takeIf { item.mimeType.startsWith("image/") || item.mimeType.startsWith("video/") }
-            )
+        }
+    } else {
+        libraryFolders.forEach { folder ->
+            val normalized = normalizeRelativeFolderPath(folder.path)
+            if (folder.videoCount + folder.audioCount > 0 || folder.itemCount > 0) {
+                byPath[normalized] = VaultDeviceFolder(
+                    path = normalized,
+                    name = folder.name.ifBlank { normalized.substringAfterLast('/').ifBlank { "/" } },
+                    itemCount = folder.itemCount,
+                    totalBytes = folder.totalBytes,
+                    lastModifiedMs = folder.lastAddedMs,
+                    sampleUri = folder.sampleUri,
+                    sourceKind = VaultDeviceSourceKind.MEDIA_STORE
+                )
+            }
         }
     }
 
-    // Compute direct subfolder counts for nested relative paths like Movies -> Movies/Action
     val allPaths = byPath.keys.toList()
-    val enriched = allPaths.map { path ->
+    return allPaths.map { path ->
         val folder = byPath.getValue(path)
         val prefix = if (path == "/" || path.startsWith("bucket:")) null else "$path/"
         val subCount = if (prefix == null) 0 else {
@@ -392,24 +467,22 @@ fun combineLibraryAndExtraDeviceFolders(
         }
         folder.copy(subfolderCount = subCount)
     }.sortedBy { it.name.lowercase(Locale.getDefault()) }
-
-    return if (safRootFolder != null) listOf(safRootFolder) + enriched else enriched
 }
 
 /**
- * Builds the immediate contents (direct subfolders + deduplicated files) for a folder path
- * using [LibraryViewModel] folder items plus any extra MediaStore items in that folder.
+ * Builds the immediate contents (direct subfolders + available video/audio files only)
+ * for a library folder path, excluding non-AV files and files already in the vault.
  */
 fun buildFolderContentsForPath(
     folderPath: String,
     libraryFolderItems: List<LibraryItem>,
-    extraFolderItems: List<VaultDeviceItem>,
-    allFolders: List<VaultDeviceFolder>
+    allFolders: List<VaultDeviceFolder>,
+    existingVaultEntries: List<PrivateVaultEntry> = emptyList(),
+    savedKeys: Set<String> = emptySet()
 ): List<VaultDeviceItem> {
     val normalizedTarget = normalizeRelativeFolderPath(folderPath)
     val resultByKey = LinkedHashMap<String, VaultDeviceItem>()
 
-    // 1. Direct subfolders whose parent matches normalizedTarget
     if (normalizedTarget != "/" && !normalizedTarget.startsWith("bucket:")) {
         val prefix = "$normalizedTarget/"
         allFolders.forEach { candidate ->
@@ -438,39 +511,11 @@ fun buildFolderContentsForPath(
         }
     }
 
-    // 2. Files from LibraryViewModel (video & audio)
     libraryFolderItems.forEach { libItem ->
-        val media = libItem.media
-        val rawName = media.title.trim().ifBlank { media.displayTitle }
-        val ext = extractExtension(rawName, media.mimeType)
-        val displayWithExt = ensureDisplayNameHasExtension(rawName, ext)
-        val collectionName = when {
-            media.isVideo -> "video"
-            media.isAudio -> "audio"
-            else -> "files"
-        }
-        val item = VaultDeviceItem(
-            id = media.id,
-            uri = media.uri,
-            displayName = displayWithExt,
-            extension = ext,
-            mimeType = media.mimeType,
-            sizeBytes = media.sizeBytes,
-            lastModifiedMs = media.addedAtMs,
-            folderPath = normalizedTarget,
-            folderDisplayPath = normalizedTarget,
-            isDirectory = false,
-            sourceKind = VaultDeviceSourceKind.MEDIA_STORE,
-            mediaStoreCollection = collectionName
-        )
-        resultByKey[item.selectionKey] = item
-    }
-
-    // 3. Extra MediaStore items (images, documents, other files) deduplicated against Library items
-    extraFolderItems.forEach { extra ->
-        if (!resultByKey.containsKey(extra.selectionKey)) {
-            resultByKey[extra.selectionKey] = extra
-        }
+        val deviceItem = libItem.toVaultDeviceItem(normalizedTarget) ?: return@forEach
+        if (deviceItem.selectionKey in savedKeys) return@forEach
+        if (isDeviceItemAlreadyInVault(deviceItem, existingVaultEntries)) return@forEach
+        resultByKey[deviceItem.selectionKey] = deviceItem
     }
 
     return resultByKey.values.toList()
@@ -534,18 +579,14 @@ internal fun extractExtension(name: String, mimeType: String): String {
         "video/webm" -> "WEBM"
         "video/x-msvideo" -> "AVI"
         "video/quicktime" -> "MOV"
+        "video/3gpp" -> "3GP"
+        "video/mp2t" -> "TS"
         "audio/mpeg" -> "MP3"
         "audio/mp4" -> "M4A"
         "audio/aac" -> "AAC"
         "audio/flac" -> "FLAC"
         "audio/ogg" -> "OGG"
         "audio/wav", "audio/x-wav" -> "WAV"
-        "image/jpeg" -> "JPG"
-        "image/png" -> "PNG"
-        "image/webp" -> "WEBP"
-        "image/gif" -> "GIF"
-        "application/pdf" -> "PDF"
-        "text/plain" -> "TXT"
         else -> ""
     }
 }

@@ -99,6 +99,7 @@ import com.malekplay.vault.VaultArchiveSelectionManager
 import com.malekplay.vault.VaultArchiveSort
 import com.malekplay.vault.VaultInsufficientStorageException
 import com.malekplay.vault.filterAndSortArchiveItems
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -183,6 +184,7 @@ internal fun VaultEncryptedFolderBrowserModal(
                     pathSegments.removeAt(pathSegments.lastIndex)
                 }
             }.onFailure { err ->
+                if (err is CancellationException) throw err
                 errorMessage = err.localizedMessage ?: context.getString(R.string.vault_open_failed)
             }
             loading = false
@@ -199,7 +201,7 @@ internal fun VaultEncryptedFolderBrowserModal(
         useOriginalFolder: Boolean,
         removeFromArchive: Boolean
     ) {
-        if (items.isEmpty()) return
+        if (items.isEmpty() || busy) return
         onTouchActivity()
         val cancelFlag = AtomicBoolean(false)
         activeCancelFlag = cancelFlag
@@ -273,6 +275,7 @@ internal fun VaultEncryptedFolderBrowserModal(
                         )
                 }
             }.onFailure { err ->
+                if (err is CancellationException) throw err
                 errorMessage = if (err is VaultInsufficientStorageException) {
                     context.getString(R.string.vault_error_insufficient_storage)
                 } else {
@@ -283,7 +286,7 @@ internal fun VaultEncryptedFolderBrowserModal(
     }
 
     fun executeArchiveDelete(items: List<VaultArchiveListingItem>) {
-        if (items.isEmpty()) return
+        if (items.isEmpty() || busy) return
         onTouchActivity()
         val cancelFlag = AtomicBoolean(false)
         activeCancelFlag = cancelFlag
@@ -323,6 +326,7 @@ internal fun VaultEncryptedFolderBrowserModal(
                 reloadArchiveEntries()
                 statusMessage = context.getString(R.string.vault_archive_delete_success, items.size)
             }.onFailure { err ->
+                if (err is CancellationException) throw err
                 errorMessage = when {
                     cancelFlag.get() -> context.getString(R.string.vault_archive_cancelled)
                     err is VaultInsufficientStorageException -> context.getString(R.string.vault_error_insufficient_storage)
@@ -351,15 +355,20 @@ internal fun VaultEncryptedFolderBrowserModal(
 
     fun requestArchiveExtract(items: List<VaultArchiveListingItem>, removeFromArchive: Boolean) {
         onTouchActivity()
-        if (removeFromArchive && treeSupport.canRestoreToOriginalFolder(currentArchiveEntry)) {
-            executeArchiveExtract(
-                items = items,
-                destinationTree = null,
-                useOriginalFolder = true,
-                removeFromArchive = true
-            )
+        if (busy || items.isEmpty()) return
+        if (removeFromArchive) {
+            if (treeSupport.canRestoreToOriginalFolder(currentArchiveEntry)) {
+                executeArchiveExtract(
+                    items = items,
+                    destinationTree = null,
+                    useOriginalFolder = true,
+                    removeFromArchive = true
+                )
+            } else {
+                errorMessage = context.getString(R.string.vault_take_out_original_failed)
+            }
         } else {
-            extractDialogRequest = ArchiveExtractRequest(items, removeFromArchive = removeFromArchive)
+            extractDialogRequest = ArchiveExtractRequest(items, removeFromArchive = false)
         }
     }
 

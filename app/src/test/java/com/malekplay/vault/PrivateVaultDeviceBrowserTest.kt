@@ -6,10 +6,20 @@ import android.content.Context
 import android.content.pm.ProviderInfo
 import android.net.Uri
 import android.provider.DocumentsContract
+import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import com.malekplay.data.local.MalekPlayDatabase
+import com.malekplay.data.local.entity.FavouriteEntity
+import com.malekplay.data.local.entity.HistoryEntity
+import com.malekplay.data.local.entity.MediaItemEntity
+import com.malekplay.data.local.entity.PlaybackProgressEntity
+import com.malekplay.data.local.entity.PlaylistEntity
+import com.malekplay.data.local.entity.PlaylistItemEntity
 import com.malekplay.domain.model.LibraryItem
 import com.malekplay.domain.model.MediaFolder
 import com.malekplay.domain.model.MediaItem
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -111,56 +121,125 @@ class PrivateVaultDeviceBrowserTest {
     }
 
     @Test
-    fun multiFolderSelection_deduplicatesSavesPartiallyAndGuardsConcurrentDoubleTapSave() {
+    fun browserStrictlyFiltersToVideoAndAudioOnlyAndExcludesImagesDocumentsAndAlreadyVaultedFiles() {
+        assertTrue(isVaultAllowedMediaMime("video/mp4"))
+        assertTrue(isVaultAllowedMediaMime("video/x-matroska"))
+        assertTrue(isVaultAllowedMediaMime("audio/mpeg"))
+        assertTrue(isVaultAllowedMediaMime("audio/flac"))
+        assertFalse(isVaultAllowedMediaMime("image/jpeg"))
+        assertFalse(isVaultAllowedMediaMime("image/png"))
+        assertFalse(isVaultAllowedMediaMime("application/pdf"))
+        assertFalse(isVaultAllowedMediaMime("application/zip"))
+        assertFalse(isVaultAllowedMediaMime("text/plain"))
+        assertFalse(isVaultAllowedMediaMime("application/octet-stream"))
+
+        val videoUri = Uri.parse("content://media/external/video/media/10")
+        val audioUri = Uri.parse("content://media/external/audio/media/11")
+        val vaultedVideoUri = Uri.parse("content://media/external/video/media/12")
+
+        val libFolders = listOf(
+            MediaFolder("Movies", "Movies", itemCount = 2, videoCount = 2, audioCount = 0, totalBytes = 3000L, lastAddedMs = 5000L, newItemCount = 0, sampleUri = videoUri),
+            MediaFolder("Music", "Music", itemCount = 1, videoCount = 0, audioCount = 1, totalBytes = 1500L, lastAddedMs = 6000L, newItemCount = 0, sampleUri = audioUri)
+        )
+        val vaultedEntry = PrivateVaultEntry(
+            id = "v-existing",
+            displayName = "already_hidden.mp4",
+            mimeType = "video/mp4",
+            sizeBytes = 2000L,
+            sourceTreeUri = PrivateVaultTreeSupport.MEDIASTORE_ORIGIN_TREE_URI,
+            sourceParentDocumentId = "Movies",
+            sourceDisplayPath = "Movies"
+        )
+
+        val folders = buildVaultLibraryFolders(
+            libraryFolders = libFolders,
+            vaultEntries = listOf(vaultedEntry)
+        )
+        assertEquals(2, folders.size)
+
+        val moviesItems = listOf(
+            sampleLibraryItem("10", videoUri, "فيلم_عربي.mp4", "video/mp4", true, "Movies", 1000L),
+            sampleLibraryItem("12", vaultedVideoUri, "already_hidden.mp4", "video/mp4", true, "Movies", 2000L),
+            sampleLibraryItem("99", Uri.parse("content://media/external/images/media/99"), "photo.jpg", "image/jpeg", false, "Movies", 500L),
+            sampleLibraryItem("100", Uri.parse("content://media/external/file/100"), "manual.pdf", "application/pdf", false, "Movies", 800L),
+            sampleLibraryItem("101", Uri.parse("content://media/external/file/101"), "notes.txt", "text/plain", false, "Movies", 200L),
+            sampleLibraryItem("102", Uri.parse("content://media/external/file/102"), "archive.zip", "application/zip", false, "Movies", 900L)
+        )
+
+        val contents = buildFolderContentsForPath(
+            folderPath = "Movies",
+            libraryFolderItems = moviesItems,
+            allFolders = folders,
+            vaultEntries = listOf(vaultedEntry)
+        )
+        // Only the unvaulted video remains; images/pdf/txt/zip and already-vaulted video are excluded!
+        assertEquals(1, contents.size)
+        assertEquals("فيلم_عربي.mp4", contents.single().displayName)
+
+        // Audio items appear in Music folder
+        val musicContents = buildFolderContentsForPath(
+            folderPath = "Music",
+            libraryFolderItems = listOf(
+                sampleLibraryItem("11", audioUri, "song.flac", "audio/flac", false, "Music", 1500L)
+            ),
+            allFolders = folders,
+            vaultEntries = listOf(vaultedEntry)
+        )
+        assertEquals(1, musicContents.size)
+        assertEquals("song.flac", musicContents.single().displayName)
+        assertEquals("FLAC", musicContents.single().extension)
+    }
+
+    @Test
+    fun multiFolderSelection_disallowsImagesOrDocsAndGuardsConcurrentDoubleTapSave() {
         val holder = VaultBrowserStateHolder()
         holder.openFolderList()
 
         val movies = VaultDeviceFolder(path = "Movies", name = "Movies", itemCount = 2)
-        val dcim = VaultDeviceFolder(path = "DCIM/Camera", name = "Camera", itemCount = 2)
+        val music = VaultDeviceFolder(path = "Music", name = "Music", itemCount = 2)
 
-        val movieA = fakeDeviceItem("m1", "Movies", "فيلم_عربي.mp4", 4_000L)
-        val photoB = fakeDeviceItem("p1", "DCIM/Camera", "photo.jpg", 1_500L)
-        val missingC = fakeDeviceItem("m2", "DCIM/Camera", "broken.pdf", 900L, mime = "application/pdf")
+        val movieA = fakeDeviceItem("m1", "Movies", "فيلم_عربي.mp4", 4_000L, mime = "video/mp4")
+        val songB = fakeDeviceItem("a1", "Music", "track.mp3", 1_500L, mime = "audio/mpeg")
+        val disallowedImage = fakeDeviceItem("p1", "Movies", "photo.jpg", 900L, mime = "image/jpeg")
+        val disallowedPdf = fakeDeviceItem("d1", "Movies", "report.pdf", 900L, mime = "application/pdf")
 
-        // Select from Movies -> X back to folder list -> enter DCIM -> select more
+        // Non-video/audio items cannot even be selected into the Vault queue
+        assertFalse(holder.toggleSelection(disallowedImage))
+        assertFalse(holder.toggleSelection(disallowedPdf))
+        holder.setSelected(disallowedImage, true)
+        assertEquals(0, holder.snapshot.pendingCount)
+
+        // Select from Movies -> X back to folder list -> enter Music -> select song
         holder.enterFolder(movies)
         holder.setSelected(movieA, true)
         holder.onCloseButtonPressed()
         assertEquals(VaultBrowserStep.FolderList, holder.snapshot.step)
 
-        holder.enterFolder(dcim)
-        holder.setSelected(photoB, true)
-        holder.setSelected(missingC, true)
-        // Re-selecting same item stays deduplicated at 3
+        holder.enterFolder(music)
+        holder.setSelected(songB, true)
+        // Re-selecting same item stays deduplicated at 2
         holder.setSelected(movieA, true)
-        assertEquals(3, holder.snapshot.pendingCount)
+        assertEquals(2, holder.snapshot.pendingCount)
 
-        // Begin save & verify double-tap concurrent call is rejected
+        // Begin move & verify double-tap concurrent call is rejected
         val batch = holder.tryBeginSave()
         assertNotNull(batch)
-        assertEquals(3, batch!!.size)
+        assertEquals(2, batch!!.size)
         assertTrue(holder.snapshot.isSaving)
         assertNull(holder.tryBeginSave())
-        // While saving, X/Back/toggles are ignored safely
         assertTrue(holder.onCloseButtonPressed().isSaving)
-        assertFalse(holder.toggleSelection(fakeDeviceItem("x", "DCIM/Camera", "extra.mp4", 10L)))
 
-        // Partial save outcome: movieA & photoB succeeded; missingC failed.
-        val afterSave = holder.finishSave(
-            succeededKeys = setOf(movieA.selectionKey, photoB.selectionKey),
-            resultMessage = "Saved 2, failed 1"
+        // Partial move outcome: movieA succeeded; songB failed
+        val afterMove = holder.finishSave(
+            succeededKeys = setOf(movieA.selectionKey),
+            resultMessage = "Moved 1, failed 1"
         )
-        assertFalse(afterSave.isSaving)
-        assertTrue(afterSave.isOpen) // stays in browser so user can keep adding or tap X
-        assertTrue(afterSave.savedKeys.contains(movieA.selectionKey))
-        assertTrue(afterSave.savedKeys.contains(photoB.selectionKey))
-        assertFalse(afterSave.savedKeys.contains(missingC.selectionKey))
-        assertEquals(1, afterSave.pendingCount)
-        assertTrue(afterSave.pendingSelectedByKey.containsKey(missingC.selectionKey))
-
-        // Already-saved items cannot be re-queued as pending duplicates
+        assertFalse(afterMove.isSaving)
+        assertTrue(afterMove.isOpen)
+        assertTrue(afterMove.savedKeys.contains(movieA.selectionKey))
+        assertFalse(afterMove.savedKeys.contains(songB.selectionKey))
+        assertEquals(1, afterMove.pendingCount)
         assertFalse(holder.toggleSelection(movieA))
-        assertEquals(1, holder.snapshot.pendingCount)
     }
 
     @Test
@@ -194,129 +273,60 @@ class PrivateVaultDeviceBrowserTest {
     }
 
     @Test
-    fun largeFolderProgressivePaging_expandsWindowCleanlyWithoutDroppingItems() {
-        val holder = VaultBrowserStateHolder(pageSize = 50)
-        holder.openFolderList()
-        holder.enterFolder(VaultDeviceFolder(path = "DCIM/Large", name = "Large", itemCount = 1_500))
-
-        assertEquals(50, holder.snapshot.visibleItemLimit)
-        holder.loadMoreItems()
-        assertEquals(100, holder.snapshot.visibleItemLimit)
-        holder.loadMoreItems()
-        assertEquals(150, holder.snapshot.visibleItemLimit)
-
-        val largeList = (1..1_500).map { idx ->
-            fakeDeviceItem(idx.toString(), "DCIM/Large", "file_$idx.mp4", idx * 10L)
-        }
-        val filtered = filterAndSortDeviceItems(largeList, query = "file_999", sort = VaultBrowserSort.NAME)
-        assertEquals(1, filtered.size)
-        assertEquals("file_999.mp4", filtered.first().displayName)
-    }
-
-    @Test
-    fun combineLibraryAndExtraDeviceFolders_mergesSubfoldersAndDeduplicatesFilesWithArabicAndLongNames() {
-        val videoUri = Uri.parse("content://media/external/video/media/10")
-        val imageUri = Uri.parse("content://media/external/images/media/20")
-        val longName = "Very_Long_Arabic_مقطع_فيديو_${"x".repeat(120)}.mp4"
-
-        val libFolders = listOf(
-            MediaFolder("Movies", "Movies", itemCount = 1, videoCount = 1, audioCount = 0, totalBytes = 1000L, lastAddedMs = 5000L, newItemCount = 0, sampleUri = videoUri),
-            MediaFolder("Movies/مجلد_عربي", "مجلد_عربي", itemCount = 1, videoCount = 1, audioCount = 0, totalBytes = 2000L, lastAddedMs = 6000L, newItemCount = 0, sampleUri = null)
-        )
-        val extraItems = listOf(
-            VaultDeviceItem(
-                id = imageUri.toString(),
-                uri = imageUri,
-                displayName = "صورة.jpg",
-                extension = "JPG",
-                mimeType = "image/jpeg",
-                sizeBytes = 500L,
-                lastModifiedMs = 7000L,
-                folderPath = "Movies",
-                folderDisplayPath = "Movies",
-                sourceKind = VaultDeviceSourceKind.MEDIA_STORE
-            ),
-            VaultDeviceItem(
-                id = "doc-1",
-                uri = Uri.parse("content://media/external/downloads/1"),
-                displayName = "document.pdf",
-                extension = "PDF",
-                mimeType = "application/pdf",
-                sizeBytes = 800L,
-                lastModifiedMs = 8000L,
-                folderPath = "Download",
-                folderDisplayPath = "Download",
-                sourceKind = VaultDeviceSourceKind.MEDIA_STORE
-            )
-        )
-
-        val combined = combineLibraryAndExtraDeviceFolders(libFolders, extraItems)
-        val moviesCombined = combined.first { it.path == "Movies" }
-        assertEquals(2, moviesCombined.itemCount)
-        assertEquals(1, moviesCombined.subfolderCount)
-        assertTrue(combined.any { it.path == "Download" })
-
-        val libItem = LibraryItem(
-            media = MediaItem(
-                id = "10",
-                uri = videoUri,
-                title = longName,
-                durationMs = 1000L,
-                sizeBytes = 1000L,
-                addedAtMs = 5000L,
-                mimeType = "video/mp4",
-                isVideo = true,
-                folderPath = "Movies",
-                folderName = "Movies",
-                artist = null,
-                album = null,
-                albumId = null,
-                artistId = null,
-                genre = null,
-                width = 1920,
-                height = 1080,
-                bitrate = 1000L
-            )
-        )
-
-        val folderContents = buildFolderContentsForPath(
-            folderPath = "Movies",
-            libraryFolderItems = listOf(libItem),
-            extraFolderItems = extraItems.filter { it.folderPath == "Movies" },
-            allFolders = combined
-        )
-
-        // Expect 1 subfolder ("مجلد_عربي") + 2 files (longName + صورة.jpg)
-        assertEquals(3, folderContents.size)
-        assertTrue(folderContents.any { it.isDirectory && it.displayName == "مجلد_عربي" })
-        assertTrue(folderContents.any { !it.isDirectory && it.displayName == longName })
-        assertTrue(folderContents.any { !it.isDirectory && it.displayName == "صورة.jpg" })
-    }
-
-    @Test
-    fun importDeviceSelection_encryptsAndVerifiesAndNeverMarksUnreadableFilesAsProtected() {
+    fun moveIntoVault_encryptsVerifiesDeletesSource_andAutoRestoresToOriginalFolderWithoutPicker() {
         val treeUri = DocumentsContract.buildTreeDocumentUri(InMemoryVaultDocumentsProvider.AUTHORITY, "root")
-        val okPayload = "Encrypted-Media-Bytes-123456".toByteArray()
-        val okId = provider.addFile("root", "مستند_سري.mp4", "video/mp4", okPayload)
-        val okDocUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, okId)
-
+        val videoPayload = "Video-Stream-Bytes-987654321".toByteArray()
+        val audioPayload = "Audio-Track-Bytes-123456789".toByteArray()
+        val videoId = provider.addFile("root", "فيلم_سري.mp4", "video/mp4", videoPayload)
+        val audioId = provider.addFile("root", "موسيقى_سرية.mp3", "audio/mpeg", audioPayload)
+        val videoUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, videoId)
+        val audioUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, audioId)
         val missingUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, "nonexistent-doc-id")
+
+        // Also ensure MediaStore-origin non-AV items are rejected cleanly even if passed programmatically
+        val disallowedMediaStoreImage = VaultDeviceItem(
+            id = "img-1",
+            uri = Uri.parse("content://media/external/images/media/99"),
+            displayName = "pic.jpg",
+            extension = "JPG",
+            mimeType = "image/jpeg",
+            sizeBytes = 100L,
+            lastModifiedMs = 1000L,
+            folderPath = "Pictures",
+            folderDisplayPath = "Pictures",
+            sourceKind = VaultDeviceSourceKind.MEDIA_STORE
+        )
 
         val items = listOf(
             VaultDeviceItem(
-                id = okId,
-                uri = okDocUri,
-                displayName = "مستند_سري.mp4",
+                id = videoId,
+                uri = videoUri,
+                displayName = "فيلم_سري.mp4",
                 extension = "MP4",
                 mimeType = "video/mp4",
-                sizeBytes = okPayload.size.toLong(),
+                sizeBytes = videoPayload.size.toLong(),
                 lastModifiedMs = 1000L,
                 folderPath = "root",
                 folderDisplayPath = "Movies",
                 sourceKind = VaultDeviceSourceKind.SAF,
                 safTreeUri = treeUri,
                 safParentDocumentId = "root",
-                safDocumentId = okId
+                safDocumentId = videoId
+            ),
+            VaultDeviceItem(
+                id = audioId,
+                uri = audioUri,
+                displayName = "موسيقى_سرية.mp3",
+                extension = "MP3",
+                mimeType = "audio/mpeg",
+                sizeBytes = audioPayload.size.toLong(),
+                lastModifiedMs = 1000L,
+                folderPath = "root",
+                folderDisplayPath = "Music",
+                sourceKind = VaultDeviceSourceKind.SAF,
+                safTreeUri = treeUri,
+                safParentDocumentId = "root",
+                safDocumentId = audioId
             ),
             VaultDeviceItem(
                 id = "missing",
@@ -329,29 +339,58 @@ class PrivateVaultDeviceBrowserTest {
                 folderPath = "root",
                 folderDisplayPath = "Movies",
                 sourceKind = VaultDeviceSourceKind.MEDIA_STORE
-            )
+            ),
+            disallowedMediaStoreImage
         )
 
-        val result = treeSupport.importDeviceSelection(
+        val moveResult = treeSupport.importDeviceSelection(
             items = items,
             session = session,
-            moveSource = false
+            moveSource = true
         )
 
-        assertEquals(1, result.importedCount)
-        assertEquals(1, result.failedCount)
-        assertEquals(setOf(okDocUri.toString()), result.succeededKeys)
+        assertEquals(2, moveResult.importedCount)
+        assertEquals(2, moveResult.movedCount)
+        assertEquals(0, moveResult.copiedOnlyCount)
+        assertEquals(2, moveResult.failedCount)
+        assertEquals(setOf(videoUri.toString(), audioUri.toString()), moveResult.succeededKeys)
+
+        // Originals must have been deleted from their original source!
+        assertNull(provider.readFileBytes("root", "فيلم_سري.mp4"))
+        assertNull(provider.readFileBytes("root", "موسيقى_سرية.mp3"))
 
         val vaultEntries = vault.list(session)
-        assertEquals(1, vaultEntries.size)
-        val entry = vaultEntries.single()
-        assertEquals("مستند_سري.mp4", entry.displayName)
-        assertTrue(treeSupport.canRestoreToOriginalFolder(entry))
+        assertEquals(2, vaultEntries.size)
+        assertTrue(treeSupport.canRestoreAllToOriginalFolder(vaultEntries))
 
-        // Delete original manually from provider, then restore directly to original folder without SAF picker!
-        provider.deleteDocument(okId)
-        assertNull(provider.readFileBytes("root", "مستند_سري.mp4"))
+        // Automatic picker-free restore straight back to original folder
+        val restoreSummary = treeSupport.restoreEntries(
+            entries = vaultEntries,
+            destinationTree = null,
+            session = session,
+            useOriginalFolder = true,
+            removeFromVaultAfterRestore = true
+        )
+        assertEquals(2, restoreSummary.succeededCount)
+        assertEquals(0, restoreSummary.failedCount)
+        assertEquals(2, restoreSummary.removedFromVaultCount)
+        assertEquals(0, vault.list(session).size)
 
+        val restoredVideo = provider.readFileBytes("root", "فيلم_سري.mp4")
+        val restoredAudio = provider.readFileBytes("root", "موسيقى_سرية.mp3")
+        assertNotNull(restoredVideo)
+        assertNotNull(restoredAudio)
+        assertEquals(sha256Hex(videoPayload), sha256Hex(restoredVideo!!))
+        assertEquals(sha256Hex(audioPayload), sha256Hex(restoredAudio!!))
+    }
+
+    @Test
+    fun failedRestoreToMissingOrigin_preservesEncryptedFileSafelyInVault() {
+        val payload = "Protected-Video-Must-Stay-In-Vault".toByteArray()
+        val entry = vault.importStream("missing_origin_clip.mp4", "video/mp4", payload.inputStream(), session)
+
+        // Attempt direct original-folder restore when entry has no valid original folder metadata
+        assertFalse(treeSupport.canRestoreToOriginalFolder(entry))
         val restoreSummary = treeSupport.restoreEntries(
             entries = listOf(entry),
             destinationTree = null,
@@ -359,37 +398,190 @@ class PrivateVaultDeviceBrowserTest {
             useOriginalFolder = true,
             removeFromVaultAfterRestore = true
         )
-        assertEquals(1, restoreSummary.succeededCount)
-        assertEquals(0, restoreSummary.failedCount)
-        assertEquals(1, restoreSummary.removedFromVaultCount)
-        assertEquals(0, vault.list(session).size)
+        assertEquals(0, restoreSummary.succeededCount)
+        assertEquals(1, restoreSummary.failedCount)
+        assertEquals(0, restoreSummary.removedFromVaultCount)
+        assertEquals(1, restoreSummary.keptInVaultCount)
 
-        val restoredBytes = provider.readFileBytes("root", "مستند_سري.mp4")
-        assertNotNull(restoredBytes)
-        assertEquals(sha256Hex(okPayload), sha256Hex(restoredBytes!!))
+        // Encrypted file must remain completely intact inside the vault
+        val remaining = vault.list(session)
+        assertEquals(1, remaining.size)
+        assertEquals(entry.id, remaining.single().id)
+        val outFile = File(tempDir, "verify_intact.mp4")
+        vault.exportToFile(entry.id, outFile, session)
+        assertEquals(sha256Hex(payload), sha256Hex(outFile.readBytes()))
+    }
+
+    @Test
+    fun movingFilesPurgesMediaFromLibraryFoldersSearchPlaylistsHistoryAndFavourites() = runBlocking {
+        val db = Room.inMemoryDatabaseBuilder(context, MalekPlayDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            val movedId = "content://media/external/video/media/7001"
+            val keptId = "content://media/external/video/media/7002"
+            db.mediaDao().upsertMedia(
+                listOf(
+                    MediaItemEntity(
+                        mediaId = movedId,
+                        title = "SecretClip",
+                        uri = movedId,
+                        mimeType = "video/mp4",
+                        sizeBytes = 5_000L,
+                        durationMs = 90_000L,
+                        addedAtMs = 100L,
+                        isVideo = true,
+                        folderPath = "/Movies/Private",
+                        folderName = "Private",
+                        artist = null,
+                        album = null,
+                        albumId = null,
+                        artistId = null,
+                        genre = null,
+                        width = 1920,
+                        height = 1080,
+                        bitrate = 1000L
+                    ),
+                    MediaItemEntity(
+                        mediaId = keptId,
+                        title = "PublicClip",
+                        uri = keptId,
+                        mimeType = "video/mp4",
+                        sizeBytes = 4_000L,
+                        durationMs = 60_000L,
+                        addedAtMs = 200L,
+                        isVideo = true,
+                        folderPath = "/Movies/Public",
+                        folderName = "Public",
+                        artist = null,
+                        album = null,
+                        albumId = null,
+                        artistId = null,
+                        genre = null,
+                        width = 1280,
+                        height = 720,
+                        bitrate = 800L
+                    )
+                )
+            )
+            val playlistId = db.playlistDao().createPlaylist(PlaylistEntity(name = "WatchLater", createdAtMs = 1L))
+            db.playlistDao().insertPlaylistItems(
+                listOf(
+                    PlaylistItemEntity(playlistId = playlistId, mediaId = movedId, position = 0, addedAtMs = 1L),
+                    PlaylistItemEntity(playlistId = playlistId, mediaId = keptId, position = 1, addedAtMs = 2L)
+                )
+            )
+            db.userDataDao().upsertProgress(
+                PlaybackProgressEntity(mediaId = movedId, positionMs = 30_000L, durationMs = 90_000L, updatedAtMs = 10L)
+            )
+            db.userDataDao().insertHistory(HistoryEntity(mediaId = movedId, playedAtMs = 10L))
+            db.userDataDao().insertFavourite(FavouriteEntity(mediaId = movedId, addedAtMs = 10L))
+
+            // Simulate Vault move deletion across all tables
+            db.mediaDao().deletePlaylistItemsByMediaIds(listOf(movedId))
+            db.mediaDao().deleteHistoryByMediaIds(listOf(movedId))
+            db.mediaDao().deleteFavouritesByMediaIds(listOf(movedId))
+            db.mediaDao().deleteMediaByIds(listOf(movedId))
+
+            val videos = db.mediaDao().observeVideos().first()
+            assertEquals(listOf(keptId), videos.map { it.mediaId })
+
+            val folders = db.mediaDao().observeFolders().first()
+            assertEquals(listOf("/Movies/Public"), folders.map { it.folderPath })
+
+            val searchResults = db.mediaDao().searchMedia("SecretClip").first()
+            assertTrue(searchResults.isEmpty())
+
+            val playlistWithItems = db.playlistDao().observePlaylists().first().single()
+            assertEquals(listOf(keptId), playlistWithItems.items.map { it.mediaId })
+
+            val history = db.userDataDao().observeHistory().first()
+            assertTrue(history.none { it.mediaId == movedId })
+
+            val favIds = db.userDataDao().observeFavouriteIds().first()
+            assertFalse(favIds.contains(movedId))
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    @Config(sdk = [23])
+    fun android6Api23UsesReadAndWriteExternalStoragePermissionsWithoutScopedGrants() {
+        val source = PrivateVaultDeviceSource(context)
+        val promptPerms = source.permissionsForBrowsePrompt()
+        assertTrue(promptPerms.contains(Manifest.permission.READ_EXTERNAL_STORAGE))
+        assertTrue(promptPerms.contains(Manifest.permission.WRITE_EXTERNAL_STORAGE))
+        assertFalse(source.hasMediaPermissions())
+        assertFalse(source.hasLegacyWriteStoragePermission())
+
+        Shadows.shadowOf(context as Application).grantPermissions(
+            Manifest.permission.READ_EXTERNAL_STORAGE,
+            Manifest.permission.WRITE_EXTERNAL_STORAGE
+        )
+        assertTrue(source.hasMediaPermissions())
+        assertTrue(source.hasLegacyWriteStoragePermission())
+    }
+
+    @Test
+    @Config(sdk = [29])
+    fun android10Api29UsesScopedMediaStoreAndSupportsVideoAudioDirectRestore() {
+        val source = PrivateVaultDeviceSource(context)
+        val promptPerms = source.permissionsForBrowsePrompt()
+        assertEquals(listOf(Manifest.permission.READ_EXTERNAL_STORAGE), promptPerms.toList())
+        val videoEntry = PrivateVaultEntry(
+            id = "v29",
+            displayName = "clip29.mp4",
+            mimeType = "video/mp4",
+            sizeBytes = 100L,
+            sourceTreeUri = PrivateVaultTreeSupport.MEDIASTORE_ORIGIN_TREE_URI,
+            sourceParentDocumentId = "Movies"
+        )
+        assertTrue(source.canRestoreToMediaStoreOrigin(videoEntry))
+    }
+
+    @Test
+    @Config(sdk = [30])
+    fun android11Api30SupportsScopedAudioAndVideoDirectRestore() {
+        val source = PrivateVaultDeviceSource(context)
+        val audioEntry = PrivateVaultEntry(
+            id = "a30",
+            displayName = "song30.mp3",
+            mimeType = "audio/mpeg",
+            sizeBytes = 100L,
+            sourceTreeUri = PrivateVaultTreeSupport.MEDIASTORE_ORIGIN_TREE_URI,
+            sourceParentDocumentId = "Music/Favorites"
+        )
+        assertTrue(source.canRestoreToMediaStoreOrigin(audioEntry))
+    }
+
+    @Test
+    @Config(sdk = [33])
+    fun android13Api33RequestsVideoAndAudioPermissionsOnlyNeverImages() {
+        val source = PrivateVaultDeviceSource(context)
+        val promptPerms = source.permissionsForBrowsePrompt().toSet()
+        assertEquals(
+            setOf(Manifest.permission.READ_MEDIA_VIDEO, Manifest.permission.READ_MEDIA_AUDIO),
+            promptPerms
+        )
+        assertFalse(promptPerms.contains(Manifest.permission.READ_MEDIA_IMAGES))
     }
 
     @Test
     @Config(sdk = [34])
-    fun bucketPathFolderUsesFriendlyDisplayNameAndDirectRestoreSupportsScopedCollectionsOnAndroid14() {
-        val bucketItem = VaultDeviceItem(
-            id = "b1",
-            uri = Uri.parse("content://media/external/images/media/55"),
-            displayName = "snapshot.jpg",
-            extension = "JPG",
-            mimeType = "image/jpeg",
-            sizeBytes = 512L,
-            lastModifiedMs = 2_000L,
-            folderPath = "bucket:998877",
-            folderDisplayPath = "bucket:998877",
-            folderDisplayName = "Camera"
-        )
-        val combined = combineLibraryAndExtraDeviceFolders(emptyList(), listOf(bucketItem))
-        assertEquals(1, combined.size)
-        assertEquals("Camera", combined.single().name)
-        assertEquals("bucket:998877", combined.single().path)
-
+    fun android14Api34AllowsScopedVideoAndAudioRestoreAndRejectsNonMediaRestore() {
         val deviceSource = PrivateVaultDeviceSource(context)
+        val promptPerms = deviceSource.permissionsForBrowsePrompt().toSet()
+        assertEquals(
+            setOf(
+                Manifest.permission.READ_MEDIA_VIDEO,
+                Manifest.permission.READ_MEDIA_AUDIO,
+                Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED
+            ),
+            promptPerms
+        )
+        assertFalse(promptPerms.contains(Manifest.permission.READ_MEDIA_IMAGES))
+
         val moviesEntry = PrivateVaultEntry(
             id = "e1",
             displayName = "clip.mp4",
@@ -398,8 +590,16 @@ class PrivateVaultDeviceBrowserTest {
             sourceTreeUri = PrivateVaultTreeSupport.MEDIASTORE_ORIGIN_TREE_URI,
             sourceParentDocumentId = "Movies/Action"
         )
-        val docsEntry = PrivateVaultEntry(
+        val musicEntry = PrivateVaultEntry(
             id = "e2",
+            displayName = "track.mp3",
+            mimeType = "audio/mpeg",
+            sizeBytes = 100L,
+            sourceTreeUri = PrivateVaultTreeSupport.MEDIASTORE_ORIGIN_TREE_URI,
+            sourceParentDocumentId = "Music/Albums"
+        )
+        val legacyDocEntry = PrivateVaultEntry(
+            id = "e3",
             displayName = "report.pdf",
             mimeType = "application/pdf",
             sizeBytes = 100L,
@@ -407,9 +607,30 @@ class PrivateVaultDeviceBrowserTest {
             sourceParentDocumentId = "Documents/Private"
         )
         assertTrue(deviceSource.canRestoreToMediaStoreOrigin(moviesEntry))
-        assertTrue(deviceSource.canRestoreToMediaStoreOrigin(docsEntry))
+        assertTrue(deviceSource.canRestoreToMediaStoreOrigin(musicEntry))
+        assertFalse(deviceSource.canRestoreToMediaStoreOrigin(legacyDocEntry))
         assertTrue(treeSupport.canRestoreToOriginalFolder(moviesEntry))
-        assertTrue(treeSupport.canRestoreToOriginalFolder(docsEntry))
+        assertTrue(treeSupport.canRestoreToOriginalFolder(musicEntry))
+    }
+
+    @Test
+    @Config(sdk = [35])
+    fun android15Api35CompatibleMediaPermissionsAndDirectAudioVideoRestore() {
+        val deviceSource = PrivateVaultDeviceSource(context)
+        Shadows.shadowOf(context as Application).grantPermissions(
+            Manifest.permission.READ_MEDIA_VIDEO,
+            Manifest.permission.READ_MEDIA_AUDIO
+        )
+        assertTrue(deviceSource.hasMediaPermissions())
+        val downloadVideo = PrivateVaultEntry(
+            id = "e35",
+            displayName = "clip35.mp4",
+            mimeType = "video/mp4",
+            sizeBytes = 100L,
+            sourceTreeUri = PrivateVaultTreeSupport.MEDIASTORE_ORIGIN_TREE_URI,
+            sourceParentDocumentId = "Download"
+        )
+        assertTrue(deviceSource.canRestoreToMediaStoreOrigin(downloadVideo))
     }
 
     @Test
@@ -445,6 +666,37 @@ class PrivateVaultDeviceBrowserTest {
         lastModifiedMs = 1_000L,
         folderPath = folderPath,
         folderDisplayPath = folderPath
+    )
+
+    private fun sampleLibraryItem(
+        id: String,
+        uri: Uri,
+        title: String,
+        mime: String,
+        isVideo: Boolean,
+        folderPath: String,
+        sizeBytes: Long
+    ) = LibraryItem(
+        media = MediaItem(
+            id = id,
+            uri = uri,
+            title = title,
+            durationMs = 1000L,
+            sizeBytes = sizeBytes,
+            addedAtMs = 5000L,
+            mimeType = mime,
+            isVideo = isVideo,
+            folderPath = folderPath,
+            folderName = folderPath.substringAfterLast('/'),
+            artist = null,
+            album = null,
+            albumId = null,
+            artistId = null,
+            genre = null,
+            width = if (isVideo) 1920 else 0,
+            height = if (isVideo) 1080 else 0,
+            bitrate = 1000L
+        )
     )
 
     private fun sha256Hex(bytes: ByteArray): String =

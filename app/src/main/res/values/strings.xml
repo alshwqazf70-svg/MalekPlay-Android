@@ -520,7 +520,7 @@
     <string name="vault_shield_active">Screen capture blocked · AES-256-GCM</string>
     <string name="vault_copy_folder">Copy folder</string>
     <string name="vault_move_folder">Move folder</string>
-    <string name="vault_browse">Browse</string>
+    <string name="vault_browse">Add from library</string>
     <string name="vault_search_hint">Search inside vault</string>
     <string name="vault_sort_label">Sort</string>
     <string name="vault_sort_newest">Newest</string>
@@ -532,7 +532,7 @@
     <string name="vault_filter_image">Images</string>
     <string name="vault_filter_other">Files</string>
     <string name="vault_processing">Processing encrypted file…</string>
-    <string name="vault_empty_state">The vault is empty. Tap + to encrypt files or choose a folder above.</string>
+    <string name="vault_empty_state">The vault is empty. Tap + to move videos or audio files from your MalekPlayer library into the vault.</string>
     <string name="vault_no_search_results">No matching items in the vault.</string>
     <string name="vault_selected_count">%1$d selected</string>
     <string name="vault_select_item">Select item</string>
@@ -598,7 +598,8 @@
     <string name="vault_browser_sort_descending">Descending</string>
     <string name="vault_browser_folder_items_count">%1$d items</string>
     <string name="vault_browser_folder_label">Folder</string>
-    <string name="vault_browser_empty_folder">This folder is empty or unreadable.</string>
+    <string name="vault_browser_empty_folder">No unvaulted videos or music remain in this folder.</string>
+    <string name="vault_browser_empty_library_folders">No library folders with unvaulted videos or music were found.</string>
     <string name="vault_browser_no_matches">No matching files or folders.</string>
     <string name="vault_browser_selected_summary">%1$d selected · %2$s</string>
     <string name="vault_browser_copy_to_vault">Copy to vault</string>
@@ -630,22 +631,23 @@
     <string name="vault_archive_cancelled">Operation cancelled safely.</string>
     <string name="vault_error_insufficient_storage">Insufficient storage space on device.</string>
     <string name="vault_take_out_delete_failed">Extracted %1$d item(s) safely, but their encrypted copies still remain in the vault.</string>
-    <string name="vault_browser_folders_title">Device Folders</string>
-    <string name="vault_browser_folders_subtitle">Select a folder to pick files for the vault</string>
-    <string name="vault_browser_save_to_vault">Save (%1$d)</string>
+    <string name="vault_browser_folders_title">Media Folders</string>
+    <string name="vault_browser_folders_subtitle">Select a folder to pick videos or music for the vault</string>
+    <string name="vault_browser_save_to_vault">Move to vault (%1$d)</string>
     <string name="vault_browser_already_saved_badge">Protected</string>
     <string name="vault_browser_subfolder_count">%1$d subfolder(s)</string>
     <string name="vault_browser_refresh_folders">Refresh folders</string>
     <string name="vault_browser_saf_folder_option">Browse another storage folder (SAF)</string>
     <string name="vault_browser_saf_saved_folder">External SAF folder</string>
     <string name="vault_browser_grant_media_access">Grant media access</string>
-    <string name="vault_browser_permission_banner">Allow media permissions to display device folders directly, or browse a folder via SAF below.</string>
-    <string name="vault_browser_save_result_banner">Protected %1$d file(s) in vault. Continue browsing or tap X to finish.</string>
+    <string name="vault_browser_permission_banner">Allow video and audio permissions to display MalekPlayer library folders.</string>
+    <string name="vault_browser_save_result_banner">Moved %1$d file(s) into the vault. Continue browsing or tap X to finish.</string>
     <string name="vault_browser_save_partial_banner">Protected %1$d file(s); %2$d failed and were not marked saved or deleted.</string>
     <string name="vault_browser_load_more">Show more items (%1$d remaining)</string>
     <string name="vault_browser_current_folder">Current folder: %1$s</string>
     <string name="vault_browser_pending_selected">%1$d selected · %2$s</string>
     <string name="vault_take_out_original_fallback_needed">Original folder is unavailable for %1$d item(s). Choose a destination folder.</string>
+    <string name="vault_take_out_original_failed">Could not restore to the original folder because it is unavailable or permission was denied. Encrypted copies remain safely in the vault.</string>
     <string name="vault_browser_media_delete_pending">Encrypted %1$d file(s). Confirm system prompt to remove the original source files from device.</string>
     <string name="vault_browser_media_delete_kept">Encrypted %1$d file(s) safely in vault; original source files were kept on device.</string>
 

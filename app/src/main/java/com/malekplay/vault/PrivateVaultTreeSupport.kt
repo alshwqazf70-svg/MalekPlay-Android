@@ -7,6 +7,7 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.provider.OpenableColumns
+import kotlinx.coroutines.CancellationException
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileNotFoundException
@@ -198,6 +199,11 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
                     }
                 } else {
                     val isMediaStoreOrigin = item.treeUri.toString() == MEDIASTORE_ORIGIN_TREE_URI
+                    if (isMediaStoreOrigin) {
+                        require(isVaultAllowedMediaMime(item.mimeType)) {
+                            "Private Vault accepts video and audio files only."
+                        }
+                    }
                     check(deviceSource.isUriReadable(item.uri)) {
                         "File is unavailable, moved, or permission was revoked."
                     }
@@ -251,8 +257,10 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
                 }
             }
             if (outcome.isFailure) {
+                val err = outcome.exceptionOrNull()
+                if (err is CancellationException) throw err
                 failedCount++
-                val msg = outcome.exceptionOrNull()?.localizedMessage ?: item.displayName
+                val msg = err?.localizedMessage ?: item.displayName
                 failures += "${item.displayName}: $msg"
             }
         }
@@ -435,8 +443,10 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
                             }
                         }
                         if (itemOutcome.isFailure) {
+                            val errObj = itemOutcome.exceptionOrNull()
+                            if (errObj is CancellationException) throw errObj
                             failedFiles++
-                            val err = itemOutcome.exceptionOrNull()?.localizedMessage ?: path
+                            val err = errObj?.localizedMessage ?: path
                             failures += "$path: $err"
                         }
                         zip.closeEntry()
@@ -496,9 +506,11 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
                     }
                 }
                 if (mediaRestoreOutcome.isFailure) {
+                    val err = mediaRestoreOutcome.exceptionOrNull()
+                    if (err is CancellationException) throw err
                     failedCount++
                     keptInVaultCount++
-                    failures += "${entry.displayName}: ${mediaRestoreOutcome.exceptionOrNull()?.localizedMessage ?: "Restore failed"}"
+                    failures += "${entry.displayName}: ${err?.localizedMessage ?: "Restore failed"}"
                 } else {
                     succeededCount++
                     mediaRestoreOutcome.getOrNull()?.let { restoredPaths += it.toString() }
@@ -507,6 +519,8 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
                         if (deleted.isSuccess) {
                             removedFromVaultCount++
                         } else {
+                            val delErr = deleted.exceptionOrNull()
+                            if (delErr is CancellationException) throw delErr
                             keptInVaultCount++
                             extractedButVaultDeleteFailedCount++
                             failures += "${entry.displayName}: Extracted safely, but encrypted copy remains in vault."
@@ -542,9 +556,11 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
                 }
                 val result = folderOutcome.getOrNull()
                 if (result == null) {
+                    val err = folderOutcome.exceptionOrNull()
+                    if (err is CancellationException) throw err
                     failedCount++
                     keptInVaultCount++
-                    failures += "${entry.displayName}: ${folderOutcome.exceptionOrNull()?.localizedMessage ?: "Restore failed"}"
+                    failures += "${entry.displayName}: ${err?.localizedMessage ?: "Restore failed"}"
                 } else if (!result.isCompleteSuccess) {
                     // Partial folder restore: preserve encrypted archive in vault!
                     failedCount++
@@ -559,6 +575,8 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
                         if (deleted.isSuccess) {
                             removedFromVaultCount++
                         } else {
+                            val delErr = deleted.exceptionOrNull()
+                            if (delErr is CancellationException) throw delErr
                             keptInVaultCount++
                             extractedButVaultDeleteFailedCount++
                             failures += "${entry.displayName}: Extracted safely, but encrypted copy remains in vault."
@@ -590,12 +608,14 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
                     docUri
                 }
                 if (restoreOutcome.isFailure) {
+                    val err = restoreOutcome.exceptionOrNull()
                     createdUri?.let { partial ->
                         runCatching { DocumentsContract.deleteDocument(resolver, partial) }
                     }
+                    if (err is CancellationException) throw err
                     failedCount++
                     keptInVaultCount++
-                    failures += "${entry.displayName}: ${restoreOutcome.exceptionOrNull()?.localizedMessage ?: "Restore failed"}"
+                    failures += "${entry.displayName}: ${err?.localizedMessage ?: "Restore failed"}"
                 } else {
                     succeededCount++
                     restoreOutcome.getOrNull()?.let { restoredPaths += it.toString() }
@@ -604,6 +624,8 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
                         if (deleted.isSuccess) {
                             removedFromVaultCount++
                         } else {
+                            val delErr = deleted.exceptionOrNull()
+                            if (delErr is CancellationException) throw delErr
                             keptInVaultCount++
                             extractedButVaultDeleteFailedCount++
                             failures += "${entry.displayName}: Extracted safely, but encrypted copy remains in vault."
