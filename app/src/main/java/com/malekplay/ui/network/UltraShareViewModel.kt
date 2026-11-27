@@ -1372,7 +1372,6 @@ private fun forgetApprovedSenderTarget(host: String) {
     }
 
     @Suppress("DEPRECATION")
-    @Suppress("DEPRECATION")
     @android.annotation.SuppressLint("MissingPermission")
     private fun connectLegacyWifiNetwork(
         pairing: com.malekplay.network.UltraShareQrCode.PairingDetails,
