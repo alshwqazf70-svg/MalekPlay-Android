@@ -46,7 +46,6 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -768,7 +767,7 @@ fun OnlineSubtitleSearchSheet(
 
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 filteredResults.forEachIndexed { index, subtitle ->
-                    key(subtitle.provider + ":" + subtitle.sourceId) {
+                    androidx.compose.runtime.key(subtitle.provider + ":" + subtitle.sourceId) {
                         val cardState = resolveSubtitleCardActionState(
                             subtitle = subtitle,
                             loading = loading,

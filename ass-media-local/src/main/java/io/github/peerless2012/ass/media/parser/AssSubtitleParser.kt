@@ -49,7 +49,7 @@ abstract class AssSubtitleParser(
             val cues = mutableListOf<Cue>()
             val videoWidth = assHandler.videoSize.width
             val videoHeight = assHandler.videoSize.height
-            if (videoWidth <= 0 || videoHeight <= 0) continue
+            if (videoWidth <= 0 || videoHeight <= 0) return@forEach
             val frames = assHandler.render?.renderFrame(event.start + fadeIn, AssTexType.BITMAP_RGBA)
             frames?.images?.let { texts ->
                 texts.forEach { tex ->
