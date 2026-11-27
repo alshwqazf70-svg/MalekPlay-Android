@@ -53,6 +53,18 @@ object UltraShareScreenMirrorPolicy {
             0
         }
 
+    enum class MirrorAudioMode(val wire: Int) {
+        NONE(0),
+        INTERNAL_AUDIO(1),
+        MICROPHONE(2);
+
+        companion object {
+            fun fromWire(wire: Int, audioEnabledFallback: Boolean): MirrorAudioMode =
+                entries.firstOrNull { it.wire == wire }
+                    ?: if (audioEnabledFallback) INTERNAL_AUDIO else NONE
+        }
+    }
+
     /** AudioPlaybackCapture API was introduced in Android 10 (API 29). */
     fun supportsSystemAudioCapture(sdkInt: Int = Build.VERSION.SDK_INT): Boolean =
         sdkInt >= Build.VERSION_CODES.Q
@@ -60,12 +72,57 @@ object UltraShareScreenMirrorPolicy {
     fun supportsAudioPlaybackCapture(sdkInt: Int = Build.VERSION.SDK_INT): Boolean =
         supportsSystemAudioCapture(sdkInt)
 
-    fun hasAudioCapturePermission(context: Context, sdkInt: Int = Build.VERSION.SDK_INT): Boolean {
-        if (!supportsSystemAudioCapture(sdkInt)) return false
-        return ContextCompat.checkSelfPermission(
+    /** Microphone capture via AudioRecord is supported across API 23..36 (Android 6–16). */
+    fun supportsMicrophoneCapture(sdkInt: Int = Build.VERSION.SDK_INT): Boolean =
+        sdkInt >= Build.VERSION_CODES.M
+
+    fun availableAudioModes(sdkInt: Int = Build.VERSION.SDK_INT): List<MirrorAudioMode> =
+        if (supportsAudioPlaybackCapture(sdkInt)) {
+            listOf(MirrorAudioMode.NONE, MirrorAudioMode.INTERNAL_AUDIO, MirrorAudioMode.MICROPHONE)
+        } else {
+            listOf(MirrorAudioMode.NONE, MirrorAudioMode.MICROPHONE)
+        }
+
+    fun requiresRecordAudioPermission(mode: MirrorAudioMode): Boolean =
+        mode != MirrorAudioMode.NONE
+
+    fun hasRecordAudioPermission(context: Context): Boolean =
+        ContextCompat.checkSelfPermission(
             context,
             Manifest.permission.RECORD_AUDIO
         ) == PackageManager.PERMISSION_GRANTED
+
+    /**
+     * Resolves a single mutually-exclusive audio capture source.
+     * Never falls back from INTERNAL_AUDIO to MICROPHONE automatically (so the app
+     * never pretends microphone audio is internal device audio) and never starts
+     * both audio sources simultaneously.
+     */
+    fun resolveEffectiveAudioMode(
+        requested: MirrorAudioMode,
+        hasRecordAudioPermission: Boolean,
+        sdkInt: Int = Build.VERSION.SDK_INT
+    ): MirrorAudioMode = when (requested) {
+        MirrorAudioMode.NONE -> MirrorAudioMode.NONE
+        MirrorAudioMode.INTERNAL_AUDIO -> {
+            if (supportsAudioPlaybackCapture(sdkInt) && hasRecordAudioPermission) {
+                MirrorAudioMode.INTERNAL_AUDIO
+            } else {
+                MirrorAudioMode.NONE
+            }
+        }
+        MirrorAudioMode.MICROPHONE -> {
+            if (supportsMicrophoneCapture(sdkInt) && hasRecordAudioPermission) {
+                MirrorAudioMode.MICROPHONE
+            } else {
+                MirrorAudioMode.NONE
+            }
+        }
+    }
+
+    fun hasAudioCapturePermission(context: Context, sdkInt: Int = Build.VERSION.SDK_INT): Boolean {
+        if (!supportsSystemAudioCapture(sdkInt)) return false
+        return hasRecordAudioPermission(context)
     }
 
     fun selectCaptureProfile(memoryClassMb: Int, activeViewers: Int = 1): CaptureProfile {

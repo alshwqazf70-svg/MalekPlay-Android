@@ -45,6 +45,10 @@ class UltraShareScreenMirrorService : Service() {
         val bitrateBps: Int = 0,
         val audioRequested: Boolean = false,
         val audioActive: Boolean = false,
+        val audioMode: UltraShareScreenMirrorPolicy.MirrorAudioMode =
+            UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE,
+        val requestedAudioMode: UltraShareScreenMirrorPolicy.MirrorAudioMode =
+            UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE,
         val error: String? = null,
         val statusMessage: String? = null
     )
@@ -57,6 +61,7 @@ class UltraShareScreenMirrorService : Service() {
     @Volatile private var activeStreamKey: ByteArray? = null
     @Volatile private var activeConfig: UltraShareScreenMirrorProtocol.StreamConfig? = null
     @Volatile private var activeRevision: Long = 0L
+    @Volatile private var latestAudioWarning: String? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -71,6 +76,15 @@ class UltraShareScreenMirrorService : Service() {
                     intent.getParcelableExtra(EXTRA_RESULT_DATA)
                 }
                 val enableAudio = intent.getBooleanExtra(EXTRA_ENABLE_AUDIO, false)
+                val requestedModeWire = intent.getIntExtra(
+                    EXTRA_AUDIO_MODE,
+                    if (enableAudio) UltraShareScreenMirrorPolicy.MirrorAudioMode.INTERNAL_AUDIO.wire
+                    else UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE.wire
+                )
+                val requestedAudioMode = UltraShareScreenMirrorPolicy.MirrorAudioMode.fromWire(
+                    requestedModeWire,
+                    audioEnabledFallback = enableAudio
+                )
                 if (resultCode != Activity.RESULT_OK || dataIntent == null) {
                     mutableHostState.value = MirrorHostState(
                         active = false,
@@ -80,14 +94,13 @@ class UltraShareScreenMirrorService : Service() {
                     return START_NOT_STICKY
                 }
                 startForegroundForMediaProjection()
-                startMirroringSession(resultCode, dataIntent, enableAudio)
+                startMirroringSession(resultCode, dataIntent, requestedAudioMode)
             }
             ACTION_STOP_MIRRORING -> {
                 stopMirroringSession(reason = "أوقفت مشاركة الشاشة الجماعية.")
                 stopSelf()
             }
             else -> {
-                startForegroundForMediaProjection()
                 stopSelf(startId)
             }
         }
@@ -112,13 +125,16 @@ class UltraShareScreenMirrorService : Service() {
     private fun startMirroringSession(
         resultCode: Int,
         resultData: Intent,
-        enableAudio: Boolean
+        requestedAudioMode: UltraShareScreenMirrorPolicy.MirrorAudioMode
     ) {
         stopMirroringSessionInternal(notifyStop = false)
+        latestAudioWarning = null
+        val audioRequested = requestedAudioMode != UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE
         mutableHostState.value = MirrorHostState(
             active = false,
             starting = true,
-            audioRequested = enableAudio,
+            audioRequested = audioRequested,
+            requestedAudioMode = requestedAudioMode,
             statusMessage = "جارٍ تهيئة بث الشاشة الجماعية…"
         )
         try {
@@ -161,11 +177,26 @@ class UltraShareScreenMirrorService : Service() {
                 context = this,
                 mediaProjection = projection,
                 hub = hub,
-                enableAudio = enableAudio,
+                requestedAudioMode = requestedAudioMode,
                 onConfigChanged = { cfg ->
                     activeConfig = cfg
                     val rev = ++activeRevision
                     val prev = mutableHostState.value
+                    val resolvedStatus = when {
+                        latestAudioWarning != null -> latestAudioWarning!!
+                        audioRequested && !cfg.audioEnabled ->
+                            if (requestedAudioMode == UltraShareScreenMirrorPolicy.MirrorAudioMode.INTERNAL_AUDIO) {
+                                "الشاشة الجماعية نشطة (بدون صوت؛ الصوت الداخلي يتطلب Android 10+ وإذن الصوت)"
+                            } else {
+                                "الشاشة الجماعية نشطة (فيديو فقط؛ تعذر تشغيل الميكروفون)"
+                            }
+                        cfg.audioMode == UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE ->
+                            "الشاشة الجماعية نشطة بصوت الميكروفون — يمكن استخدام أي تطبيق آخر مع استمرار البث"
+                        cfg.audioMode == UltraShareScreenMirrorPolicy.MirrorAudioMode.INTERNAL_AUDIO ->
+                            "الشاشة الجماعية نشطة بالصوت الداخلي — يمكن استخدام أي تطبيق آخر مع استمرار البث"
+                        else ->
+                            "الشاشة الجماعية نشطة — يمكن استخدام أي تطبيق آخر مع استمرار البث"
+                    }
                     mutableHostState.value = prev.copy(
                         active = true,
                         starting = false,
@@ -176,12 +207,9 @@ class UltraShareScreenMirrorService : Service() {
                         fps = cfg.fps,
                         bitrateBps = cfg.bitrateBps,
                         audioActive = cfg.audioEnabled,
+                        audioMode = cfg.audioMode,
                         error = null,
-                        statusMessage = if (enableAudio && !cfg.audioEnabled) {
-                            "الشاشة الجماعية نشطة (بدون صوت؛ يتطلب Android 10+ وإذن الصوت)"
-                        } else {
-                            "الشاشة الجماعية نشطة — يمكن استخدام أي تطبيق آخر مع استمرار البث"
-                        }
+                        statusMessage = resolvedStatus
                     )
                     buildOfferControlMessage(
                         type = if (rev <= 2L) {
@@ -195,6 +223,15 @@ class UltraShareScreenMirrorService : Service() {
                 onProjectionStopped = { reason ->
                     stopMirroringSession(reason ?: "توقف بث الشاشة.")
                     stopSelf()
+                },
+                onAudioStateChanged = { mode, note ->
+                    latestAudioWarning = note
+                    val prev = mutableHostState.value
+                    mutableHostState.value = prev.copy(
+                        audioActive = mode != UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE,
+                        audioMode = mode,
+                        statusMessage = note ?: prev.statusMessage
+                    )
                 }
             )
             screenCapturer = capturer
@@ -338,6 +375,7 @@ class UltraShareScreenMirrorService : Service() {
         const val EXTRA_RESULT_CODE = "extra_result_code"
         const val EXTRA_RESULT_DATA = "extra_result_data"
         const val EXTRA_ENABLE_AUDIO = "extra_enable_audio"
+        const val EXTRA_AUDIO_MODE = "extra_audio_mode"
 
         private const val CHANNEL_ID = "ultra_share_screen_mirror"
         private const val NOTIFICATION_ID = 4207
@@ -353,13 +391,17 @@ class UltraShareScreenMirrorService : Service() {
             context: Context,
             resultCode: Int,
             data: Intent,
-            enableAudio: Boolean
+            enableAudio: Boolean,
+            audioMode: UltraShareScreenMirrorPolicy.MirrorAudioMode =
+                if (enableAudio) UltraShareScreenMirrorPolicy.MirrorAudioMode.INTERNAL_AUDIO
+                else UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE
         ) {
             val intent = Intent(context, UltraShareScreenMirrorService::class.java).apply {
                 action = ACTION_START_MIRRORING
                 putExtra(EXTRA_RESULT_CODE, resultCode)
                 putExtra(EXTRA_RESULT_DATA, data)
-                putExtra(EXTRA_ENABLE_AUDIO, enableAudio)
+                putExtra(EXTRA_ENABLE_AUDIO, audioMode != UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE)
+                putExtra(EXTRA_AUDIO_MODE, audioMode.wire)
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)

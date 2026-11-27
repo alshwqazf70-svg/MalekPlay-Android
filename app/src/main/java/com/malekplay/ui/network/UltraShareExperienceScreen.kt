@@ -14,6 +14,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.SystemClock
 import android.provider.OpenableColumns
+import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -89,6 +90,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import com.malekplay.core.ui.theme.MalekPlayColors
@@ -230,7 +234,7 @@ fun UltraShareExperienceScreen(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (!granted) {
-            viewModel.setMirrorAudioRequested(false)
+            viewModel.setMirrorAudioMode(UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE)
             Toast.makeText(
                 context,
                 "لم يُمنح إذن الصوت؛ ستبدأ الشاشة الجماعية فيديو فقط.",
@@ -656,6 +660,17 @@ fun UltraShareExperienceScreen(
     LaunchedEffect(state.approvedPeerHost) {
         state.approvedPeerHost?.let { host = it }
     }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.resumePendingQrAfterSettingsReturn()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     // Move directly to the live transfer room as soon as either direction starts.
     LaunchedEffect(state.sending, state.sendProgress, state.receiveProgress) {
         if (state.sending || state.sendProgress != null || state.receiveProgress != null) {
@@ -776,6 +791,79 @@ fun UltraShareExperienceScreen(
                         color = fg,
                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                     )
+                }
+            }
+        }
+
+        if (state.pendingQrLocationAction != null) {
+            val isServiceOff = state.locationPrereqStatus ==
+                UltraSharePlatformCompatibility.WifiDirectPrerequisiteStatus.LOCATION_SERVICES_DISABLED
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = Color(0xFFFFC66D).copy(alpha = 0.14f),
+                border = BorderStroke(1.dp, Color(0xFFFFC66D).copy(alpha = 0.45f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = if (isServiceOff) {
+                            "خدمة الموقع (Location) مطفأة في النظام"
+                        } else {
+                            "يلزم منح إذن الأجهزة القريبة / الموقع"
+                        },
+                        color = colors.onSurface,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = if (isServiceOff) {
+                            "يشترط Android 6–12 تفعيل خدمة الموقع لاستمرار اكتشاف ونشر دعوة QR عبر Wi-Fi Direct. سنحتفظ بنفس رمز QR والجلسة ونستأنف تلقائياً عند عودتك."
+                        } else {
+                            "امنح الإذن لاستكمال نشر أو اكتشاف دعوة QR عبر Wi-Fi Direct بنفس الجلسة."
+                        },
+                        color = colors.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                if (isServiceOff) {
+                                    runCatching {
+                                        context.startActivity(
+                                            Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)
+                                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        )
+                                    }.onFailure {
+                                        Toast.makeText(
+                                            context,
+                                            "افتح إعدادات الجهاز وفعّل خدمة الموقع (Location).",
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                    }
+                                } else {
+                                    val required = UltraSharePlatformCompatibility
+                                        .wifiDirectRuntimePermissions(Build.VERSION.SDK_INT)
+                                        .toTypedArray()
+                                    wifiPermission.launch(required)
+                                }
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(
+                                text = if (isServiceOff) "تفعيل خدمة الموقع" else "منح الإذن",
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        OutlinedButton(onClick = viewModel::clearPendingQrLocationAction) {
+                            Text("تجاهل")
+                        }
+                    }
                 }
             }
         }
@@ -1445,10 +1533,10 @@ fun UltraShareExperienceScreen(
                             page = UltraSharePage.HOME
                         },
                         onToggleMirrorAudio = viewModel::setMirrorAudioRequested,
+                        onSelectMirrorAudioMode = viewModel::setMirrorAudioMode,
                         onStartScreenMirror = {
-                            if (state.mirrorAudioRequested &&
-                                UltraShareScreenMirrorPolicy.supportsAudioPlaybackCapture() &&
-                                !UltraShareScreenMirrorPolicy.hasAudioCapturePermission(context)
+                            if (UltraShareScreenMirrorPolicy.requiresRecordAudioPermission(state.mirrorAudioMode) &&
+                                !UltraShareScreenMirrorPolicy.hasRecordAudioPermission(context)
                             ) {
                                 mirrorAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                             } else {

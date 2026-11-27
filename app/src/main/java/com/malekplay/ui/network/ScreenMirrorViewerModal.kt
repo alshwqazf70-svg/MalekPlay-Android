@@ -44,6 +44,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -81,7 +82,10 @@ fun ScreenMirrorViewerModal(
         UltraShareScreenMirrorProtocol.canonicalId(UltraShareDiscovery.localPeerId(context)).orEmpty()
     }
 
-    val decoder = remember(offer.sessionId) {
+    var activeClientRef by remember { mutableStateOf<ScreenMirrorViewerClient?>(null) }
+    var surfaceViewRef by remember { mutableStateOf<SurfaceView?>(null) }
+
+    val decoder = remember(offer.sessionId, reconnectNonce) {
         AndroidScreenMirrorDecoder(
             onVideoDimensionsChanged = { _, _, _ -> },
             onRequestKeyframe = {
@@ -92,9 +96,18 @@ fun ScreenMirrorViewerModal(
                     action = UltraShareScreenMirrorProtocol.ViewerAction.REQUEST_IDR
                 )
             },
-            onDecoderError = { msg -> decoderError = msg }
+            onDecoderError = { msg ->
+                decoderError = msg
+                activeClientRef?.notifyDecoderFailure(msg)
+            },
+            onVideoConfigApplied = { activeClientRef?.notifyVideoConfigApplied() },
+            onVideoFrameReceived = { activeClientRef?.notifyVideoFrameReceived() },
+            onFrameDecoded = { rendered -> activeClientRef?.notifyFrameDecoded(rendered) },
+            onFirstFrameRendered = { activeClientRef?.notifyFirstFrameRendered() },
+            onSurfaceOrDecoderReset = { activeClientRef?.notifySurfaceOrDecoderReset() }
         )
     }
+    val currentDecoder by rememberUpdatedState(decoder)
 
     val viewerClient = remember(
         offer.sessionId,
@@ -120,10 +133,14 @@ fun ScreenMirrorViewerModal(
                     action = UltraShareScreenMirrorProtocol.ViewerAction.REQUEST_IDR
                 )
             }
-        )
+        ).also { activeClientRef = it }
     }
 
     DisposableEffect(viewerClient, decoder) {
+        val existingSurface = surfaceViewRef?.holder?.surface
+        if (existingSurface != null && existingSurface.isValid) {
+            decoder.attachSurface(existingSurface)
+        }
         viewerClient.start()
         onDispose {
             viewerClient.close()
@@ -168,9 +185,10 @@ fun ScreenMirrorViewerModal(
                     factory = { viewCtx ->
                         SurfaceView(viewCtx).apply {
                             keepScreenOn = true
+                            surfaceViewRef = this
                             holder.addCallback(object : SurfaceHolder.Callback {
                                 override fun surfaceCreated(holder: SurfaceHolder) {
-                                    decoder.attachSurface(holder.surface)
+                                    currentDecoder.attachSurface(holder.surface)
                                 }
 
                                 override fun surfaceChanged(
@@ -179,19 +197,22 @@ fun ScreenMirrorViewerModal(
                                     width: Int,
                                     height: Int
                                 ) {
-                                    decoder.attachSurface(holder.surface)
+                                    currentDecoder.attachSurface(holder.surface)
                                 }
 
                                 override fun surfaceDestroyed(holder: SurfaceHolder) {
-                                    decoder.attachSurface(null)
+                                    currentDecoder.attachSurface(null)
                                 }
                             })
                         }
+                    },
+                    update = { view ->
+                        surfaceViewRef = view
                     }
                 )
             }
 
-            // Center state overlay (connecting / reconnecting / locked screen / error)
+            // Center state overlay (connecting / awaiting first rendered frame / reconnecting / locked screen / error)
             val centerMessage: Pair<String, String?>? = when {
                 decoderError != null -> "تعذر عرض البث" to decoderError
                 status.phase == ScreenMirrorViewerClient.ConnectionPhase.ERROR ->
@@ -200,6 +221,18 @@ fun ScreenMirrorViewerModal(
                     "شاشة المضيف مقفلة أو محمية حالياً" to "يعود العرض تلقائياً عند فتح الشاشة أو مغادرة المحتوى المحمي."
                 status.phase == ScreenMirrorViewerClient.ConnectionPhase.CONNECTING ->
                     "جارٍ الاتصال بالشاشة الجماعية..." to "${offer.hostName} • ${offer.width}×${offer.height}"
+                status.phase == ScreenMirrorViewerClient.ConnectionPhase.CONNECTED_AWAITING_FIRST_FRAME ->
+                    "متصل، بانتظار الصورة" to when (status.stage) {
+                        com.malekplay.network.MirrorViewerStage.CONNECTED_TO_SOURCE ->
+                            "تم الاتصال بمصدر الفيديو • جارٍ طلب الإعدادات والإطار الأول..."
+                        com.malekplay.network.MirrorViewerStage.VIDEO_CONFIG_RECEIVED ->
+                            "وصلت إعدادات الفيديو (${videoWidth}×${videoHeight}) • بانتظار أول إطار..."
+                        com.malekplay.network.MirrorViewerStage.FRAME_RECEIVED ->
+                            "تم استلام الإطار الأول • جارٍ فك الترميز..."
+                        com.malekplay.network.MirrorViewerStage.FRAME_DECODED ->
+                            "تم فك ترميز الإطار • جارٍ العرض على الشاشة..."
+                        else -> "بانتظار عرض الإطار الأول على الشاشة..."
+                    }
                 status.phase == ScreenMirrorViewerClient.ConnectionPhase.RECONNECTING ->
                     "إعادة الاتصال التلقائي..." to "محاولة ${status.reconnectAttempt}"
                 else -> null
@@ -224,6 +257,7 @@ fun ScreenMirrorViewerModal(
                                 modifier = Modifier.size(34.dp)
                             )
                         } else if (status.phase == ScreenMirrorViewerClient.ConnectionPhase.CONNECTING ||
+                            status.phase == ScreenMirrorViewerClient.ConnectionPhase.CONNECTED_AWAITING_FIRST_FRAME ||
                             status.phase == ScreenMirrorViewerClient.ConnectionPhase.RECONNECTING
                         ) {
                             CircularProgressIndicator(
@@ -251,6 +285,7 @@ fun ScreenMirrorViewerModal(
                                 Button(
                                     onClick = {
                                         decoderError = null
+                                        decoder.reinitializeForRetry()
                                         reconnectNonce++
                                     },
                                     colors = ButtonDefaults.buttonColors(
@@ -258,7 +293,7 @@ fun ScreenMirrorViewerModal(
                                         contentColor = Color(0xFF0E2018)
                                     )
                                 ) {
-                                    Text("إعادة الاتصال", fontWeight = FontWeight.Bold)
+                                    Text("إعادة المحاولة", fontWeight = FontWeight.Bold)
                                 }
                                 Button(
                                     onClick = onLeave,
@@ -320,11 +355,29 @@ fun ScreenMirrorViewerModal(
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
+                        val phaseBadge = when (status.phase) {
+                            ScreenMirrorViewerClient.ConnectionPhase.STREAMING -> "المشاهدة تعمل"
+                            ScreenMirrorViewerClient.ConnectionPhase.CONNECTED_AWAITING_FIRST_FRAME -> "متصل، بانتظار الصورة"
+                            ScreenMirrorViewerClient.ConnectionPhase.SCREEN_PROTECTED -> "شاشة محمية"
+                            ScreenMirrorViewerClient.ConnectionPhase.RECONNECTING -> "إعادة الاتصال..."
+                            ScreenMirrorViewerClient.ConnectionPhase.ERROR -> "خطأ في البث"
+                            else -> "جارٍ الاتصال..."
+                        }
+                        val audioLabel = when (offer.audioMode) {
+                            com.malekplay.network.UltraShareScreenMirrorPolicy.MirrorAudioMode.INTERNAL_AUDIO -> "صوت داخلي + صورة"
+                            com.malekplay.network.UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE -> "ميكروفون + صورة"
+                            com.malekplay.network.UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE -> "فيديو فقط"
+                        }
                         val qualityLabel = buildString {
-                            append("${videoWidth}×${videoHeight}")
-                            if (status.estimatedFps > 0) append(" • ${status.estimatedFps} fps")
-                            if (status.bitrateKbps > 0) append(" • ${status.bitrateKbps} kbps")
-                            append(if (offer.audioEnabled) " • صوت + صورة" else " • فيديو فقط")
+                            append(phaseBadge)
+                            append(" • ${videoWidth}×${videoHeight}")
+                            if (status.estimatedFps > 0 && status.phase == ScreenMirrorViewerClient.ConnectionPhase.STREAMING) {
+                                append(" • ${status.estimatedFps} fps")
+                            }
+                            if (status.bitrateKbps > 0 && status.phase == ScreenMirrorViewerClient.ConnectionPhase.STREAMING) {
+                                append(" • ${status.bitrateKbps} kbps")
+                            }
+                            append(" • $audioLabel")
                         }
                         Text(
                             qualityLabel,

@@ -101,12 +101,50 @@ data class UltraShareUiState(
     val reconnectableSenderPeerHosts: List<String> = emptyList(),
     val peerDeliveryEntries: List<com.malekplay.network.UltraSharePeerDeliveryEntry> = emptyList(),
     val roomResetGeneration: Long = 0L,
+    val transferSessionId: Long = 1L,
     val mirrorHostState: UltraShareScreenMirrorService.MirrorHostState =
         UltraShareScreenMirrorService.MirrorHostState(),
     val incomingMirrorOffer: IncomingMirrorOffer? = null,
     val watchingMirrorSession: IncomingMirrorOffer? = null,
-    val mirrorAudioRequested: Boolean = false
+    val mirrorAudioRequested: Boolean = false,
+    val mirrorAudioMode: com.malekplay.network.UltraShareScreenMirrorPolicy.MirrorAudioMode =
+        com.malekplay.network.UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE,
+    val waitingForHostMirror: Boolean = false,
+    val locationPrereqStatus: com.malekplay.network.UltraSharePlatformCompatibility.WifiDirectPrerequisiteStatus =
+        com.malekplay.network.UltraSharePlatformCompatibility.WifiDirectPrerequisiteStatus.READY,
+    val pendingQrLocationAction: com.malekplay.network.UltraSharePlatformCompatibility.PendingQrLocationAction? = null
 )
+
+internal object UltraShareMirrorOfferPolicy {
+    fun offerKey(transferSessionId: Long, offer: IncomingMirrorOffer): String =
+        "$transferSessionId:${offer.sessionId}:${offer.hostAddress}"
+
+    /**
+     * Validates an incoming screen-mirror offer before auto-opening the viewer UI:
+     * - must have canonical sessionId & hostPeerId
+     * - must carry a valid private LAN host, port, and 256-bit stream key
+     * - must come from a paired/authorized peer in the current room session
+     * - must not originate from our own local peer ID
+     */
+    fun isValidForAutoLaunch(
+        offer: IncomingMirrorOffer?,
+        pairedHosts: Set<String>,
+        localPeerId: String?
+    ): Boolean {
+        if (offer == null) return false
+        val canonicalSession = com.malekplay.network.UltraShareScreenMirrorProtocol.canonicalId(offer.sessionId)
+            ?: return false
+        val canonicalHostPeer = com.malekplay.network.UltraShareScreenMirrorProtocol.canonicalId(offer.hostPeerId)
+            ?: return false
+        if (offer.sessionId != canonicalSession || offer.hostPeerId != canonicalHostPeer) return false
+        if (offer.streamPort !in 1024..65535) return false
+        if (offer.streamKey.size != com.malekplay.network.UltraShareScreenMirrorProtocol.STREAM_KEY_BYTES) return false
+        if (!UltraShareCore.isValidPrivateLanHost(offer.hostAddress)) return false
+        val normalizedLocal = com.malekplay.network.UltraShareScreenMirrorProtocol.canonicalId(localPeerId)
+        if (normalizedLocal != null && normalizedLocal == canonicalHostPeer) return false
+        return offer.hostAddress in pairedHosts
+    }
+}
 
 @HiltViewModel
 class UltraShareViewModel @Inject constructor(
@@ -182,6 +220,9 @@ class UltraShareViewModel @Inject constructor(
     private var dnsSdQrFallbackScheduledFor: String? = null
     @Volatile private var wifiDirectAdvertisedInvitationId: String? = null
     private var wifiDirectCleanupInProgress = false
+    private val sentMirrorJoinedKeys = HashSet<String>()
+    private val dismissedMirrorKeys = HashSet<String>()
+    private var pendingLocationResumePairing: com.malekplay.network.UltraShareQrCode.PairingDetails? = null
     private companion object {
         const val PEER_SIGHTING_TTL_MS = 12_000L
         @Volatile private var retainedHotspotNetworkCallback:
@@ -219,12 +260,53 @@ class UltraShareViewModel @Inject constructor(
                 val current = _state.value
                 val received = serviceState.receivedFile
                 val roomPresentationWasReset = serviceState.roomResetGeneration != current.roomResetGeneration
+                if (roomPresentationWasReset || serviceState.transferSessionId != current.transferSessionId) {
+                    sentMirrorJoinedKeys.clear()
+                    dismissedMirrorKeys.clear()
+                }
+                val pairedHosts = (
+                    serviceState.roomPeers.ifEmpty { serviceState.activePeers }.map { it.host } +
+                        serviceState.approvedSenderPeerHosts
+                    ).toSet()
+                val localPeerId = com.malekplay.network.UltraShareDiscovery.localPeerId(context)
+                val incomingOffer = serviceState.incomingMirrorOffer
+                val validIncomingOffer = incomingOffer?.takeIf {
+                    UltraShareMirrorOfferPolicy.isValidForAutoLaunch(
+                        offer = it,
+                        pairedHosts = pairedHosts,
+                        localPeerId = localPeerId
+                    )
+                }
+                val offerKey = validIncomingOffer?.let {
+                    UltraShareMirrorOfferPolicy.offerKey(serviceState.transferSessionId, it)
+                }
                 val updatedWatching = when {
-                    current.watchingMirrorSession == null -> null
-                    serviceState.incomingMirrorOffer == null -> null
-                    serviceState.incomingMirrorOffer.sessionId == current.watchingMirrorSession.sessionId ->
-                        serviceState.incomingMirrorOffer
-                    else -> current.watchingMirrorSession
+                    validIncomingOffer == null -> null
+                    offerKey != null && offerKey in dismissedMirrorKeys -> {
+                        // Viewer manually closed this session; keep current watching null unless re-joined.
+                        if (current.watchingMirrorSession?.sessionId == validIncomingOffer.sessionId &&
+                            current.watchingMirrorSession.hostAddress == validIncomingOffer.hostAddress
+                        ) {
+                            validIncomingOffer
+                        } else null
+                    }
+                    else -> {
+                        // Auto-launch the viewer UI for a paired/authorized incoming mirror offer.
+                        validIncomingOffer
+                    }
+                }
+                if (validIncomingOffer != null &&
+                    offerKey != null &&
+                    updatedWatching != null &&
+                    offerKey !in dismissedMirrorKeys &&
+                    sentMirrorJoinedKeys.add(offerKey)
+                ) {
+                    UltraShareForegroundService.sendMirrorViewerAction(
+                        context = context,
+                        hostAddress = validIncomingOffer.hostAddress,
+                        sessionId = validIncomingOffer.sessionId,
+                        action = com.malekplay.network.UltraShareScreenMirrorProtocol.ViewerAction.JOINED
+                    )
                 }
                 val stoppedWatchingNotice = current.watchingMirrorSession != null && updatedWatching == null
                 if (received?.publishedUri != null &&
@@ -278,14 +360,16 @@ class UltraShareViewModel @Inject constructor(
                     reconnectablePeers = serviceState.reconnectablePeers,
                     peerTransfers = serviceState.peerTransfers,
                     roomResetGeneration = serviceState.roomResetGeneration,
+                    transferSessionId = serviceState.transferSessionId,
                     approvedSenderPeerCount = serviceState.approvedSenderPeerHosts.size,
                     approvedSenderPeerHosts = serviceState.approvedSenderPeerHosts,
                     reconnectableSenderPeerHosts = serviceState.reconnectableSenderPeerHosts,
                     approvedPeerHost = current.approvedPeerHost?.takeIf { approved ->
                         serviceState.activePeers.any { it.host == approved }
                     },
-                    incomingMirrorOffer = serviceState.incomingMirrorOffer,
-                    watchingMirrorSession = updatedWatching
+                    incomingMirrorOffer = validIncomingOffer,
+                    watchingMirrorSession = updatedWatching,
+                    waitingForHostMirror = if (validIncomingOffer != null) false else current.waitingForHostMirror
                 )
                 val pairedSessionActive = serviceState.activePeers.isNotEmpty() ||
                     serviceState.approvedSenderPeerHosts.isNotEmpty()
@@ -341,7 +425,8 @@ class UltraShareViewModel @Inject constructor(
                         delay(350L)
                         if (_state.value.receiving &&
                             _state.value.invitationId.isBlank() &&
-                            !hotspotFallbackStarted
+                            !hotspotFallbackStarted &&
+                            _state.value.pendingQrLocationAction == null
                         ) {
                             advertiseCurrentWifiDirectInvitation()
                         }
@@ -1079,6 +1164,9 @@ private fun forgetApprovedSenderTarget(host: String) {
         wifiDirectCredentialsFromJoinedInvitation = false
         dnsSdQrFallbackScheduledFor = null
         wifiDirectAdvertisedInvitationId = null
+        pendingLocationResumePairing = null
+        sentMirrorJoinedKeys.clear()
+        dismissedMirrorKeys.clear()
         val session = wifiDirectSession
         wifiDirectCleanupInProgress = session != null
         // End the logical receive session before asynchronous P2P cleanup callbacks
@@ -1106,6 +1194,8 @@ private fun forgetApprovedSenderTarget(host: String) {
             requestingConnection = false,
             lanFallbackReady = false,
             localAddresses = emptyList(),
+            waitingForHostMirror = false,
+            pendingQrLocationAction = null,
             progress = if (_state.value.sending) UltraShareForegroundService.state.value.sendProgress else null,
             status = context.getString(R.string.ultra_share_stopped)
         )
@@ -2132,6 +2222,51 @@ private fun forgetApprovedSenderTarget(host: String) {
             onError = { message ->
                 val receiving = _state.value.receiving || UltraShareForegroundService.state.value.receiving
                 val pending = pendingQrPairing
+                val prereqStatus = com.malekplay.network.UltraSharePlatformCompatibility
+                    .currentWifiDirectPrerequisites(context)
+                if (prereqStatus != com.malekplay.network.UltraSharePlatformCompatibility.WifiDirectPrerequisiteStatus.READY) {
+                    // Location service was disabled or permission revoked mid-operation.
+                    // Preserve the active invitationId & pairing context so ON_RESUME
+                    // can seamlessly resume without regenerating QR or dropping pairing.
+                    if (pending != null) {
+                        pendingLocationResumePairing = pending.details ?: pendingLocationResumePairing
+                        pendingQrPairing = null
+                        qrP2pConnectStarted = false
+                        _state.value = _state.value.copy(
+                            wifiDirectScanning = false,
+                            requestingConnection = false,
+                            locationPrereqStatus = prereqStatus,
+                            pendingQrLocationAction = com.malekplay.network.UltraSharePlatformCompatibility
+                                .PendingQrLocationAction.DISCOVER_INVITATION,
+                            error = null,
+                            status = if (prereqStatus == com.malekplay.network.UltraSharePlatformCompatibility.WifiDirectPrerequisiteStatus.LOCATION_SERVICES_DISABLED) {
+                                "يلزم تفعيل خدمة الموقع (Location) في الجهاز لاكتشاف دعوة QR عبر Wi-Fi Direct. سيتم الاستئناف تلقائياً عند العودة."
+                            } else {
+                                "يلزم منح إذن الموقع/الأجهزة القريبة لاستئناف اكتشاف دعوة QR."
+                            }
+                        )
+                    } else if (receiving) {
+                        _state.value = _state.value.copy(
+                            wifiDirectScanning = false,
+                            locationPrereqStatus = prereqStatus,
+                            pendingQrLocationAction = com.malekplay.network.UltraSharePlatformCompatibility
+                                .PendingQrLocationAction.ADVERTISE_INVITATION,
+                            error = null,
+                            status = if (prereqStatus == com.malekplay.network.UltraSharePlatformCompatibility.WifiDirectPrerequisiteStatus.LOCATION_SERVICES_DISABLED) {
+                                "يلزم تفعيل خدمة الموقع (Location) في الجهاز لإعلان دعوة QR. نحافظ على نفس الجلسة والرمز لاستئنافه تلقائياً عند العودة."
+                            } else {
+                                "يلزم منح إذن الموقع/الأجهزة القريبة لاستئناف إعلان دعوة QR."
+                            }
+                        )
+                    } else {
+                        _state.value = _state.value.copy(
+                            wifiDirectScanning = false,
+                            locationPrereqStatus = prereqStatus,
+                            error = message
+                        )
+                    }
+                    return@open
+                }
                 if (pending != null) {
                     // A terminal scanner-side DNS-SD/P2P error can leave an OEM session
                     // marked as discovering even after cleanup was attempted. Retire
@@ -2456,6 +2591,27 @@ private fun forgetApprovedSenderTarget(host: String) {
         }
         invitationPreferences.edit().putString("active_invitation_id", invitationId).apply()
         _state.value = _state.value.copy(invitationId = invitationId)
+
+        val prereq = com.malekplay.network.UltraSharePlatformCompatibility
+            .currentWifiDirectPrerequisites(context)
+        if (prereq != com.malekplay.network.UltraSharePlatformCompatibility.WifiDirectPrerequisiteStatus.READY) {
+            _state.value = _state.value.copy(
+                locationPrereqStatus = prereq,
+                pendingQrLocationAction = com.malekplay.network.UltraSharePlatformCompatibility
+                    .PendingQrLocationAction.ADVERTISE_INVITATION,
+                error = null,
+                status = if (prereq == com.malekplay.network.UltraSharePlatformCompatibility.WifiDirectPrerequisiteStatus.LOCATION_SERVICES_DISABLED) {
+                    "خدمة الموقع (Location) مطفأة في النظام. فعّلها لإعلان دعوة QR عبر Wi-Fi Direct، وسيتم الاستئناف تلقائياً بالرمز نفسه عند عودتك."
+                } else {
+                    "يلزم منح إذن الأجهزة القريبة/الموقع لإعلان دعوة QR عبر Wi-Fi Direct."
+                }
+            )
+            return
+        }
+        _state.value = _state.value.copy(
+            locationPrereqStatus = prereq,
+            pendingQrLocationAction = null
+        )
         val session = runCatching { ensureWifiDirectSession() }.getOrElse { failure ->
             UltraShareDiagnostics.failure("WIFI_DIRECT_SESSION_INITIALIZATION", failure)
             if (wifiDirectPrimaryAttempt && _state.value.receiving) {
@@ -2556,6 +2712,37 @@ private fun forgetApprovedSenderTarget(host: String) {
             )
             return
         }
+        val prereq = com.malekplay.network.UltraSharePlatformCompatibility
+            .currentWifiDirectPrerequisites(context)
+        if (prereq != com.malekplay.network.UltraSharePlatformCompatibility.WifiDirectPrerequisiteStatus.READY) {
+            pendingLocationResumePairing = fallbackPairing ?: com.malekplay.network.UltraShareQrCode.PairingDetails(
+                host = fallbackHosts.firstOrNull().orEmpty(),
+                hosts = fallbackHosts,
+                port = UltraShareControlChannel.DEFAULT_PORT,
+                pairingSecret = secret.trim(),
+                invitationId = invitationId,
+                mode = "p2p"
+            )
+            _state.value = _state.value.copy(
+                invitationId = invitationId,
+                requestingConnection = false,
+                locationPrereqStatus = prereq,
+                pendingQrLocationAction = com.malekplay.network.UltraSharePlatformCompatibility
+                    .PendingQrLocationAction.DISCOVER_INVITATION,
+                error = null,
+                status = if (prereq == com.malekplay.network.UltraSharePlatformCompatibility.WifiDirectPrerequisiteStatus.LOCATION_SERVICES_DISABLED) {
+                    "خدمة الموقع (Location) مطفأة. فعّلها لاكتشاف دعوة QR، وسيتم الاستئناف تلقائياً عند العودة."
+                } else {
+                    "يلزم منح إذن الأجهزة القريبة/الموقع لاكتشاف دعوة QR."
+                }
+            )
+            return
+        }
+        _state.value = _state.value.copy(
+            locationPrereqStatus = prereq,
+            pendingQrLocationAction = null
+        )
+        pendingLocationResumePairing = null
         val pairingAttempt = PendingQrPairing(secret.trim(), fallbackHosts, fallbackPairing)
         pendingQrPairing = pairingAttempt
         qrP2pConnectStarted = false
@@ -3125,8 +3312,86 @@ private fun forgetApprovedSenderTarget(host: String) {
         _state.value = _state.value.copy(error = null, status = null)
     }
 
+    fun refreshLocationPrerequisites() {
+        val status = com.malekplay.network.UltraSharePlatformCompatibility
+            .currentWifiDirectPrerequisites(context)
+        _state.value = _state.value.copy(locationPrereqStatus = status)
+    }
+
+    fun clearPendingQrLocationAction() {
+        pendingLocationResumePairing = null
+        _state.value = _state.value.copy(pendingQrLocationAction = null)
+    }
+
+    fun resumePendingQrAfterSettingsReturn() {
+        val prereq = com.malekplay.network.UltraSharePlatformCompatibility
+            .currentWifiDirectPrerequisites(context)
+        val current = _state.value
+        val pendingAction = current.pendingQrLocationAction
+        _state.value = current.copy(locationPrereqStatus = prereq)
+
+        val operationAlreadyActive = pendingQrPairing != null ||
+            qrP2pConnectStarted ||
+            controlPairingInProgress ||
+            hotspotNetworkCallback != null ||
+            current.wifiDirectScanning
+
+        if (!com.malekplay.network.UltraSharePlatformCompatibility.shouldAutoResumeQrOperation(
+                prerequisiteStatus = prereq,
+                pendingAction = pendingAction,
+                operationAlreadyActive = operationAlreadyActive
+            )
+        ) {
+            return
+        }
+
+        when (pendingAction) {
+            com.malekplay.network.UltraSharePlatformCompatibility.PendingQrLocationAction.ADVERTISE_INVITATION -> {
+                if (!_state.value.receiving && !UltraShareForegroundService.state.value.receiving) {
+                    _state.value = _state.value.copy(pendingQrLocationAction = null)
+                    return
+                }
+                _state.value = _state.value.copy(
+                    pendingQrLocationAction = null,
+                    error = null,
+                    status = "تم تفعيل الموقع؛ جارٍ استئناف نشر دعوة QR بنفس الجلسة..."
+                )
+                advertiseCurrentWifiDirectInvitation()
+            }
+            com.malekplay.network.UltraSharePlatformCompatibility.PendingQrLocationAction.DISCOVER_INVITATION -> {
+                val pairing = pendingLocationResumePairing
+                pendingLocationResumePairing = null
+                _state.value = _state.value.copy(
+                    pendingQrLocationAction = null,
+                    error = null,
+                    status = "تم تفعيل الموقع؛ جارٍ استئناف اكتشاف دعوة QR..."
+                )
+                if (pairing != null) {
+                    joinUnifiedInvitation(pairing)
+                }
+            }
+            null -> Unit
+        }
+    }
+
     fun setMirrorAudioRequested(enabled: Boolean) {
-        _state.value = _state.value.copy(mirrorAudioRequested = enabled)
+        val fallbackMode = if (enabled) {
+            if (com.malekplay.network.UltraShareScreenMirrorPolicy.supportsAudioPlaybackCapture()) {
+                com.malekplay.network.UltraShareScreenMirrorPolicy.MirrorAudioMode.INTERNAL_AUDIO
+            } else {
+                com.malekplay.network.UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE
+            }
+        } else {
+            com.malekplay.network.UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE
+        }
+        setMirrorAudioMode(fallbackMode)
+    }
+
+    fun setMirrorAudioMode(mode: com.malekplay.network.UltraShareScreenMirrorPolicy.MirrorAudioMode) {
+        _state.value = _state.value.copy(
+            mirrorAudioMode = mode,
+            mirrorAudioRequested = mode != com.malekplay.network.UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE
+        )
     }
 
     fun startHostScreenMirroring(resultCode: Int, data: android.content.Intent) {
@@ -3135,11 +3400,17 @@ private fun forgetApprovedSenderTarget(host: String) {
             _state.value = current.copy(error = "يجب أن تكون منشئ المجموعة أولاً.")
             return
         }
+        val effectiveAudioMode = com.malekplay.network.UltraShareScreenMirrorPolicy.resolveEffectiveAudioMode(
+            requested = current.mirrorAudioMode,
+            hasRecordAudioPermission = com.malekplay.network.UltraShareScreenMirrorPolicy.hasRecordAudioPermission(context),
+            sdkInt = Build.VERSION.SDK_INT
+        )
         UltraShareScreenMirrorService.startMirroring(
             context = context,
             resultCode = resultCode,
             data = data,
-            enableAudio = current.mirrorAudioRequested
+            enableAudio = effectiveAudioMode != com.malekplay.network.UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE,
+            audioMode = effectiveAudioMode
         )
     }
 
@@ -3148,19 +3419,37 @@ private fun forgetApprovedSenderTarget(host: String) {
     }
 
     fun joinMirrorViewer() {
-        val offer = _state.value.incomingMirrorOffer ?: return
-        _state.value = _state.value.copy(watchingMirrorSession = offer)
-        UltraShareForegroundService.sendMirrorViewerAction(
-            context = context,
-            hostAddress = offer.hostAddress,
-            sessionId = offer.sessionId,
-            action = UltraShareScreenMirrorProtocol.ViewerAction.JOINED
+        val current = _state.value
+        val offer = current.incomingMirrorOffer
+        if (offer == null) {
+            _state.value = current.copy(
+                waitingForHostMirror = true,
+                status = "بانتظار بدء مشاركة الشاشة من المضيف."
+            )
+            return
+        }
+        val key = UltraShareMirrorOfferPolicy.offerKey(current.transferSessionId, offer)
+        dismissedMirrorKeys.remove(key)
+        _state.value = current.copy(
+            watchingMirrorSession = offer,
+            waitingForHostMirror = false
         )
+        if (sentMirrorJoinedKeys.add(key)) {
+            UltraShareForegroundService.sendMirrorViewerAction(
+                context = context,
+                hostAddress = offer.hostAddress,
+                sessionId = offer.sessionId,
+                action = UltraShareScreenMirrorProtocol.ViewerAction.JOINED
+            )
+        }
     }
 
     fun leaveMirrorViewer() {
-        val watching = _state.value.watchingMirrorSession ?: return
-        _state.value = _state.value.copy(watchingMirrorSession = null)
+        val current = _state.value
+        val watching = current.watchingMirrorSession ?: return
+        val key = UltraShareMirrorOfferPolicy.offerKey(current.transferSessionId, watching)
+        dismissedMirrorKeys.add(key)
+        _state.value = current.copy(watchingMirrorSession = null)
         UltraShareForegroundService.sendMirrorViewerAction(
             context = context,
             hostAddress = watching.hostAddress,

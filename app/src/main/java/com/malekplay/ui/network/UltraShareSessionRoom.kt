@@ -67,6 +67,7 @@ fun UltraShareSessionRoom(
     onShowGroupQr: () -> Unit,
     onLeaveRoom: () -> Unit,
     onToggleMirrorAudio: (Boolean) -> Unit = {},
+    onSelectMirrorAudioMode: (com.malekplay.network.UltraShareScreenMirrorPolicy.MirrorAudioMode) -> Unit = {},
     onStartScreenMirror: () -> Unit = {},
     onStopScreenMirror: () -> Unit = {},
     onJoinScreenMirror: () -> Unit = {},
@@ -242,6 +243,7 @@ fun UltraShareSessionRoom(
                 state = state,
                 connected = connected,
                 onToggleMirrorAudio = onToggleMirrorAudio,
+                onSelectMirrorAudioMode = onSelectMirrorAudioMode,
                 onStartScreenMirror = onStartScreenMirror,
                 onStopScreenMirror = onStopScreenMirror,
                 onJoinScreenMirror = onJoinScreenMirror,
@@ -991,6 +993,7 @@ private fun GroupScreenMirrorCard(
     state: UltraShareUiState,
     connected: Boolean,
     onToggleMirrorAudio: (Boolean) -> Unit,
+    onSelectMirrorAudioMode: (com.malekplay.network.UltraShareScreenMirrorPolicy.MirrorAudioMode) -> Unit,
     onStartScreenMirror: () -> Unit,
     onStopScreenMirror: () -> Unit,
     onJoinScreenMirror: () -> Unit,
@@ -1002,7 +1005,9 @@ private fun GroupScreenMirrorCard(
     val isHostRole = (state.receiving && incomingOffer == null) &&
         (state.activePeers.isNotEmpty() || hostMirror.active || hostMirror.starting)
     val isWaitingHost = state.receiving && !connected && !hostMirror.active && !hostMirror.starting && incomingOffer == null
-    val audioCaptureSupported = com.malekplay.network.UltraShareScreenMirrorPolicy.supportsAudioPlaybackCapture()
+    val availableAudioModes = com.malekplay.network.UltraShareScreenMirrorPolicy.availableAudioModes()
+    val selectedAudioMode = state.mirrorAudioMode.takeIf { it in availableAudioModes }
+        ?: com.malekplay.network.UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE
 
     Column(
         modifier = Modifier
@@ -1119,9 +1124,13 @@ private fun GroupScreenMirrorCard(
                 }
             }
         } else if (incomingOffer != null) {
+            val offerAudioLabel = when (incomingOffer.audioMode) {
+                com.malekplay.network.UltraShareScreenMirrorPolicy.MirrorAudioMode.INTERNAL_AUDIO -> "صوت داخلي + صورة"
+                com.malekplay.network.UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE -> "ميكروفون + صورة"
+                com.malekplay.network.UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE -> "فيديو فقط"
+            }
             Text(
-                "الدقة: ${incomingOffer.width}×${incomingOffer.height} • ${incomingOffer.fps} إطار/ث • " +
-                    if (incomingOffer.audioEnabled) "صوت + صورة" else "فيديو فقط",
+                "الدقة: ${incomingOffer.width}×${incomingOffer.height} • ${incomingOffer.fps} إطار/ث • $offerAudioLabel",
                 color = Color(0xFFD5CBE2),
                 style = MaterialTheme.typography.labelSmall
             )
@@ -1150,9 +1159,13 @@ private fun GroupScreenMirrorCard(
                     )
                 }
                 if (hostMirror.width > 0 && hostMirror.height > 0) {
+                    val hostAudioLabel = when (hostMirror.audioMode) {
+                        com.malekplay.network.UltraShareScreenMirrorPolicy.MirrorAudioMode.INTERNAL_AUDIO -> "الصوت الداخلي مفعّل"
+                        com.malekplay.network.UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE -> "صوت الميكروفون مفعّل"
+                        com.malekplay.network.UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE -> "فيديو فقط"
+                    }
                     Text(
-                        "البث: ${hostMirror.width}×${hostMirror.height} • ${hostMirror.fps} إطار/ث • " +
-                            if (hostMirror.audioActive) "صوت الجهاز مفعّل" else "فيديو فقط",
+                        "البث: ${hostMirror.width}×${hostMirror.height} • ${hostMirror.fps} إطار/ث • $hostAudioLabel",
                         color = Color(0xFF65D6A2),
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.SemiBold
@@ -1172,33 +1185,59 @@ private fun GroupScreenMirrorCard(
                     )
                 }
             } else {
-                Row(
+                Column(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text(
-                            "مشاركة صوت الوسائط والتطبيقات",
-                            color = MaterialTheme.colorScheme.onSurface,
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Text(
-                            if (audioCaptureSupported) {
-                                "يعمل على Android 10 فأعلى للتطبيقات التي تسمح بالتقاط الصوت"
-                            } else {
-                                "غير مدعوم على هذا الإصدار؛ سيعمل البث فيديو فقط تلقائياً"
-                            },
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.labelSmall
-                        )
-                    }
-                    Switch(
-                        checked = state.mirrorAudioRequested && audioCaptureSupported,
-                        onCheckedChange = onToggleMirrorAudio,
-                        enabled = audioCaptureSupported
+                    Text(
+                        "وضع الصوت أثناء مشاركة الشاشة",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold
                     )
+                    Text(
+                        if (com.malekplay.network.UltraShareScreenMirrorPolicy.supportsAudioPlaybackCapture()) {
+                            "اختر وضعاً واحداً فقط: فيديو فقط، صوت الجهاز الداخلي، أو صوت الميكروفون."
+                        } else {
+                            "على Android 6–9 يتوفر الفيديو فقط أو الفيديو مع صوت الميكروفون (الصوت الداخلي يتطلب Android 10+)."
+                        },
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        availableAudioModes.forEach { mode ->
+                            val isSelected = selectedAudioMode == mode
+                            val label = when (mode) {
+                                com.malekplay.network.UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE -> "فيديو فقط"
+                                com.malekplay.network.UltraShareScreenMirrorPolicy.MirrorAudioMode.INTERNAL_AUDIO -> "صوت داخلي"
+                                com.malekplay.network.UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE -> "ميكروفون"
+                            }
+                            if (isSelected) {
+                                Button(
+                                    onClick = { onSelectMirrorAudioMode(mode) },
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = MalekPlayColors.PurpleBright,
+                                        contentColor = Color(0xFF190F22)
+                                    )
+                                ) {
+                                    Text(label, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                            } else {
+                                OutlinedButton(
+                                    onClick = { onSelectMirrorAudioMode(mode) },
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFD7A0FF)),
+                                    border = BorderStroke(1.dp, Color(0xFF9A63C7))
+                                ) {
+                                    Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                            }
+                        }
+                    }
                 }
                 Button(
                     onClick = onStartScreenMirror,
@@ -1218,10 +1257,22 @@ private fun GroupScreenMirrorCard(
             }
         } else {
             Text(
-                "منشئ المجموعة فقط يبدأ مشاركة شاشته؛ سيظهر لك زر المشاهدة تلقائياً فور بدء البث.",
+                if (state.waitingForHostMirror) {
+                    "بانتظار بدء مشاركة الشاشة من المضيف — سيفتح البث تلقائياً فور بدئه."
+                } else {
+                    "منشئ المجموعة فقط يبدأ مشاركة شاشته؛ سيفتح العارض تلقائياً فور بدء البث."
+                },
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.labelSmall
             )
+            OutlinedButton(
+                onClick = onJoinScreenMirror,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFD7A0FF)),
+                border = BorderStroke(1.dp, Color(0xFF9A63C7))
+            ) {
+                Text("الاستعداد لمشاهدة شاشة المضيف", fontWeight = FontWeight.SemiBold)
+            }
         }
 
         hostMirror.error?.let { err ->
@@ -1234,4 +1285,3 @@ private fun GroupScreenMirrorCard(
         }
     }
 }
-

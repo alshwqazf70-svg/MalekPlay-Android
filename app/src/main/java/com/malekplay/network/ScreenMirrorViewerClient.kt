@@ -43,6 +43,7 @@ class ScreenMirrorViewerClient internal constructor(
 
     enum class ConnectionPhase {
         CONNECTING,
+        CONNECTED_AWAITING_FIRST_FRAME,
         STREAMING,
         RECONNECTING,
         SCREEN_PROTECTED,
@@ -52,6 +53,7 @@ class ScreenMirrorViewerClient internal constructor(
 
     data class ViewerStatus(
         val phase: ConnectionPhase = ConnectionPhase.CONNECTING,
+        val stage: MirrorViewerStage = MirrorViewerStage.OFFER_ACCEPTED,
         val width: Int = 0,
         val height: Int = 0,
         val rotation: Int = 0,
@@ -69,9 +71,97 @@ class ScreenMirrorViewerClient internal constructor(
     private val closed = AtomicBoolean(false)
     @Volatile private var activeSocket: Socket? = null
     @Volatile private var readerJob: Job? = null
+    @Volatile private var watchdogJob: Job? = null
+    private val playbackLock = Any()
+    private val playbackTracker = MirrorViewerPlaybackTracker(MirrorViewerStage.OFFER_ACCEPTED)
 
     private val _status = MutableStateFlow(ViewerStatus())
     val status: StateFlow<ViewerStatus> = _status.asStateFlow()
+
+    fun notifyVideoConfigApplied() {
+        synchronized(playbackLock) {
+            playbackTracker.onVideoConfigReceived()
+            syncStageLocked()
+        }
+    }
+
+    fun notifyVideoFrameReceived() {
+        synchronized(playbackLock) {
+            playbackTracker.onVideoFrameReceived()
+            syncStageLocked()
+        }
+    }
+
+    fun notifyFrameDecoded(renderedToSurface: Boolean) {
+        synchronized(playbackLock) {
+            playbackTracker.onFrameDecoded(renderedToSurface)
+            syncStageLocked()
+        }
+    }
+
+    fun notifyFirstFrameRendered() {
+        synchronized(playbackLock) {
+            val newlyRendered = playbackTracker.onFirstFrameRendered()
+            if (newlyRendered || _status.value.phase != ConnectionPhase.STREAMING) {
+                val cur = _status.value
+                if (cur.phase != ConnectionPhase.STOPPED && cur.phase != ConnectionPhase.ERROR) {
+                    _status.value = cur.copy(
+                        phase = if (cur.protectedScreenActive) {
+                            ConnectionPhase.SCREEN_PROTECTED
+                        } else {
+                            ConnectionPhase.STREAMING
+                        },
+                        stage = MirrorViewerStage.FIRST_FRAME_RENDERED,
+                        errorMessage = null
+                    )
+                }
+            }
+        }
+    }
+
+    fun notifySurfaceOrDecoderReset() {
+        synchronized(playbackLock) {
+            playbackTracker.onSurfaceOrDecoderReset(monotonicNowMs())
+            val cur = _status.value
+            if (cur.phase == ConnectionPhase.STREAMING || cur.phase == ConnectionPhase.CONNECTED_AWAITING_FIRST_FRAME) {
+                _status.value = cur.copy(
+                    phase = ConnectionPhase.CONNECTED_AWAITING_FIRST_FRAME,
+                    stage = playbackTracker.stage
+                )
+            }
+        }
+    }
+
+    fun notifyDecoderFailure(message: String) {
+        synchronized(playbackLock) {
+            playbackTracker.onDecoderFailure(message)
+            _status.value = _status.value.copy(
+                phase = ConnectionPhase.ERROR,
+                errorMessage = message
+            )
+        }
+        watchdogJob?.cancel()
+        runCatching { activeSocket?.close() }
+    }
+
+    private fun syncStageLocked() {
+        val cur = _status.value
+        val nextPhase = when {
+            cur.phase == ConnectionPhase.ERROR || cur.phase == ConnectionPhase.STOPPED -> cur.phase
+            cur.protectedScreenActive -> ConnectionPhase.SCREEN_PROTECTED
+            playbackTracker.firstFrameRendered -> ConnectionPhase.STREAMING
+            cur.phase == ConnectionPhase.RECONNECTING || cur.phase == ConnectionPhase.CONNECTING -> cur.phase
+            else -> ConnectionPhase.CONNECTED_AWAITING_FIRST_FRAME
+        }
+        if (cur.stage != playbackTracker.stage || cur.phase != nextPhase) {
+            _status.value = cur.copy(
+                phase = nextPhase,
+                stage = playbackTracker.stage
+            )
+        }
+    }
+
+    private fun monotonicNowMs(): Long = System.nanoTime() / 1_000_000L
 
     fun start() {
         check(!closed.get()) { "ScreenMirrorViewerClient is closed." }
@@ -87,7 +177,8 @@ class ScreenMirrorViewerClient internal constructor(
             var expectedAudioSeq = -1L
             var droppedTotal = 0L
             var audioCount = 0L
-            while (!closed.get() && isActive) {
+            var terminalFirstFrameTimeout = false
+            while (!closed.get() && isActive && !terminalFirstFrameTimeout) {
                 if (attempt > 0) {
                     if (attempt > maxReconnectAttempts) {
                         _status.value = _status.value.copy(
@@ -126,12 +217,41 @@ class ScreenMirrorViewerClient internal constructor(
                         attempt = 0
                         expectedVideoSeq = -1L
                         expectedAudioSeq = -1L
-                        _status.value = _status.value.copy(
-                            phase = ConnectionPhase.STREAMING,
-                            reconnectAttempt = 0,
-                            errorMessage = null
-                        )
+                        synchronized(playbackLock) {
+                            playbackTracker.onConnectedToSource(monotonicNowMs())
+                            _status.value = _status.value.copy(
+                                phase = ConnectionPhase.CONNECTED_AWAITING_FIRST_FRAME,
+                                stage = playbackTracker.stage,
+                                reconnectAttempt = 0,
+                                errorMessage = null
+                            )
+                        }
                         onRequestKeyframe()
+
+                        watchdogJob?.cancel()
+                        watchdogJob = scope.launch {
+                            while (!closed.get() && isActive && !socket.isClosed) {
+                                delay(500L)
+                                val action = synchronized(playbackLock) {
+                                    playbackTracker.evaluateFirstFrameWatchdog(monotonicNowMs())
+                                }
+                                when (action) {
+                                    MirrorViewerPlaybackTracker.WatchdogAction.REQUEST_KEYFRAME -> {
+                                        onRequestKeyframe()
+                                    }
+                                    MirrorViewerPlaybackTracker.WatchdogAction.TIMED_OUT -> {
+                                        terminalFirstFrameTimeout = true
+                                        _status.value = _status.value.copy(
+                                            phase = ConnectionPhase.ERROR,
+                                            errorMessage = "تم الاتصال بمصدر الفيديو، لكن تعذر وصول وعرض الإطار الأول."
+                                        )
+                                        runCatching { socket.close() }
+                                        break
+                                    }
+                                    MirrorViewerPlaybackTracker.WatchdogAction.NONE -> Unit
+                                }
+                            }
+                        }
 
                         var windowStartNs = System.nanoTime()
                         var framesInWindow = 0
@@ -164,28 +284,56 @@ class ScreenMirrorViewerClient internal constructor(
                                 when (hdr.frameType) {
                                     UltraShareScreenMirrorProtocol.FrameType.SCREEN_PROTECTED -> {
                                         val protectedActive = frame.payload.firstOrNull() == 1.toByte()
-                                        _status.value = _status.value.copy(
-                                            phase = if (protectedActive) ConnectionPhase.SCREEN_PROTECTED else ConnectionPhase.STREAMING,
-                                            protectedScreenActive = protectedActive
-                                        )
+                                        synchronized(playbackLock) {
+                                            val curRendered = playbackTracker.firstFrameRendered
+                                            if (!protectedActive && !curRendered) {
+                                                playbackTracker.onSurfaceOrDecoderReset(monotonicNowMs())
+                                            }
+                                            _status.value = _status.value.copy(
+                                                phase = when {
+                                                    protectedActive -> ConnectionPhase.SCREEN_PROTECTED
+                                                    curRendered -> ConnectionPhase.STREAMING
+                                                    else -> ConnectionPhase.CONNECTED_AWAITING_FIRST_FRAME
+                                                },
+                                                stage = playbackTracker.stage,
+                                                protectedScreenActive = protectedActive
+                                            )
+                                        }
+                                        if (!protectedActive) {
+                                            onRequestKeyframe()
+                                        }
                                     }
                                     UltraShareScreenMirrorProtocol.FrameType.VIDEO_CONFIG -> {
-                                        _status.value = _status.value.copy(
-                                            width = hdr.width,
-                                            height = hdr.height,
-                                            rotation = hdr.rotation
-                                        )
+                                        synchronized(playbackLock) {
+                                            playbackTracker.onVideoConfigReceived()
+                                            _status.value = _status.value.copy(
+                                                stage = playbackTracker.stage,
+                                                width = hdr.width,
+                                                height = hdr.height,
+                                                rotation = hdr.rotation
+                                            )
+                                        }
                                     }
                                     UltraShareScreenMirrorProtocol.FrameType.VIDEO_IDR,
                                     UltraShareScreenMirrorProtocol.FrameType.VIDEO_DELTA -> {
-                                        if (_status.value.phase != ConnectionPhase.STREAMING || _status.value.protectedScreenActive) {
-                                            _status.value = _status.value.copy(
-                                                phase = ConnectionPhase.STREAMING,
-                                                protectedScreenActive = false,
-                                                width = if (hdr.width > 0) hdr.width else _status.value.width,
-                                                height = if (hdr.height > 0) hdr.height else _status.value.height,
-                                                rotation = hdr.rotation
-                                            )
+                                        synchronized(playbackLock) {
+                                            playbackTracker.onVideoFrameReceived()
+                                            val curRendered = playbackTracker.firstFrameRendered
+                                            val nextPhase = if (curRendered) {
+                                                ConnectionPhase.STREAMING
+                                            } else {
+                                                ConnectionPhase.CONNECTED_AWAITING_FIRST_FRAME
+                                            }
+                                            if (_status.value.phase != nextPhase || _status.value.protectedScreenActive || _status.value.stage != playbackTracker.stage) {
+                                                _status.value = _status.value.copy(
+                                                    phase = nextPhase,
+                                                    stage = playbackTracker.stage,
+                                                    protectedScreenActive = false,
+                                                    width = if (hdr.width > 0) hdr.width else _status.value.width,
+                                                    height = if (hdr.height > 0) hdr.height else _status.value.height,
+                                                    rotation = hdr.rotation
+                                                )
+                                            }
                                         }
                                         framesInWindow++
                                         bytesInWindow += frame.payload.size
@@ -194,16 +342,26 @@ class ScreenMirrorViewerClient internal constructor(
                                         if (elapsedNs >= 1_000_000_000L) {
                                             val fps = ((framesInWindow * 1_000_000_000L) / elapsedNs).toInt()
                                             val kbps = ((bytesInWindow * 8L * 1_000_000L) / elapsedNs).toInt()
-                                            _status.value = _status.value.copy(
-                                                phase = ConnectionPhase.STREAMING,
-                                                protectedScreenActive = false,
-                                                width = if (hdr.width > 0) hdr.width else _status.value.width,
-                                                height = if (hdr.height > 0) hdr.height else _status.value.height,
-                                                rotation = hdr.rotation,
-                                                estimatedFps = fps,
-                                                bitrateKbps = kbps,
-                                                droppedMediaFrames = droppedTotal
-                                            )
+                                            synchronized(playbackLock) {
+                                                val nextPhase = if (_status.value.protectedScreenActive) {
+                                                    ConnectionPhase.SCREEN_PROTECTED
+                                                } else if (playbackTracker.firstFrameRendered) {
+                                                    ConnectionPhase.STREAMING
+                                                } else {
+                                                    ConnectionPhase.CONNECTED_AWAITING_FIRST_FRAME
+                                                }
+                                                _status.value = _status.value.copy(
+                                                    phase = nextPhase,
+                                                    stage = playbackTracker.stage,
+                                                    protectedScreenActive = false,
+                                                    width = if (hdr.width > 0) hdr.width else _status.value.width,
+                                                    height = if (hdr.height > 0) hdr.height else _status.value.height,
+                                                    rotation = hdr.rotation,
+                                                    estimatedFps = fps,
+                                                    bitrateKbps = kbps,
+                                                    droppedMediaFrames = droppedTotal
+                                                )
+                                            }
                                             windowStartNs = nowNs
                                             framesInWindow = 0
                                             bytesInWindow = 0L
@@ -220,6 +378,8 @@ class ScreenMirrorViewerClient internal constructor(
                             }
                         }
                     } finally {
+                        watchdogJob?.cancel()
+                        watchdogJob = null
                         activeSocket = null
                         runCatching { socket.close() }
                     }
@@ -233,7 +393,7 @@ class ScreenMirrorViewerClient internal constructor(
                     )
                     break
                 } catch (failure: Exception) {
-                    if (closed.get()) break
+                    if (closed.get() || terminalFirstFrameTimeout || synchronized(playbackLock) { playbackTracker.decoderError != null }) break
                     attempt++
                     _status.value = _status.value.copy(
                         phase = ConnectionPhase.RECONNECTING,
@@ -257,6 +417,8 @@ class ScreenMirrorViewerClient internal constructor(
 
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
+        watchdogJob?.cancel()
+        watchdogJob = null
         readerJob?.cancel()
         readerJob = null
         runCatching { activeSocket?.close() }

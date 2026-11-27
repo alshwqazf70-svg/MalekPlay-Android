@@ -362,6 +362,36 @@ class ScreenMirrorHubIntegrationTest {
                 assertEquals(listOf(1L, 2L, 3L, 4L), videoSeqs)
                 assertEquals(0L, client.status.value.audioPacketsReceived)
                 assertEquals(0L, client.status.value.droppedMediaFrames)
+
+                // Receiving frames alone must keep phase at CONNECTED_AWAITING_FIRST_FRAME until Surface render confirms.
+                assertEquals(
+                    ScreenMirrorViewerClient.ConnectionPhase.CONNECTED_AWAITING_FIRST_FRAME,
+                    client.status.value.phase
+                )
+                assertEquals(
+                    MirrorViewerStage.FRAME_RECEIVED,
+                    client.status.value.stage
+                )
+
+                client.notifyFrameDecoded(renderedToSurface = true)
+                assertEquals(
+                    ScreenMirrorViewerClient.ConnectionPhase.CONNECTED_AWAITING_FIRST_FRAME,
+                    client.status.value.phase
+                )
+                assertEquals(MirrorViewerStage.FRAME_DECODED, client.status.value.stage)
+
+                // Only FIRST_FRAME_RENDERED promotes phase to STREAMING.
+                client.notifyFirstFrameRendered()
+                assertEquals(
+                    ScreenMirrorViewerClient.ConnectionPhase.STREAMING,
+                    client.status.value.phase
+                )
+                assertEquals(MirrorViewerStage.FIRST_FRAME_RENDERED, client.status.value.stage)
+
+                // Decoder error transitions immediately to ERROR with clear recovery message.
+                client.notifyDecoderFailure("خطأ في مفكك الترميز")
+                assertEquals(ScreenMirrorViewerClient.ConnectionPhase.ERROR, client.status.value.phase)
+                assertEquals("خطأ في مفكك الترميز", client.status.value.errorMessage)
             }
         }
     }

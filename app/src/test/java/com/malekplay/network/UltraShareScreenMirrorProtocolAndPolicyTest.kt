@@ -618,4 +618,197 @@ class UltraShareScreenMirrorProtocolAndPolicyTest {
         )
         assertEquals(null, replayOld)
     }
+
+    @Test
+    fun audioModesRespectAndroidVersionAndMutuallyExclusivePolicy() {
+        // Android 6-9 (API 23-28): only NONE and MICROPHONE are available.
+        (23..28).forEach { sdk ->
+            val modes = UltraShareScreenMirrorPolicy.availableAudioModes(sdk)
+            assertEquals(
+                listOf(
+                    UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE,
+                    UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE
+                ),
+                modes
+            )
+            assertFalse(UltraShareScreenMirrorPolicy.supportsAudioPlaybackCapture(sdk))
+            assertTrue(UltraShareScreenMirrorPolicy.supportsMicrophoneCapture(sdk))
+            // Requesting internal audio on API 23-28 safely falls back to NONE (video-only).
+            assertEquals(
+                UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE,
+                UltraShareScreenMirrorPolicy.resolveEffectiveAudioMode(
+                    UltraShareScreenMirrorPolicy.MirrorAudioMode.INTERNAL_AUDIO,
+                    sdkInt = sdk,
+                    hasRecordAudioPermission = true
+                )
+            )
+            // Microphone requires RECORD_AUDIO permission; denial falls back to NONE without breaking video.
+            assertEquals(
+                UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE,
+                UltraShareScreenMirrorPolicy.resolveEffectiveAudioMode(
+                    UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE,
+                    sdkInt = sdk,
+                    hasRecordAudioPermission = false
+                )
+            )
+            assertEquals(
+                UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE,
+                UltraShareScreenMirrorPolicy.resolveEffectiveAudioMode(
+                    UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE,
+                    sdkInt = sdk,
+                    hasRecordAudioPermission = true
+                )
+            )
+        }
+
+        // Android 10-16 (API 29-36): NONE, INTERNAL_AUDIO, MICROPHONE are mutually exclusive choices.
+        (29..36).forEach { sdk ->
+            val modes = UltraShareScreenMirrorPolicy.availableAudioModes(sdk)
+            assertEquals(
+                listOf(
+                    UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE,
+                    UltraShareScreenMirrorPolicy.MirrorAudioMode.INTERNAL_AUDIO,
+                    UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE
+                ),
+                modes
+            )
+            assertEquals(
+                UltraShareScreenMirrorPolicy.MirrorAudioMode.INTERNAL_AUDIO,
+                UltraShareScreenMirrorPolicy.resolveEffectiveAudioMode(
+                    UltraShareScreenMirrorPolicy.MirrorAudioMode.INTERNAL_AUDIO,
+                    sdkInt = sdk,
+                    hasRecordAudioPermission = true
+                )
+            )
+            assertEquals(
+                UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE,
+                UltraShareScreenMirrorPolicy.resolveEffectiveAudioMode(
+                    UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE,
+                    sdkInt = sdk,
+                    hasRecordAudioPermission = true
+                )
+            )
+            assertEquals(
+                UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE,
+                UltraShareScreenMirrorPolicy.resolveEffectiveAudioMode(
+                    UltraShareScreenMirrorPolicy.MirrorAudioMode.INTERNAL_AUDIO,
+                    sdkInt = sdk,
+                    hasRecordAudioPermission = false
+                )
+            )
+        }
+    }
+
+    @Test
+    fun audioSpecificConfigAndMicrophoneSelectionHandleSampleRatesAndChannels() {
+        // 48kHz stereo AAC-LC ASC: 0x11, 0x90
+        assertEquals(48_000 to 2, parseAudioSpecificConfig(byteArrayOf(0x11, 0x90.toByte())))
+        // 44.1kHz mono AAC-LC ASC: objectType=2 (00010), freqIdx=4 (0100), ch=1 (0001) => 0x12, 0x08
+        assertEquals(44_100 to 1, parseAudioSpecificConfig(byteArrayOf(0x12, 0x08)))
+        // 16kHz mono AAC-LC ASC: freqIdx=8 (1000), ch=1 => 0x14, 0x08
+        assertEquals(16_000 to 1, parseAudioSpecificConfig(byteArrayOf(0x14, 0x08)))
+
+        val candidates = listOf(
+            MicrophoneAudioConfig(48_000, 12, 2, 8192),
+            MicrophoneAudioConfig(44_100, 16, 1, 4096),
+            MicrophoneAudioConfig(16_000, 16, 1, 2048)
+        )
+        val selected = selectMicrophoneAudioConfiguration(
+            candidates = candidates,
+            probeMinBuffer = { sampleRate, _ -> if (sampleRate == 48_000) -1 else 2048 },
+            tryOpen = { config, bufBytes ->
+                if (config.sampleRate == 44_100 && config.channelCount == 1) "mic-$bufBytes" else null
+            }
+        )
+        assertEquals(MicrophoneAudioConfig(44_100, 16, 1, 4096) to "mic-4096", selected)
+        assertEquals(
+            null,
+            selectMicrophoneAudioConfiguration<String>(
+                candidates = candidates,
+                probeMinBuffer = { _, _ -> 2048 },
+                tryOpen = { _, _ -> null }
+            )
+        )
+
+        // Control message preserves MirrorAudioMode across encode/decode
+        val msg = UltraShareScreenMirrorProtocol.ControlMessage(
+            type = UltraShareScreenMirrorProtocol.ControlType.MIRROR_START,
+            sessionId = "11111111111111111111111111111111",
+            senderPeerId = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            revision = 1L,
+            streamPort = 39000,
+            streamKey = ByteArray(32) { it.toByte() },
+            config = UltraShareScreenMirrorProtocol.StreamConfig(
+                width = 1280,
+                height = 720,
+                fps = 30,
+                bitrateBps = 4_000_000,
+                audioEnabled = true,
+                audioMode = UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE
+            )
+        )
+        val decoded = UltraShareScreenMirrorProtocol.decodeControl(
+            UltraShareScreenMirrorProtocol.encodeControl(msg)
+        )
+        assertEquals(UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE, decoded?.config?.audioMode)
+        assertTrue(decoded?.config?.audioEnabled == true)
+    }
+
+    @Test
+    fun firstFrameTrackerDoesNotMarkStreamingBeforeSurfaceRenderAndRunsBoundedWatchdog() {
+        val tracker = MirrorViewerPlaybackTracker(MirrorViewerStage.OFFER_ACCEPTED)
+        assertEquals(MirrorViewerStage.OFFER_ACCEPTED, tracker.stage)
+        assertFalse(tracker.firstFrameRendered)
+
+        tracker.onConnectedToSource(nowMs = 1_000L)
+        assertEquals(MirrorViewerStage.CONNECTED_TO_SOURCE, tracker.stage)
+        assertFalse(tracker.firstFrameRendered)
+
+        tracker.onVideoConfigReceived()
+        assertEquals(MirrorViewerStage.VIDEO_CONFIG_RECEIVED, tracker.stage)
+        assertFalse(tracker.firstFrameRendered)
+
+        tracker.onVideoFrameReceived()
+        assertEquals(MirrorViewerStage.FRAME_RECEIVED, tracker.stage)
+        assertFalse(tracker.firstFrameRendered)
+
+        tracker.onFrameDecoded(renderedToSurface = true)
+        assertEquals(MirrorViewerStage.FRAME_DECODED, tracker.stage)
+        assertFalse(tracker.firstFrameRendered)
+
+        // Watchdog should trigger bounded keyframe retries while awaiting first frame.
+        assertEquals(
+            MirrorViewerPlaybackTracker.WatchdogAction.NONE,
+            tracker.evaluateFirstFrameWatchdog(nowMs = 2_000L)
+        )
+        assertEquals(
+            MirrorViewerPlaybackTracker.WatchdogAction.REQUEST_KEYFRAME,
+            tracker.evaluateFirstFrameWatchdog(nowMs = 3_600L)
+        )
+        assertEquals(
+            MirrorViewerPlaybackTracker.WatchdogAction.REQUEST_KEYFRAME,
+            tracker.evaluateFirstFrameWatchdog(nowMs = 6_200L)
+        )
+
+        // Only OnFrameRenderedListener confirmation advances to FIRST_FRAME_RENDERED.
+        assertTrue(tracker.onFirstFrameRendered())
+        assertEquals(MirrorViewerStage.FIRST_FRAME_RENDERED, tracker.stage)
+        assertTrue(tracker.firstFrameRendered)
+
+        // After first frame rendered, watchdog does nothing.
+        assertEquals(
+            MirrorViewerPlaybackTracker.WatchdogAction.NONE,
+            tracker.evaluateFirstFrameWatchdog(nowMs = 20_000L)
+        )
+
+        // Surface/decoder reset drops back from FIRST_FRAME_RENDERED until new frame renders,
+        // and bounded timeout fires if no rendered frame arrives within FIRST_FRAME_TIMEOUT_MS.
+        tracker.onSurfaceOrDecoderReset(nowMs = 30_000L)
+        assertFalse(tracker.firstFrameRendered)
+        assertEquals(MirrorViewerStage.CONNECTED_TO_SOURCE, tracker.stage)
+        assertEquals(
+            MirrorViewerPlaybackTracker.WatchdogAction.TIMED_OUT,
+            tracker.evaluateFirstFrameWatchdog(nowMs = 40_500L)
+        )
+    }
 }

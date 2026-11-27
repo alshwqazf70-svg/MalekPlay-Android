@@ -94,4 +94,77 @@ class UltraSharePlatformCompatibilityTest {
             assertFalse(UltraSharePlatformCompatibility.supportsWifiDirectApiLevel(sdk))
         }
     }
+
+    @Test fun locationPermissionDeniedIsDistinguishedFromDisabledLocationService() {
+        (23..32).forEach { sdk ->
+            assertEquals(
+                UltraSharePlatformCompatibility.WifiDirectPrerequisiteStatus.PERMISSION_DENIED,
+                UltraSharePlatformCompatibility.evaluateWifiDirectPrerequisites(
+                    sdkInt = sdk,
+                    permissionGranted = false,
+                    locationServicesEnabled = false
+                )
+            )
+            assertEquals(
+                UltraSharePlatformCompatibility.WifiDirectPrerequisiteStatus.LOCATION_SERVICES_DISABLED,
+                UltraSharePlatformCompatibility.evaluateWifiDirectPrerequisites(
+                    sdkInt = sdk,
+                    permissionGranted = true,
+                    locationServicesEnabled = false
+                )
+            )
+            assertEquals(
+                UltraSharePlatformCompatibility.WifiDirectPrerequisiteStatus.READY,
+                UltraSharePlatformCompatibility.evaluateWifiDirectPrerequisites(
+                    sdkInt = sdk,
+                    permissionGranted = true,
+                    locationServicesEnabled = true
+                )
+            )
+        }
+        // Android 13+ does not require Location services when NEARBY_WIFI_DEVICES is granted.
+        (33..36).forEach { sdk ->
+            assertEquals(
+                UltraSharePlatformCompatibility.WifiDirectPrerequisiteStatus.READY,
+                UltraSharePlatformCompatibility.evaluateWifiDirectPrerequisites(
+                    sdkInt = sdk,
+                    permissionGranted = true,
+                    locationServicesEnabled = false
+                )
+            )
+        }
+    }
+
+    @Test fun qrOperationResumesAutomaticallyOnlyWhenReadyAndNotAlreadyActive() {
+        assertTrue(
+            UltraSharePlatformCompatibility.shouldAutoResumeQrOperation(
+                prerequisiteStatus = UltraSharePlatformCompatibility.WifiDirectPrerequisiteStatus.READY,
+                pendingAction = UltraSharePlatformCompatibility.PendingQrLocationAction.DISCOVER_INVITATION,
+                operationAlreadyActive = false
+            )
+        )
+        assertTrue(
+            UltraSharePlatformCompatibility.shouldAutoResumeQrOperation(
+                prerequisiteStatus = UltraSharePlatformCompatibility.WifiDirectPrerequisiteStatus.READY,
+                pendingAction = UltraSharePlatformCompatibility.PendingQrLocationAction.ADVERTISE_INVITATION,
+                operationAlreadyActive = false
+            )
+        )
+        // Prevent duplicate/concurrent execution if an operation is already running.
+        assertFalse(
+            UltraSharePlatformCompatibility.shouldAutoResumeQrOperation(
+                prerequisiteStatus = UltraSharePlatformCompatibility.WifiDirectPrerequisiteStatus.READY,
+                pendingAction = UltraSharePlatformCompatibility.PendingQrLocationAction.DISCOVER_INVITATION,
+                operationAlreadyActive = true
+            )
+        )
+        // Do not auto-resume while Location services remain disabled.
+        assertFalse(
+            UltraSharePlatformCompatibility.shouldAutoResumeQrOperation(
+                prerequisiteStatus = UltraSharePlatformCompatibility.WifiDirectPrerequisiteStatus.LOCATION_SERVICES_DISABLED,
+                pendingAction = UltraSharePlatformCompatibility.PendingQrLocationAction.ADVERTISE_INVITATION,
+                operationAlreadyActive = false
+            )
+        )
+    }
 }

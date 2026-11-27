@@ -79,7 +79,10 @@ object UltraShareScreenMirrorProtocol {
         val bitrateBps: Int,
         val audioEnabled: Boolean,
         val audioSampleRate: Int = 48_000,
-        val audioChannelCount: Int = 2
+        val audioChannelCount: Int = 2,
+        val audioMode: UltraShareScreenMirrorPolicy.MirrorAudioMode =
+            if (audioEnabled) UltraShareScreenMirrorPolicy.MirrorAudioMode.INTERNAL_AUDIO
+            else UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE
     ) {
         init {
             require(width in 16..4096 && height in 16..4096) { "Invalid mirror video size." }
@@ -87,6 +90,9 @@ object UltraShareScreenMirrorProtocol {
             require(bitrateBps in 100_000..50_000_000) { "Invalid mirror bitrate." }
             require(audioSampleRate in 8_000..96_000) { "Invalid audio sample rate." }
             require(audioChannelCount in 1..2) { "Invalid audio channels." }
+            require(!audioEnabled || audioMode != UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE) {
+                "audioEnabled cannot be true when audioMode is NONE."
+            }
         }
     }
 
@@ -154,6 +160,7 @@ object UltraShareScreenMirrorProtocol {
                         out.writeBoolean(cfg.audioEnabled)
                         out.writeInt(cfg.audioSampleRate)
                         out.writeByte(cfg.audioChannelCount)
+                        out.writeByte(cfg.audioMode.wire)
                     }
                     ControlType.MIRROR_STOP -> Unit
                     ControlType.MIRROR_VIEWER_STATE -> {
@@ -188,6 +195,15 @@ object UltraShareScreenMirrorProtocol {
                     val audioEnabled = input.readBoolean()
                     val sampleRate = input.readInt()
                     val channels = input.readUnsignedByte()
+                    val audioMode = if (input.available() > 0) {
+                        UltraShareScreenMirrorPolicy.MirrorAudioMode.fromWire(
+                            input.readUnsignedByte(),
+                            audioEnabledFallback = audioEnabled
+                        )
+                    } else {
+                        if (audioEnabled) UltraShareScreenMirrorPolicy.MirrorAudioMode.INTERNAL_AUDIO
+                        else UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE
+                    }
                     ControlMessage(
                         type = type,
                         sessionId = sessionId,
@@ -195,7 +211,7 @@ object UltraShareScreenMirrorProtocol {
                         revision = revision,
                         streamPort = port,
                         streamKey = key,
-                        config = StreamConfig(width, height, fps, bitrate, audioEnabled, sampleRate, channels)
+                        config = StreamConfig(width, height, fps, bitrate, audioEnabled, sampleRate, channels, audioMode)
                     )
                 }
                 ControlType.MIRROR_STOP -> {
