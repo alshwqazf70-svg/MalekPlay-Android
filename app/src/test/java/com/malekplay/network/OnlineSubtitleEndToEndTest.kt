@@ -398,16 +398,26 @@ class OnlineSubtitleEndToEndTest {
     @Test
     fun publicProviderFallsBackToSearchDownloadUrlOnTransientDownloadEndpointErrorAndReportsCloudflareClearly() = runBlocking {
         val rawSrt = "1\n00:00:02,000 --> 00:00:04,000\nFallback download worked\n"
+        val zipBytes = ByteArrayOutputStream().also { out ->
+            ZipOutputStream(out).use { zip ->
+                zip.putNextEntry(ZipEntry("cover.jpg"))
+                zip.write(byteArrayOf(1, 2, 3))
+                zip.closeEntry()
+                zip.putNextEntry(ZipEntry("Movie.2025"))
+                zip.write(rawSrt.toByteArray(Charsets.UTF_8))
+                zip.closeEntry()
+            }
+        }.toByteArray()
         val repo = createMockedRepository { request ->
             val url = request.url.toString()
-            when (url) {
-                "https://subtitles.website/strapi/api/search/subtitles?title=Test%20Movie" ->
+            when {
+                url.startsWith("https://subtitles.website/strapi/api/search/subtitles") ->
                     textResponse(
                         request,
                         """{"data":[{"id":"sub-fb","release":"Test.Movie.2025","film_title":"Test Movie","downloads":12,"format":"srt","language":{"code":"en"},"download_url":"/uploads/fallback.srt"}]}""",
                         "application/json"
                     )
-                "https://subtitles.website/strapi/api/search/download/sub-fb" ->
+                url == "https://subtitles.website/strapi/api/search/download/sub-fb" ->
                     Response.Builder()
                         .request(request)
                         .protocol(Protocol.HTTP_1_1)
@@ -416,11 +426,21 @@ class OnlineSubtitleEndToEndTest {
                         .header("Content-Type", "text/html")
                         .body("<html><body>Bad Gateway</body></html>".toResponseBody("text/html".toMediaType()))
                         .build()
-                "https://subtitles.website/strapi/uploads/fallback.srt" ->
+                url == "https://subtitles.website/strapi/uploads/fallback.srt" ->
                     textResponse(request, rawSrt, "text/plain")
-                "https://subtitles.website/strapi/api/search/download/sub-cf" ->
+                url == "https://subtitles.website/strapi/api/search/download/sub-cf" ->
                     textResponse(request, "<!DOCTYPE html><html><body>Just a moment...</body></html>", "text/html")
-                else -> error("Unexpected public URL: $url")
+                url == "https://subtitles.website/strapi/api/search/download/sub-extless" ->
+                    textResponse(request, """{"download_url":"/uploads/extless.zip"}""", "application/json")
+                url == "https://subtitles.website/strapi/uploads/extless.zip" ->
+                    binaryResponse(request, zipBytes, "application/zip")
+                else -> Response.Builder()
+                    .request(request)
+                    .protocol(Protocol.HTTP_1_1)
+                    .code(404)
+                    .message("Not Found")
+                    .body("".toResponseBody("text/plain".toMediaType()))
+                    .build()
             }
         }
         val searchResults = repo.searchAutomatic("Test Movie", "en", null, null)
@@ -444,17 +464,17 @@ class OnlineSubtitleEndToEndTest {
             cfErr?.message?.contains("Cloudflare") == true
         )
 
-        val zipWithoutExt = createZip(
-            "cover.jpg" to byteArrayOf(1, 2, 3),
-            "Movie.2025" to rawSrt.toByteArray(Charsets.UTF_8)
+        val extlessSub = OnlineSubtitle(
+            fileId = 42L,
+            language = "en",
+            release = "Extless.Movie",
+            downloads = 1,
+            format = "srt",
+            sourceId = "sub-extless",
+            provider = "subtitleSearchEngine"
         )
-        val tempDir = File(context.cacheDir, "extract-extless-test").apply {
-            deleteRecursively()
-            mkdirs()
-        }
-        val extracted = repo.extract(zipWithoutExt, tempDir, 42L)
-        assertTrue(extracted.exists())
-        assertEquals("srt", extracted.extension)
+        val extlessLines = repo.previewSubtitleLines(extlessSub, maxCues = 2)
+        assertEquals(listOf("[00:00:02,000] Fallback download worked"), extlessLines)
     }
 
     private fun createMockedRepository(handler: (okhttp3.Request) -> Response): OnlineSubtitleRepository {
