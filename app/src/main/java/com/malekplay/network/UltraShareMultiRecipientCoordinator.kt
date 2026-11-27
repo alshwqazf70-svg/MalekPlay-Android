@@ -3,10 +3,10 @@ package com.malekplay.network
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** Bounded fan-out coordinator for already-approved UltraShare peers. */
 object UltraShareMultiRecipientCoordinator {
@@ -67,10 +67,11 @@ object UltraShareMultiRecipientCoordinator {
         }
 
         val semaphore = Semaphore(maxParallelPeers)
-        return coroutineScope {
-            val parentScopeJob = coroutineContext[Job]
+        return supervisorScope {
+            val scopeJob = coroutineContext[Job]
             targets.map { target ->
-                async {
+                val terminalEmitted = AtomicBoolean(false)
+                val deferred = async {
                     val childJob = coroutineContext[Job]
                     if (childJob != null) {
                         onPeerJobStarted(target, childJob)
@@ -80,29 +81,59 @@ object UltraShareMultiRecipientCoordinator {
                         semaphore.withPermit {
                             onStatus(Delivery(target, Status.SENDING))
                             val result = sendToPeer(target)
-                            Delivery(target, Status.COMPLETED, value = result).also(onStatus)
+                            Delivery(target, Status.COMPLETED, value = result).also {
+                                if (terminalEmitted.compareAndSet(false, true)) {
+                                    onStatus(it)
+                                }
+                            }
                         }
                     } catch (cancelled: CancellationException) {
                         // If the whole session / parent coroutine was cancelled, propagate immediately.
                         // If ONLY this departing peer's child job was cancelled, isolate it so other
                         // still-paired peers in the batch complete uninterrupted.
-                        if (parentScopeJob != null && !parentScopeJob.isActive) {
+                        if (scopeJob != null && scopeJob.isCancelled) {
                             throw cancelled
                         }
                         Delivery<T>(
                             target = target,
                             status = Status.FAILED,
                             error = cancelled.message?.take(240) ?: "غادر الجهاز الجلسة أثناء النقل"
-                        ).also(onStatus)
+                        ).also {
+                            if (terminalEmitted.compareAndSet(false, true)) {
+                                onStatus(it)
+                            }
+                        }
                     } catch (failure: Exception) {
                         Delivery<T>(
                             target = target,
                             status = Status.FAILED,
                             error = failure.message?.take(240) ?: failure.javaClass.simpleName
-                        ).also(onStatus)
+                        ).also {
+                            if (terminalEmitted.compareAndSet(false, true)) {
+                                onStatus(it)
+                            }
+                        }
                     }
                 }
-            }.awaitAll()
+                Triple(target, deferred, terminalEmitted)
+            }.map { (target, deferred, terminalEmitted) ->
+                try {
+                    deferred.await()
+                } catch (cancelled: CancellationException) {
+                    if (scopeJob != null && scopeJob.isCancelled) {
+                        throw cancelled
+                    }
+                    Delivery<T>(
+                        target = target,
+                        status = Status.FAILED,
+                        error = cancelled.message?.take(240) ?: "غادر الجهاز الجلسة أثناء النقل"
+                    ).also {
+                        if (terminalEmitted.compareAndSet(false, true)) {
+                            onStatus(it)
+                        }
+                    }
+                }
+            }
         }
     }
 }

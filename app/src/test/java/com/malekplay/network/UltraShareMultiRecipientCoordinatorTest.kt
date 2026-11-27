@@ -182,8 +182,8 @@ class UltraShareMultiRecipientCoordinatorTest {
         val peerTwoStarted = CompletableDeferred<Unit>()
         val childJobs = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.Job>()
 
-        val batchDeferred = launch {
-            val results = UltraShareMultiRecipientCoordinator.execute(
+        val batchDeferred = kotlinx.coroutines.async {
+            UltraShareMultiRecipientCoordinator.execute(
                 targets = threeTargets,
                 maxParallelPeers = 3,
                 onPeerJobStarted = { target, childJob ->
@@ -199,22 +199,22 @@ class UltraShareMultiRecipientCoordinatorTest {
                     "completed:${target.sessionId}"
                 }
             }
-            assertEquals(
-                listOf(
-                    UltraShareMultiRecipientCoordinator.Status.COMPLETED,
-                    UltraShareMultiRecipientCoordinator.Status.FAILED,
-                    UltraShareMultiRecipientCoordinator.Status.COMPLETED
-                ),
-                results.map { it.status }
-            )
-            assertEquals("completed:session-1", results[0].value)
-            assertEquals("completed:session-3", results[2].value)
         }
 
         kotlinx.coroutines.withTimeout(1_000) { peerTwoStarted.await() }
         // Cancel ONLY session-2 (simulating Peer 2 unpairing mid-batch while Peer 1 & Peer 3 stay paired):
         childJobs["session-2"]?.cancel(kotlinx.coroutines.CancellationException("Peer 2 left transfer room"))
-        batchDeferred.join()
+        val results = batchDeferred.await()
         assertFalse(batchDeferred.isCancelled)
+        assertEquals(
+            listOf(
+                UltraShareMultiRecipientCoordinator.Status.COMPLETED,
+                UltraShareMultiRecipientCoordinator.Status.FAILED,
+                UltraShareMultiRecipientCoordinator.Status.COMPLETED
+            ),
+            results.map { it.status }
+        )
+        assertEquals("completed:session-1", results[0].value)
+        assertEquals("completed:session-3", results[2].value)
     }
 }
