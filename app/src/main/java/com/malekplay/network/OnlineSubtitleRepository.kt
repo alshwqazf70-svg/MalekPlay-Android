@@ -146,12 +146,17 @@ internal fun convertLegacySubToSrtIfApplicable(text: String): String? {
                 ?: continue
             fun normalizeSubViewerTime(raw: String): String {
                 val fixed = raw.replace('.', ',')
+                val hms = fixed.substringBefore(',').split(':')
+                val hours = hms.getOrElse(0) { "00" }.padStart(2, '0')
+                val minutes = hms.getOrElse(1) { "00" }.padStart(2, '0')
+                val seconds = hms.getOrElse(2) { "00" }.padStart(2, '0')
                 val frac = fixed.substringAfter(',', "")
-                return when (frac.length) {
-                    2 -> "${fixed}0"
-                    1 -> "${fixed}00"
-                    else -> fixed.substringBefore(',') + "," + frac.take(3).padStart(3, '0')
+                val millis = when (frac.length) {
+                    2 -> "${frac}0"
+                    1 -> "${frac}00"
+                    else -> frac.take(3).padStart(3, '0')
                 }
+                return "$hours:$minutes:$seconds,$millis"
             }
             val start = normalizeSubViewerTime(match.groupValues[1])
             val end = normalizeSubViewerTime(match.groupValues[2])
