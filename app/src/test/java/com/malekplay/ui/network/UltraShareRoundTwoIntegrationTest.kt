@@ -6,10 +6,12 @@ import com.malekplay.network.UltraShareScreenMirrorPolicy
 import com.malekplay.network.UltraShareServiceState
 import com.malekplay.network.resetRoomTransferPresentation
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -110,17 +112,19 @@ class UltraShareRoundTwoIntegrationTest {
 
         val peerASocketClosed = AtomicBoolean(false)
         val peerBSocketClosed = AtomicBoolean(false)
+        val peerAStarted = CompletableDeferred<Unit>()
         val peerACancelled = CompletableDeferred<Boolean>()
         val peerBCompleted = CompletableDeferred<Boolean>()
 
-        val jobA: Job = launch {
+        val jobA: Job = launch(Dispatchers.Default) {
             try {
+                peerAStarted.complete(Unit)
                 delay(10_000L)
             } finally {
                 peerACancelled.complete(true)
             }
         }
-        val jobB: Job = launch {
+        val jobB: Job = launch(Dispatchers.Default) {
             delay(80L)
             peerBCompleted.complete(true)
         }
@@ -144,6 +148,8 @@ class UltraShareRoundTwoIntegrationTest {
         assertNotNull(taskA)
         assertNotNull(taskB)
 
+        withTimeout(5_000L) { peerAStarted.await() }
+
         // Peer A leaves the room; only Peer A's task & socket are cancelled/closed.
         val cancelledCount = registry.cancelPeerTasks(
             peerHost = "192.168.49.2",
@@ -151,14 +157,14 @@ class UltraShareRoundTwoIntegrationTest {
             transferSessionId = sessionId
         )
         assertEquals(1, cancelledCount)
-        assertTrue(peerACancelled.await())
+        assertTrue(withTimeout(5_000L) { peerACancelled.await() })
         assertTrue(peerASocketClosed.get())
         assertFalse(registry.isSessionValid(sessionId, peerHost = "192.168.49.2", peerSessionId = "peer-a"))
 
         // Peer B in the same session continues unaffected and completes normally.
         assertTrue(registry.isSessionValid(sessionId, peerHost = "192.168.49.3", peerSessionId = "peer-b"))
         assertFalse(peerBSocketClosed.get())
-        assertTrue(peerBCompleted.await())
+        assertTrue(withTimeout(5_000L) { peerBCompleted.await() })
 
         registry.unregisterTask(taskB)
     }
@@ -175,19 +181,23 @@ class UltraShareRoundTwoIntegrationTest {
             val session1 = registry.currentSessionId()
 
             val socket1Closed = AtomicBoolean(false)
+            val receiveStarted = CompletableDeferred<Unit>()
+            val sendStarted = CompletableDeferred<Unit>()
             val receiveCancelled = CompletableDeferred<Boolean>()
             val sendCancelled = CompletableDeferred<Boolean>()
             val uiCallbackCounter = AtomicInteger(0)
 
-            val receiveJob = launch {
+            val receiveJob = launch(Dispatchers.Default) {
                 try {
+                    receiveStarted.complete(Unit)
                     delay(10_000L)
                 } finally {
                     receiveCancelled.complete(true)
                 }
             }
-            val sendJob = launch {
+            val sendJob = launch(Dispatchers.Default) {
                 try {
+                    sendStarted.complete(Unit)
                     delay(10_000L)
                 } finally {
                     sendCancelled.complete(true)
@@ -208,13 +218,18 @@ class UltraShareRoundTwoIntegrationTest {
                 job = sendJob
             )
 
+            withTimeout(5_000L) {
+                receiveStarted.await()
+                sendStarted.await()
+            }
+
             // End session1; token rotates so a new session (session2) starts cleanly.
             val endedTasks = registry.endSession(session1)
             val session2 = registry.currentSessionId()
             assertEquals(2, endedTasks)
             assertNotEquals(session1, session2)
-            assertTrue(receiveCancelled.await())
-            assertTrue(sendCancelled.await())
+            assertTrue(withTimeout(5_000L) { receiveCancelled.await() })
+            assertTrue(withTimeout(5_000L) { sendCancelled.await() })
             assertTrue(socket1Closed.get())
 
             // Late callback from session1 must be blocked and never touch session2.
@@ -235,7 +250,7 @@ class UltraShareRoundTwoIntegrationTest {
                 job = staleJob
             )
             assertNull(rejected)
-            staleJob.join()
+            withTimeout(5_000L) { staleJob.join() }
             assertTrue(staleJobCancelled.get())
 
             // Room state reset clears ephemeral session presentation and updates session ID.
