@@ -135,6 +135,7 @@ internal fun VaultInternalBrowserModal(
     }
 
     val libraryFolders by libraryViewModel.folders.collectAsStateWithLifecycle()
+    val allLibraryMedia by libraryViewModel.allMedia.collectAsStateWithLifecycle()
     val libraryRefreshing by libraryViewModel.isRefreshing.collectAsStateWithLifecycle()
     var hasMediaPermission by remember { mutableStateOf(deviceSource.hasMediaPermissions()) }
 
@@ -153,11 +154,12 @@ internal fun VaultInternalBrowserModal(
         }
     }
 
-    val libraryOnlyFolders = remember(libraryFolders, existingVaultEntries, snapshot.savedKeys) {
+    val libraryOnlyFolders = remember(libraryFolders, allLibraryMedia, existingVaultEntries, snapshot.savedKeys) {
         buildVaultLibraryFolders(
             libraryFolders = libraryFolders,
-            vaultEntries = existingVaultEntries,
-            excludedKeys = snapshot.savedKeys
+            allLibraryMedia = allLibraryMedia,
+            existingVaultEntries = existingVaultEntries,
+            savedKeys = snapshot.savedKeys
         )
     }
 
@@ -202,8 +204,8 @@ internal fun VaultInternalBrowserModal(
                 folderPath = targetNorm,
                 libraryFolderItems = libraryFolderItems,
                 allFolders = libraryOnlyFolders,
-                vaultEntries = existingVaultEntries,
-                excludedKeys = snapshot.savedKeys
+                existingVaultEntries = existingVaultEntries,
+                savedKeys = snapshot.savedKeys
             )
         }
     }
@@ -907,7 +909,9 @@ internal fun VaultInternalBrowserModal(
                                                     overflow = TextOverflow.Ellipsis
                                                 )
                                                 Text(
-                                                    text = stringResource(R.string.vault_browser_folder_items_count, item.subfolderCount),
+                                                    text = item.subfolderCount?.let { count ->
+                                                        stringResource(R.string.vault_browser_folder_items_count, count)
+                                                    } ?: stringResource(R.string.vault_browser_folder_label),
                                                     style = MaterialTheme.typography.bodySmall,
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                                 )

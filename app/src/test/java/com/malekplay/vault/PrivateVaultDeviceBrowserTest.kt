@@ -151,12 +151,6 @@ class PrivateVaultDeviceBrowserTest {
             sourceDisplayPath = "Movies"
         )
 
-        val folders = buildVaultLibraryFolders(
-            libraryFolders = libFolders,
-            vaultEntries = listOf(vaultedEntry)
-        )
-        assertEquals(2, folders.size)
-
         val moviesItems = listOf(
             sampleLibraryItem("10", videoUri, "فيلم_عربي.mp4", "video/mp4", true, "Movies", 1000L),
             sampleLibraryItem("12", vaultedVideoUri, "already_hidden.mp4", "video/mp4", true, "Movies", 2000L),
@@ -165,12 +159,20 @@ class PrivateVaultDeviceBrowserTest {
             sampleLibraryItem("101", Uri.parse("content://media/external/file/101"), "notes.txt", "text/plain", false, "Movies", 200L),
             sampleLibraryItem("102", Uri.parse("content://media/external/file/102"), "archive.zip", "application/zip", false, "Movies", 900L)
         )
+        val songItem = sampleLibraryItem("11", audioUri, "song.flac", "audio/flac", false, "Music", 1500L)
+
+        val folders = buildVaultLibraryFolders(
+            libraryFolders = libFolders,
+            allLibraryMedia = moviesItems + songItem,
+            existingVaultEntries = listOf(vaultedEntry)
+        )
+        assertEquals(2, folders.size)
 
         val contents = buildFolderContentsForPath(
             folderPath = "Movies",
             libraryFolderItems = moviesItems,
             allFolders = folders,
-            vaultEntries = listOf(vaultedEntry)
+            existingVaultEntries = listOf(vaultedEntry)
         )
         // Only the unvaulted video remains; images/pdf/txt/zip and already-vaulted video are excluded!
         assertEquals(1, contents.size)
@@ -179,11 +181,9 @@ class PrivateVaultDeviceBrowserTest {
         // Audio items appear in Music folder
         val musicContents = buildFolderContentsForPath(
             folderPath = "Music",
-            libraryFolderItems = listOf(
-                sampleLibraryItem("11", audioUri, "song.flac", "audio/flac", false, "Music", 1500L)
-            ),
+            libraryFolderItems = listOf(songItem),
             allFolders = folders,
-            vaultEntries = listOf(vaultedEntry)
+            existingVaultEntries = listOf(vaultedEntry)
         )
         assertEquals(1, musicContents.size)
         assertEquals("song.flac", musicContents.single().displayName)
