@@ -188,4 +188,12 @@ Dialogue: 0,0:00:04.00,0:00:05.25,Default,,0,0,0,,Another cue
         ))
     }
 
+    @Test
+    fun normalizesShortDotSubsecondTimestampsIntoThreeDigitSrtMillis() {
+        val vtt = "WEBVTT\n\n0:1:5.25 --> 0:1:8.5\nShort dot cue"
+        val cues = SrtSubtitleParser.splitBlocks(vtt, "vtt")
+        assertEquals(1, cues.size)
+        assertEquals("0:1:5,250 --> 0:1:8,500", cues.single().lines()[0])
+    }
+
 }

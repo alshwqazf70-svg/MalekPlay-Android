@@ -99,6 +99,7 @@ class AssHandler(
     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
         super.onMediaItemTransition(mediaItem, reason)
         Log.i("AssHandler", "onMediaItemTransition: item = $mediaItem, reason = $reason")
+        if (::handler.isInitialized) handler.removeCallbacksAndMessages(null)
         overlayManager?.disable(allowRebind = false)
         releaseMediaResources(closeAssInstance = true)
         runCatching { renderCallback?.invoke(null) }

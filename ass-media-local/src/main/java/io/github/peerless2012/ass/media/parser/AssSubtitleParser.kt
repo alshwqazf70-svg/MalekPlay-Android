@@ -47,6 +47,9 @@ abstract class AssSubtitleParser(
             }
 
             val cues = mutableListOf<Cue>()
+            val videoWidth = assHandler.videoSize.width
+            val videoHeight = assHandler.videoSize.height
+            if (videoWidth <= 0 || videoHeight <= 0) continue
             val frames = assHandler.render?.renderFrame(event.start + fadeIn, AssTexType.BITMAP_RGBA)
             frames?.images?.let { texts ->
                 texts.forEach { tex ->
@@ -54,12 +57,12 @@ abstract class AssSubtitleParser(
                         val cue = Cue.Builder()
                             .setBitmap(bitmap)
                             .setZIndex(event.layer)
-                            .setPosition(tex.x / assHandler.videoSize.width.toFloat())
+                            .setPosition((tex.x / videoWidth.toFloat()).coerceIn(0f, 1f))
                             .setPositionAnchor(Cue.ANCHOR_TYPE_START)
-                            .setLine(tex.y / assHandler.videoSize.height.toFloat(), Cue.LINE_TYPE_FRACTION)
+                            .setLine((tex.y / videoHeight.toFloat()).coerceIn(0f, 1f), Cue.LINE_TYPE_FRACTION)
                             .setLineAnchor(Cue.ANCHOR_TYPE_START)
-                            .setSize(bitmap.width / assHandler.videoSize.width.toFloat())
-                            .setBitmapHeight(bitmap.height / assHandler.videoSize.height.toFloat())
+                            .setSize((bitmap.width / videoWidth.toFloat()).coerceIn(0f, 1f))
+                            .setBitmapHeight((bitmap.height / videoHeight.toFloat()).coerceIn(0f, 1f))
                             .build()
                         cues.add(cue)
                     }

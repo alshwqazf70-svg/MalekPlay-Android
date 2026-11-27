@@ -180,8 +180,19 @@ class SubtitleTranslationEngine @Inject constructor(
                 batch.forEachIndexed { index, cue ->
                     currentCoroutineContext().ensureActive()
                     val restoredText = SrtSubtitleParser.restoreMarkup(batchResult[index], cue.markup)
+                    val srtReadyText = if (extension == "ass" || extension == "ssa") {
+                        restoredText
+                            .replace(Regex("""\{\\[^}]*}"""), "")
+                            .replace(Regex("""\\[Nn]"""), "\n")
+                            .replace(Regex("""\\[Hh]"""), " ")
+                            .lines()
+                            .joinToString("\n") { it.trim() }
+                            .trim()
+                    } else {
+                        restoredText
+                    }
                     translatedCues[cue.originalIndex] =
-                        (cue.lines.take(cue.textStart) + restoredText.split('\n')).joinToString("\n")
+                        (cue.lines.take(cue.textStart) + srtReadyText.split('\n')).joinToString("\n")
                 }
                 completedCues += batch.size
                 onProgress(completedCues.coerceAtMost(pending.size), pending.size)

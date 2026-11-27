@@ -722,6 +722,18 @@ class OnlineSubtitleRepository internal constructor(
                     null -> "en"
                     else -> languageValue.toString()
                 }
+                val rawDownloadUrl = item.optString("download_url").trim()
+                    .takeIf { it.isNotBlank() }
+                    ?.let { raw ->
+                        when {
+                            raw.startsWith("https://") -> raw
+                            raw.startsWith("//") -> "https:$raw"
+                            raw.startsWith("/strapi/") -> "https://$PUBLIC_HOST$raw"
+                            raw.startsWith("/") -> "$PUBLIC_BASE$raw"
+                            else -> "$PUBLIC_BASE/${raw.trimStart('/')}"
+                        }
+                    }
+                    ?.takeIf { isSafeSubtitleDownloadUrl(it, PUBLIC_HOST) }
                 add(OnlineSubtitle(
                     fileId = 0L,
                     language = SubtitleProviderResultParser.language(languageCode),
@@ -731,7 +743,8 @@ class OnlineSubtitleRepository internal constructor(
                     downloads = SubtitleProviderResultParser.downloadCount(item.optInt("downloads")),
                     format = format,
                     sourceId = id,
-                    provider = PUBLIC_PROVIDER
+                    provider = PUBLIC_PROVIDER,
+                    downloadUrl = rawDownloadUrl
                 ))
             }
         }.distinctBy { it.sourceId }.take(40)
@@ -772,12 +785,24 @@ class OnlineSubtitleRepository internal constructor(
                 val bearer = vault.load(WEBSITE_KEY_SLOT)?.first
                 if (!bearer.isNullOrBlank()) header("Authorization", "Bearer $bearer")
             }.get().build()
-        val apiPayload = executeDownloadApi(request)
-        val downloadPath = apiPayload.optString("download_url")
-            .ifBlank { apiPayload.optJSONObject("data")?.optString("download_url").orEmpty() }
-            .ifBlank { apiPayload.optString("url") }
-            .ifBlank { apiPayload.optString("link") }
-            .takeIf { it.isNotBlank() } ?: error("لم توفر الخدمة رابط تنزيل للترجمة")
+        val apiPayload = try {
+            executeDownloadApi(request)
+        } catch (apiFailure: Exception) {
+            val fallbackUrl = subtitle.downloadUrl?.takeIf { isSafeSubtitleDownloadUrl(it, PUBLIC_HOST) }
+            val isQuotaOrAuth = apiFailure is SubtitleHttpException &&
+                apiFailure.statusCode in setOf(401, 403, 429)
+            if (fallbackUrl == null || isQuotaOrAuth) throw apiFailure
+            null
+        }
+        val downloadPath = if (apiPayload != null) {
+            apiPayload.optString("download_url")
+                .ifBlank { apiPayload.optJSONObject("data")?.optString("download_url").orEmpty() }
+                .ifBlank { apiPayload.optString("url") }
+                .ifBlank { apiPayload.optString("link") }
+                .takeIf { it.isNotBlank() } ?: error("لم توفر الخدمة رابط تنزيل للترجمة")
+        } else {
+            requireNotNull(subtitle.downloadUrl)
+        }
         val downloadUri = when {
             downloadPath.startsWith("https://") -> Uri.parse(downloadPath)
             downloadPath.startsWith("//") -> Uri.parse("https:$downloadPath")
@@ -1028,12 +1053,12 @@ class OnlineSubtitleRepository internal constructor(
     }
 
     private suspend fun downloadSubDl(subtitle: OnlineSubtitle): Uri {
-        val path = subtitle.sourceId
+        val rawPath = subtitle.sourceId.trim().replace(" ", "%20")
         val downloadUri = when {
-            path.startsWith("https://") -> Uri.parse(path)
-            path.startsWith("//") -> Uri.parse("https:$path")
-            path.startsWith("/") -> Uri.parse("https://dl.subdl.com$path")
-            else -> Uri.parse("https://dl.subdl.com/$path")
+            rawPath.startsWith("https://") -> Uri.parse(rawPath)
+            rawPath.startsWith("//") -> Uri.parse("https:$rawPath")
+            rawPath.startsWith("/") -> Uri.parse("https://dl.subdl.com$rawPath")
+            else -> Uri.parse("https://dl.subdl.com/$rawPath")
         }
         require(isTrustedHttpsHost(downloadUri, "subdl.com")) {
             "رابط تنزيل ترجمة SubDL غير آمن"
@@ -1229,12 +1254,13 @@ class OnlineSubtitleRepository internal constructor(
                             baseName.startsWith("._")
                         if (!isSystemNoise) {
                             val entryExt = baseName.substringAfterLast('.', "").lowercase(Locale.ROOT)
-                            if (entryExt in FORMATS ||
+                            val knownCandidate = entryExt in FORMATS ||
                                 entryExt == "txt" ||
                                 entryExt == "sub" ||
                                 entryExt == "sbv" ||
                                 baseName == entryExt
-                            ) {
+                            val nonSubtitleAsset = entryExt in NON_SUBTITLE_EXTENSIONS
+                            if (knownCandidate || (!nonSubtitleAsset && bestCandidate == null)) {
                                 val output = ByteArrayOutputStream()
                                 val buffer = ByteArray(8192)
                                 var total = 0
@@ -1441,8 +1467,10 @@ class OnlineSubtitleRepository internal constructor(
 
     /** Cancellable JSON request used by the download flow, including its API-key headers. */
     private suspend fun executeDownloadApi(request: Request): JSONObject =
-        withDownloadResponse(request) { response ->
-            val body = response.body?.string().orEmpty()
+        withDownloadResponse(request, request.url.host) { response ->
+            val contentType = response.header("Content-Type")
+            val rawBytes = response.body?.byteStream()?.use(::readBounded) ?: byteArrayOf()
+            val body = runCatching { String(rawBytes, Charsets.UTF_8) }.getOrDefault("")
             if (!response.isSuccessful) {
                 if (response.code == 429) {
                     if (request.url.host == PUBLIC_HOST) {
@@ -1462,6 +1490,12 @@ class OnlineSubtitleRepository internal constructor(
                         "مفتاح خدمة الترجمة غير صالح أو انتهت صلاحية جلسة الدخول."
                     )
                 }
+                if (isHtmlOrCloudflarePayload(rawBytes, contentType)) {
+                    throw SubtitleHttpException(
+                        response.code,
+                        "تعذر الوصول إلى مزود الترجمة بسبب حماية Cloudflare أو صفحة ويب مؤقتة (HTTP ${response.code})."
+                    )
+                }
                 val message = runCatching { JSONObject(body).optString("message") }
                     .getOrNull()?.takeIf(String::isNotBlank)
                 throw SubtitleHttpException(
@@ -1469,13 +1503,20 @@ class OnlineSubtitleRepository internal constructor(
                     message ?: "خدمة الترجمة أعادت خطأ (HTTP ${response.code})"
                 )
             }
-            JSONObject(body)
+            if (isHtmlOrCloudflarePayload(rawBytes, contentType)) {
+                error("تعذر إتمام تنزيل الترجمة بسبب حماية Cloudflare أو استجابة HTML غير متوقعة.")
+            }
+            runCatching { JSONObject(body) }.getOrElse {
+                error("أعاد مزود الترجمة استجابة غير مفهومة أثناء تجهيز رابط التنزيل.")
+            }
         }
 
     private fun execute(request: Request): JSONObject {
         val response = client.newCall(request).execute()
         response.use {
-            val text = it.body?.string().orEmpty()
+            val contentType = it.header("Content-Type")
+            val rawBytes = it.body?.byteStream()?.use(::readBounded) ?: byteArrayOf()
+            val text = runCatching { String(rawBytes, Charsets.UTF_8) }.getOrDefault("")
             if (!it.isSuccessful) {
                 if (it.code == 429) {
                     if (request.url.host == PUBLIC_HOST) {
@@ -1490,13 +1531,24 @@ class OnlineSubtitleRepository internal constructor(
                 if (it.code == 401 || it.code == 403) {
                     throw SubtitleHttpException(it.code, "مفتاح خدمة الترجمة غير صالح أو انتهت صلاحية جلسة الدخول.")
                 }
+                if (isHtmlOrCloudflarePayload(rawBytes, contentType)) {
+                    throw SubtitleHttpException(
+                        it.code,
+                        "تعذر البحث في مزود الترجمة بسبب حماية Cloudflare أو صفحة HTML مؤقتة (HTTP ${it.code})."
+                    )
+                }
                 val message = runCatching { JSONObject(text).optString("message") }.getOrNull()
                 throw SubtitleHttpException(
                     it.code,
                     message?.takeIf(String::isNotBlank) ?: "خدمة الترجمة أعادت خطأ (HTTP " + it.code + ")"
                 )
             }
-            return JSONObject(text)
+            if (isHtmlOrCloudflarePayload(rawBytes, contentType)) {
+                error("تعذر البحث لأن مزود الترجمة أعاد صفحة HTML أو حماية Cloudflare بدلاً من النتائج.")
+            }
+            return runCatching { JSONObject(text) }.getOrElse {
+                error("أعاد مزود الترجمة استجابة بحث غير صالحة.")
+            }
         }
     }
 
@@ -1624,5 +1676,10 @@ class OnlineSubtitleRepository internal constructor(
         const val MAX_DOWNLOAD_REDIRECTS = 5
         val JSON = "application/json; charset=utf-8".toMediaType()
         val FORMATS = setOf("srt", "ass", "ssa", "vtt")
+        val NON_SUBTITLE_EXTENSIONS = setOf(
+            "jpg", "jpeg", "png", "gif", "webp", "bmp", "ico", "svg",
+            "nfo", "url", "lnk", "exe", "dll", "bat", "sh", "zip", "rar", "7z",
+            "pdf", "html", "htm", "css", "js", "json", "xml", "ds_store"
+        )
     }
 }

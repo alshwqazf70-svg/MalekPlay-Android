@@ -46,6 +46,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -230,7 +231,9 @@ fun OnlineSubtitleSearchSheet(
         filterAndSortOnlineSubtitles(results, resultFilter, resultSort)
     }
 
-    LaunchedEffect(loading, translationLoading) {
+    val activeError = error ?: translationError
+
+    LaunchedEffect(loading, translationLoading, activeError) {
         if (!loading && !translationLoading) downloadingKey = null
     }
     LaunchedEffect(Unit) {
@@ -247,7 +250,6 @@ fun OnlineSubtitleSearchSheet(
         selectedLeadingIconColor = selectedChipInk,
         selectedTrailingIconColor = selectedChipInk
     )
-    val activeError = error ?: translationError
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(
@@ -766,22 +768,23 @@ fun OnlineSubtitleSearchSheet(
 
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 filteredResults.forEachIndexed { index, subtitle ->
-                    val cardState = resolveSubtitleCardActionState(
-                        subtitle = subtitle,
-                        loading = loading,
-                        downloadingKey = downloadingKey,
-                        previewKey = previewKey,
-                        previewLoading = previewLoading,
-                        previewLines = previewLines
-                    )
-                    val key = cardState.key
-                    val isDownloading = cardState.isDownloadingAndApplying
-                    val isAiTranslating = cardState.isAiTranslating
-                    val isBestMatch = index == 0 && resultSort == SubtitleResultSort.BEST_MATCH
-                    val isPreviewingThis = cardState.isPreviewingThis
-                    val isPreviewLoading = cardState.isPreviewLoading
+                    key(subtitle.provider + ":" + subtitle.sourceId) {
+                        val cardState = resolveSubtitleCardActionState(
+                            subtitle = subtitle,
+                            loading = loading,
+                            downloadingKey = downloadingKey,
+                            previewKey = previewKey,
+                            previewLoading = previewLoading,
+                            previewLines = previewLines
+                        )
+                        val key = cardState.key
+                        val isDownloading = cardState.isDownloadingAndApplying
+                        val isAiTranslating = cardState.isAiTranslating
+                        val isBestMatch = index == 0 && resultSort == SubtitleResultSort.BEST_MATCH
+                        val isPreviewingThis = cardState.isPreviewingThis
+                        val isPreviewLoading = cardState.isPreviewLoading
 
-                    Card(
+                        Card(
                         shape = RoundedCornerShape(18.dp),
                         border = BorderStroke(
                             1.dp,
@@ -988,6 +991,7 @@ fun OnlineSubtitleSearchSheet(
                                 }
                             }
                         }
+                    }
                     }
                 }
             }
