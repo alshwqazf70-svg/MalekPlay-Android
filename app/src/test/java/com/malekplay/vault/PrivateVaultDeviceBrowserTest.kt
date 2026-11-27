@@ -21,6 +21,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
+import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowContentResolver
 import java.io.File
 import java.nio.file.Files
@@ -369,7 +370,8 @@ class PrivateVaultDeviceBrowserTest {
     }
 
     @Test
-    fun bucketPathFolderUsesFriendlyDisplayNameAndDirectRestoreSupportsScopedCollections() {
+    @Config(sdk = [34])
+    fun bucketPathFolderUsesFriendlyDisplayNameAndDirectRestoreSupportsScopedCollectionsOnAndroid14() {
         val bucketItem = VaultDeviceItem(
             id = "b1",
             uri = Uri.parse("content://media/external/images/media/55"),
@@ -408,6 +410,23 @@ class PrivateVaultDeviceBrowserTest {
         assertTrue(deviceSource.canRestoreToMediaStoreOrigin(docsEntry))
         assertTrue(treeSupport.canRestoreToOriginalFolder(moviesEntry))
         assertTrue(treeSupport.canRestoreToOriginalFolder(docsEntry))
+    }
+
+    @Test
+    @Config(sdk = [28])
+    fun legacyAndroid9SupportsDirectOriginalFolderRestoreWithWriteStoragePermission() {
+        Shadows.shadowOf(context as Application).grantPermissions(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        val deviceSource = PrivateVaultDeviceSource(context)
+        val customDirEntry = PrivateVaultEntry(
+            id = "e3",
+            displayName = "clip.mp4",
+            mimeType = "video/mp4",
+            sizeBytes = 100L,
+            sourceTreeUri = PrivateVaultTreeSupport.MEDIASTORE_ORIGIN_TREE_URI,
+            sourceParentDocumentId = "WhatsApp/Media/WhatsApp Video"
+        )
+        assertTrue(deviceSource.canRestoreToMediaStoreOrigin(customDirEntry))
+        assertTrue(treeSupport.canRestoreToOriginalFolder(customDirEntry))
     }
 
     private fun fakeDeviceItem(
