@@ -33,6 +33,12 @@ data class PrivateVaultEntry(
     val sourceDisplayPath: String? = null
 )
 
+data class PendingVaultMove(
+    val entryId: String,
+    val sourceUri: String,
+    val displayName: String
+)
+
 /**
  * Unlocked in-memory session holding the unwrapped 256-bit Master Key (DEK).
  * Call [close] when locking the vault or leaving the screen to zero out key material.
@@ -83,6 +89,7 @@ class PrivateVaultRepository(context: Context) {
     private val backupIndex = File(directory, "vault.index.bak")
     private val keyFile = File(directory, "vault.key.enc")
     private val backupKeyFile = File(directory, "vault.key.bak")
+    private val pendingMovesFile = File(directory, "vault.pending_moves.enc")
 
     init {
         if (!indexFile.exists() && backupIndex.exists()) backupIndex.renameTo(indexFile)
@@ -539,6 +546,92 @@ class PrivateVaultRepository(context: Context) {
             if (file.isFile) file.delete()
         } finally {
             activeTempNames.remove(file.name)
+        }
+    }
+
+    /**
+     * Verifies that an encrypted vault entry exists in the index, its encrypted payload
+     * decrypts and authenticates every AEAD chunk without errors, and its plaintext size matches
+     * the recorded metadata (confirming it can be restored safely before deleting any source).
+     */
+    @Synchronized fun verifyEncryptedEntryIntegrity(id: String, session: PrivateVaultSession): Boolean {
+        requireValidId(id)
+        val key = session.requireMasterKey()
+        val legacyPwd = session.legacyPasswordCopy()
+        return try {
+            val entry = readIndexInternal(key, legacyPwd, runRecovery = false).firstOrNull { it.id == id }
+                ?: return false
+            val file = payload(id)
+            if (!file.isFile) return false
+            val counter = CountingOutputStream()
+            PrivateVaultCrypto.decryptStreamAuto(file, counter, key, legacyPwd)
+            entry.sizeBytes < 0L || counter.bytesWritten == entry.sizeBytes
+        } catch (_: Exception) {
+            false
+        } finally {
+            legacyPwd?.fill('\u0000')
+        }
+    }
+
+    @Synchronized fun loadPendingMoves(session: PrivateVaultSession): List<PendingVaultMove> {
+        val key = session.requireMasterKey()
+        if (!pendingMovesFile.isFile || pendingMovesFile.length() == 0L) return emptyList()
+        return runCatching {
+            val plain = PrivateVaultCrypto.decryptWithKey(pendingMovesFile.readBytes(), key)
+            DataInputStream(ByteArrayInputStream(plain)).use { input ->
+                val count = input.readInt().coerceIn(0, maxEntries)
+                List(count) {
+                    PendingVaultMove(
+                        entryId = input.readUTF(),
+                        sourceUri = input.readUTF(),
+                        displayName = input.readUTF()
+                    )
+                }
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    @Synchronized fun addPendingMoves(items: List<PendingVaultMove>, session: PrivateVaultSession) {
+        if (items.isEmpty()) return
+        val merged = LinkedHashMap<String, PendingVaultMove>()
+        loadPendingMoves(session).forEach { merged[it.entryId] = it }
+        items.forEach { merged[it.entryId] = it }
+        persistPendingMoves(merged.values.toList(), session.requireMasterKey())
+    }
+
+    @Synchronized fun removePendingMoves(entryIds: Collection<String>, session: PrivateVaultSession) {
+        if (entryIds.isEmpty() || !pendingMovesFile.isFile) return
+        val idSet = entryIds.toSet()
+        val remaining = loadPendingMoves(session).filterNot { it.entryId in idSet }
+        persistPendingMoves(remaining, session.requireMasterKey())
+    }
+
+    private fun persistPendingMoves(items: List<PendingVaultMove>, key: ByteArray) {
+        if (items.isEmpty()) {
+            pendingMovesFile.delete()
+            return
+        }
+        val plain = ByteArrayOutputStream()
+        DataOutputStream(plain).use { out ->
+            out.writeInt(items.size)
+            items.forEach {
+                out.writeUTF(it.entryId)
+                out.writeUTF(it.sourceUri.take(2048))
+                out.writeUTF(it.displayName.take(1024))
+            }
+            out.flush()
+        }
+        val tmp = File(directory, "vault.pending_moves.tmp")
+        try {
+            val enc = PrivateVaultCrypto.encryptWithKey(plain.toByteArray(), key)
+            FileOutputStream(tmp).use {
+                it.write(enc)
+                it.fd.sync()
+            }
+            if (pendingMovesFile.exists()) pendingMovesFile.delete()
+            if (tmp.renameTo(pendingMovesFile)) restrictFilePermissions(pendingMovesFile)
+        } finally {
+            tmp.delete()
         }
     }
 

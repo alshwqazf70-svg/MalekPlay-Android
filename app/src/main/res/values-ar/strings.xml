@@ -648,8 +648,11 @@
     <string name="vault_browser_pending_selected">المحدد: %1$d · %2$s</string>
     <string name="vault_take_out_original_fallback_needed">المجلد الأصلي غير متاح لـ %1$d عنصر. اختر مجلداً لاستعادتها إليه.</string>
     <string name="vault_take_out_original_failed">تعذرت الاستعادة إلى المجلد الأصلي لعدم توفره أو رفض الصلاحية. بقيت النسخ المشفّرة محفوظة بأمان داخل الخزنة.</string>
-    <string name="vault_browser_media_delete_pending">تم تشفير %1$d ملف. وافق على رسالة النظام لحذف الملفات الأصلية من الجهاز.</string>
+    <string name="vault_browser_media_delete_pending">وافق على رسالة النظام لإتمام نقل %1$d ملف وإزالته من مكتبة الجهاز.</string>
     <string name="vault_browser_media_delete_kept">تم تشفير وحفظ %1$d ملف بأمان في الخزنة؛ وبقيت الملفات الأصلية على الجهاز.</string>
+    <string name="vault_browser_move_result_partial_v2">تم نقل %1$d عنصر؛ وتعذر إكمال %2$d وتم التراجع عنه مع بقاء الملفات الأصلية سليمة.</string>
+    <string name="vault_browser_move_result_rolled_back">تعذر إكمال نقل %1$d عنصر. تم التراجع عن النسخ المشفّرة وبقيت الملفات الأصلية كما هي.</string>
+    <string name="vault_move_partial_consent_summary">تم نقل %1$d عنصر؛ وتم إلغاء/رفض %2$d والتراجع عن نسخته المشفّرة مع بقاء الأصل.</string>
 
     <!-- تحسينات أقسام الموسيقى والمسلسلات والأفلام -->
     <string name="music_search_hint">ابحث في الأغاني والألبومات والفنانين والأنواع</string>

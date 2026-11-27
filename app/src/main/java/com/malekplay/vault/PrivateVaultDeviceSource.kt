@@ -24,6 +24,7 @@ import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
 import java.util.Locale
+import kotlinx.coroutines.CancellationException
 
 internal sealed interface MediaStoreDeleteOutcome {
     data object DeletedVerified : MediaStoreDeleteOutcome
@@ -160,15 +161,16 @@ internal class PrivateVaultDeviceSource(context: Context) {
         val legacyFile = if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) resolveLegacyMediaFile(uri) else null
         try {
             resolver.delete(uri, null, null)
+        } catch (ce: CancellationException) {
+            throw ce
         } catch (sec: SecurityException) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && sec is RecoverableSecurityException) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                return MediaStoreDeleteOutcome.NeedsBatchSystemConsent
+            }
+            if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q && sec is RecoverableSecurityException) {
                 return MediaStoreDeleteOutcome.NeedsRecoverableConsent(sec.userAction.actionIntent.intentSender)
             }
-            return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                MediaStoreDeleteOutcome.NeedsBatchSystemConsent
-            } else {
-                MediaStoreDeleteOutcome.FailedKeptSource
-            }
+            return MediaStoreDeleteOutcome.FailedKeptSource
         } catch (_: Exception) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 return MediaStoreDeleteOutcome.NeedsBatchSystemConsent
@@ -222,13 +224,23 @@ internal class PrivateVaultDeviceSource(context: Context) {
     }
 
     /**
-     * On Android 6–9 (API 23–28), resolves the real parent folder path relative to external
-     * storage when [MediaStore.MediaColumns.DATA] is available, so direct restore can put
-     * unlocked files straight back into their original directory instead of an opaque bucket id.
+     * Resolves the real parent folder path relative to external storage across Android 6–16:
+     * - API 29+: reads [MediaStore.MediaColumns.RELATIVE_PATH] directly from MediaStore.
+     * - API 23–28: reads [MediaStore.MediaColumns.DATA] and strips external storage root.
      */
     @Suppress("DEPRECATION")
-    fun resolveLegacyOriginRelativeFolder(uri: Uri): String? {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) return null
+    fun resolveOriginRelativeFolder(uri: Uri): String? {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val rel = runCatching {
+                resolver.query(uri, arrayOf(MediaStore.MediaColumns.RELATIVE_PATH), null, null, null)?.use { cursor ->
+                    if (!cursor.moveToFirst()) return@use null
+                    val col = cursor.getColumnIndex(MediaStore.MediaColumns.RELATIVE_PATH)
+                    if (col < 0) return@use null
+                    cursor.getString(col)?.trim()?.trim('/')?.takeIf { it.isNotBlank() }
+                }
+            }.getOrNull()
+            if (rel != null) return rel
+        }
         val file = resolveLegacyMediaFile(uri) ?: return null
         val parent = file.parentFile ?: return null
         val extRoot = Environment.getExternalStorageDirectory().absolutePath.trimEnd('/')
@@ -241,8 +253,10 @@ internal class PrivateVaultDeviceSource(context: Context) {
     }
 
     @Suppress("DEPRECATION")
+    fun resolveLegacyOriginRelativeFolder(uri: Uri): String? = resolveOriginRelativeFolder(uri)
+
+    @Suppress("DEPRECATION")
     private fun resolveLegacyMediaFile(uri: Uri): File? {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) return null
         return runCatching {
             resolver.query(uri, arrayOf(MediaStore.MediaColumns.DATA), null, null, null)?.use { cursor ->
                 if (!cursor.moveToFirst()) return@use null
@@ -258,18 +272,32 @@ internal class PrivateVaultDeviceSource(context: Context) {
         if (entry.sourceTreeUri != PrivateVaultTreeSupport.MEDIASTORE_ORIGIN_TREE_URI) return false
         if (entry.mimeType == PrivateVaultTreeSupport.FOLDER_ARCHIVE_MIME) return false
         if (!isVaultAllowedMediaMime(entry.mimeType)) return false
-        val relPath = entry.sourceParentDocumentId?.trim().orEmpty()
-        if (relPath.isEmpty()) return false
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            return isRelativePathAllowedForCollection(relPath, entry.mimeType)
+        val effectiveFolder = resolveEffectiveOriginFolderPath(entry) ?: return false
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            return hasPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE)
         }
-        return hasPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) && !relPath.startsWith("bucket:")
+        return effectiveFolder.isNotEmpty()
+    }
+
+    private fun resolveEffectiveOriginFolderPath(entry: PrivateVaultEntry): String? {
+        val primary = entry.sourceParentDocumentId?.trim().orEmpty()
+        if (primary.isNotEmpty() && !primary.startsWith("bucket:")) {
+            return primary
+        }
+        val displayFallback = entry.sourceDisplayPath?.trim().orEmpty()
+            .substringBeforeLast('/', "")
+            .trim()
+        if (displayFallback.isNotEmpty() && !displayFallback.startsWith("bucket:")) {
+            return displayFallback
+        }
+        return null
     }
 
     /**
      * Restores a MediaStore-originated audio/video entry straight back to its original folder
-     * without prompting the user with Android's file picker, verifying bytes & SHA-256 before
-     * clearing IS_PENDING and refreshing MediaStore.
+     * (including custom subfolders like WhatsApp/Media/WhatsApp Video) without prompting the
+     * user for a destination folder, recreating missing directories when permitted and verifying
+     * bytes & presence before succeeding.
      */
     fun restoreEntryToMediaStoreOrigin(
         entry: PrivateVaultEntry,
@@ -277,14 +305,11 @@ internal class PrivateVaultDeviceSource(context: Context) {
         vault: PrivateVaultRepository,
         onBytesProgress: ((Long) -> Unit)? = null
     ): Uri {
-        val rawFolderPath = entry.sourceParentDocumentId?.trim().orEmpty()
-        require(rawFolderPath.isNotEmpty()) { "Missing original MediaStore folder path." }
+        val rawFolderPath = resolveEffectiveOriginFolderPath(entry)
+            ?: throw IOException("Original MediaStore folder path is unavailable for automatic restore.")
         val normalizedFolder = normalizeRelativeFolderPath(rawFolderPath)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            require(isRelativePathAllowedForCollection(normalizedFolder, entry.mimeType)) {
-                "Original folder ($normalizedFolder) is not writable by scoped MediaStore."
-            }
             val collection = when {
                 entry.mimeType.startsWith("video/") -> MediaStore.Video.Media.EXTERNAL_CONTENT_URI
                 entry.mimeType.startsWith("audio/") -> MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
@@ -303,40 +328,100 @@ internal class PrivateVaultDeviceSource(context: Context) {
                 put(MediaStore.MediaColumns.RELATIVE_PATH, relPathWithSlash)
                 put(MediaStore.MediaColumns.IS_PENDING, 1)
             }
-            val destUri = resolver.insert(collection, values)
-                ?: throw IOException("Could not create restored media entry in $relPathWithSlash")
-            var verified = false
-            try {
-                vault.exportToDocumentVerified(entry.id, destUri, session, onBytesProgress)
-                val publishValues = ContentValues().apply {
-                    put(MediaStore.MediaColumns.IS_PENDING, 0)
+            var mediaStoreFailure: Throwable? = null
+            val destUri = try {
+                resolver.insert(collection, values)
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (t: Throwable) {
+                mediaStoreFailure = t
+                null
+            }
+            if (destUri != null) {
+                var verified = false
+                try {
+                    vault.exportToDocumentVerified(entry.id, destUri, session, onBytesProgress)
+                    val publishValues = ContentValues().apply {
+                        put(MediaStore.MediaColumns.IS_PENDING, 0)
+                    }
+                    resolver.update(destUri, publishValues, null, null)
+                    check(isUriReadable(destUri)) {
+                        "Restored MediaStore item is unreadable at destination."
+                    }
+                    verified = true
+                    return destUri
+                } catch (ce: CancellationException) {
+                    throw ce
+                } catch (t: Throwable) {
+                    mediaStoreFailure = t
+                } finally {
+                    if (!verified) {
+                        runCatching { resolver.delete(destUri, null, null) }
+                    }
                 }
-                resolver.update(destUri, publishValues, null, null)
-                verified = true
-                return destUri
-            } finally {
-                if (!verified) {
-                    runCatching { resolver.delete(destUri, null, null) }
-                }
+            }
+
+            // Fallback for custom non-standard MediaStore folders (e.g. WhatsApp/Media/WhatsApp Video)
+            // when scoped filesystem creation/write is permitted on the device.
+            return try {
+                restoreToFilesystemDirectory(
+                    entry = entry,
+                    rawFolderPath = rawFolderPath,
+                    normalizedFolder = normalizedFolder,
+                    session = session,
+                    vault = vault,
+                    onBytesProgress = onBytesProgress
+                )
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (fsError: Throwable) {
+                val msMsg = mediaStoreFailure?.message?.takeIf { it.isNotBlank() }
+                val fsMsg = fsError.message?.takeIf { it.isNotBlank() }
+                throw IOException(
+                    listOfNotNull(
+                        "Unable to restore to original folder ($normalizedFolder)",
+                        msMsg,
+                        fsMsg
+                    ).joinToString(": "),
+                    fsError
+                )
             }
         }
 
-        // Android 6–9 (API 23–28): write into original external storage directory, verify size + SHA-256, and scan.
+        // Android 6–9 (API 23–28): write into original external storage directory, recreating missing dirs if needed.
         require(hasPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE)) {
             "Storage write permission is required to restore to original folder."
         }
-        @Suppress("DEPRECATION")
+        return restoreToFilesystemDirectory(
+            entry = entry,
+            rawFolderPath = rawFolderPath,
+            normalizedFolder = normalizedFolder,
+            session = session,
+            vault = vault,
+            onBytesProgress = onBytesProgress
+        )
+    }
+
+    @Suppress("DEPRECATION")
+    private fun restoreToFilesystemDirectory(
+        entry: PrivateVaultEntry,
+        rawFolderPath: String,
+        normalizedFolder: String,
+        session: PrivateVaultSession,
+        vault: PrivateVaultRepository,
+        onBytesProgress: ((Long) -> Unit)?
+    ): Uri {
         val extRoot = Environment.getExternalStorageDirectory()
         val safeRel = normalizedFolder.trim('/').takeIf {
             it.isNotEmpty() && !it.startsWith("bucket:") && !it.contains("..")
         } ?: throw IOException("Original folder path is unavailable for direct restore.")
-        val targetDir = if (rawFolderPath.startsWith("/") && !rawFolderPath.contains("..") && File(rawFolderPath).isDirectory) {
+        val targetDir = if (rawFolderPath.startsWith("/") && !rawFolderPath.contains("..")) {
             File(rawFolderPath)
         } else {
             File(extRoot, safeRel)
         }
         check(targetDir.isDirectory || targetDir.mkdirs()) {
-            "Could not access original directory: $safeRel"
+            "Could not access or recreate original directory: $safeRel"
         }
         val existingNames = targetDir.list().orEmpty().toSet()
         val uniqueName = resolveUniqueChildName(entry.displayName, existingNames, isDirectory = false)
@@ -374,6 +459,9 @@ internal class PrivateVaultDeviceSource(context: Context) {
             val actualSha = sha256OfFile(targetFile)
             check(expectedSha.contentEquals(actualSha)) {
                 "Restored file checksum verification failed."
+            }
+            check(targetFile.isFile && targetFile.length() == tempPlain.length()) {
+                "Restored destination file verification failed."
             }
             verified = true
             MediaScannerConnection.scanFile(
@@ -422,19 +510,6 @@ internal class PrivateVaultDeviceSource(context: Context) {
             }
         }
         return names
-    }
-
-    private fun isRelativePathAllowedForCollection(relPath: String, mimeType: String): Boolean {
-        val clean = relPath.trim('/').lowercase(Locale.ROOT)
-        if (clean.isEmpty() || clean.startsWith("bucket:")) return false
-        val rootSeg = clean.substringBefore('/')
-        return when {
-            mimeType.startsWith("video/") -> rootSeg in setOf("movies", "dcim", "pictures", "download")
-            mimeType.startsWith("audio/") -> rootSeg in setOf(
-                "music", "podcasts", "ringtones", "alarms", "notifications", "audiobooks", "recordings", "download"
-            )
-            else -> false
-        }
     }
 
     private fun hasPermission(permission: String): Boolean =

@@ -48,10 +48,8 @@ import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.InsertDriveFile
@@ -75,7 +73,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -124,6 +121,7 @@ import com.malekplay.vault.VaultEntryFilter
 import com.malekplay.vault.VaultEntrySort
 import com.malekplay.vault.VaultImportBatchResult
 import com.malekplay.vault.VaultInsufficientStorageException
+import com.malekplay.vault.VaultMoveItemStatus
 import com.malekplay.vault.filterAndSortVaultEntries
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -134,11 +132,6 @@ import kotlinx.coroutines.withContext
 import java.text.DateFormat
 import java.util.Date
 import java.util.concurrent.atomic.AtomicBoolean
-
-private data class PendingTransferRequest(
-    val entries: List<PrivateVaultEntry>,
-    val removeFromVault: Boolean
-)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -186,11 +179,10 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
 
     // Transfer & OS permission state
     var pendingDelete by remember { mutableStateOf<PrivateVaultEntry?>(null) }
-    var transferSheetRequest by remember { mutableStateOf<PendingTransferRequest?>(null) }
-    var customDestTransferRequest by remember { mutableStateOf<PendingTransferRequest?>(null) }
-    var pendingSingleCreateDocEntry by remember { mutableStateOf<PrivateVaultEntry?>(null) }
     var pendingOriginalRestoreAfterPermission by remember { mutableStateOf<List<PrivateVaultEntry>?>(null) }
     var pendingMediaDeleteUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    var pendingMediaDeleteEntriesMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var pendingMediaDeleteNamesMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var android10DeleteQueue by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var android10ActiveUri by remember { mutableStateOf<Uri?>(null) }
     var android10DeletedUris by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -219,11 +211,10 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
         showBatchDeleteConfirm = false
         infoEntry = null
         pendingDelete = null
-        transferSheetRequest = null
-        customDestTransferRequest = null
-        pendingSingleCreateDocEntry = null
         pendingOriginalRestoreAfterPermission = null
         pendingMediaDeleteUris = emptyList()
+        pendingMediaDeleteEntriesMap = emptyMap()
+        pendingMediaDeleteNamesMap = emptyMap()
         android10DeleteQueue = emptyList()
         android10ActiveUri = null
         android10DeletedUris = emptyList()
@@ -430,53 +421,6 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
         }
     }
 
-    val customDestRestorePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { treeUri ->
-        suppressNextBackgroundLock = false
-        touchActivity()
-        val pending = customDestTransferRequest
-        customDestTransferRequest = null
-        if (treeUri == null || pending == null) return@rememberLauncherForActivityResult
-        executeRestoreBatch(
-            targetEntries = pending.entries,
-            destinationTree = treeUri,
-            useOriginalFolder = false,
-            removeFromVault = pending.removeFromVault
-        )
-    }
-
-    val singleDocumentExporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("*/*")) { uri ->
-        suppressNextBackgroundLock = false
-        touchActivity()
-        val session = vaultSession ?: return@rememberLauncherForActivityResult
-        val entry = pendingSingleCreateDocEntry ?: return@rememberLauncherForActivityResult
-        pendingSingleCreateDocEntry = null
-        if (uri == null) return@rememberLauncherForActivityResult
-        scope.launch {
-            busy = true
-            byteFraction = 0f
-            progressDetail = entry.displayName
-            message = null
-            runCatching {
-                withContext(Dispatchers.IO) {
-                    repository.exportToDocumentVerified(entry.id, uri, session) { doneBytes ->
-                        if (entry.sizeBytes > 0L) {
-                            byteFraction = (doneBytes.toFloat() / entry.sizeBytes.toFloat()).coerceIn(0f, 1f)
-                        }
-                    }
-                }
-                libraryViewModel.refresh()
-            }.onSuccess {
-                message = context.getString(R.string.vault_single_export_success)
-            }.onFailure { err ->
-                if (err is CancellationException) throw err
-                message = err.localizedMessage ?: context.getString(R.string.vault_single_export_failed)
-            }
-            progressDetail = null
-            byteFraction = 0f
-            busy = false
-        }
-    }
-
     lateinit var launchAndroid10DeleteHead: () -> Unit
 
     val mediaStoreDeleteLauncher = rememberLauncherForActivityResult(
@@ -484,27 +428,46 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
     ) { res ->
         suppressNextBackgroundLock = false
         touchActivity()
+        val session = vaultSession
         val activeUri = android10ActiveUri
         if (activeUri != null) {
             android10ActiveUri = null
             val remaining = android10DeleteQueue
             android10DeleteQueue = emptyList()
+            val entryId = pendingMediaDeleteEntriesMap[activeUri.toString()]
+            val displayName = pendingMediaDeleteNamesMap[activeUri.toString()] ?: activeUri.lastPathSegment.orEmpty()
             scope.launch {
-                val deletedNow = if (res.resultCode == Activity.RESULT_OK) {
+                val movedSuccessfully = if (session != null && entryId != null) {
                     withContext(Dispatchers.IO) {
-                        deviceSource.executeAuthorizedAndroid10Delete(activeUri)
+                        if (res.resultCode == Activity.RESULT_OK) {
+                            val outcome = treeSupport.finalizePendingMediaStoreMove(
+                                entryId = entryId,
+                                sourceUri = activeUri,
+                                displayName = displayName,
+                                session = session
+                            )
+                            outcome.status == VaultMoveItemStatus.MOVED
+                        } else {
+                            treeSupport.rollbackPendingMove(
+                                entryId = entryId,
+                                sourceUri = activeUri.toString(),
+                                displayName = displayName,
+                                status = VaultMoveItemStatus.USER_CANCELLED,
+                                session = session
+                            )
+                            false
+                        }
                     }
                 } else {
-                    withContext(Dispatchers.IO) {
-                        deviceSource.verifyDeleted(activeUri)
-                    }
+                    false
                 }
-                val updatedDeleted = if (deletedNow) {
+                if (session != null) refreshEntries(session)
+                val updatedDeleted = if (movedSuccessfully) {
                     android10DeletedUris + activeUri.toString()
                 } else {
                     android10DeletedUris
                 }
-                val updatedKept = if (deletedNow) android10KeptCount else android10KeptCount + 1
+                val updatedKept = if (movedSuccessfully) android10KeptCount else android10KeptCount + 1
                 android10DeletedUris = updatedDeleted
                 android10KeptCount = updatedKept
 
@@ -520,47 +483,91 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                         updatedDeleted.isNotEmpty() && updatedKept == 0 ->
                             context.getString(R.string.vault_browser_move_result_success, updatedDeleted.size)
                         updatedDeleted.isEmpty() ->
-                            context.getString(R.string.vault_browser_media_delete_kept, updatedKept)
+                            context.getString(R.string.vault_browser_move_result_rolled_back, updatedKept.coerceAtLeast(1))
                         else ->
                             context.getString(
-                                R.string.vault_browser_move_result_partial,
-                                updatedDeleted.size + updatedKept,
+                                R.string.vault_move_partial_consent_summary,
                                 updatedDeleted.size,
-                                updatedKept,
-                                0
+                                updatedKept
                             )
                     }
                     android10DeletedUris = emptyList()
                     android10KeptCount = 0
+                    pendingMediaDeleteEntriesMap = emptyMap()
+                    pendingMediaDeleteNamesMap = emptyMap()
                 }
             }
             return@rememberLauncherForActivityResult
         }
 
         val urisToCheck = pendingMediaDeleteUris
+        val entriesSnapshot = pendingMediaDeleteEntriesMap
+        val namesSnapshot = pendingMediaDeleteNamesMap
         pendingMediaDeleteUris = emptyList()
+        pendingMediaDeleteEntriesMap = emptyMap()
+        pendingMediaDeleteNamesMap = emptyMap()
         if (urisToCheck.isEmpty()) return@rememberLauncherForActivityResult
         scope.launch {
-            val verifiedRemoved = withContext(Dispatchers.IO) {
-                urisToCheck.filter { uri -> deviceSource.verifyDeleted(uri) }
+            val confirmedMovedUris = mutableListOf<String>()
+            var rolledBackCount = 0
+            if (session != null) {
+                withContext(Dispatchers.IO) {
+                    for (uri in urisToCheck) {
+                        val uriStr = uri.toString()
+                        val entryId = entriesSnapshot[uriStr]
+                        val displayName = namesSnapshot[uriStr] ?: uri.lastPathSegment.orEmpty()
+                        if (entryId != null) {
+                            if (deviceSource.verifyDeleted(uri)) {
+                                val outcome = treeSupport.finalizePendingMediaStoreMove(
+                                    entryId = entryId,
+                                    sourceUri = uri,
+                                    displayName = displayName,
+                                    session = session
+                                )
+                                if (outcome.status == VaultMoveItemStatus.MOVED) {
+                                    confirmedMovedUris += uriStr
+                                } else {
+                                    rolledBackCount++
+                                }
+                            } else {
+                                treeSupport.rollbackPendingMove(
+                                    entryId = entryId,
+                                    sourceUri = uriStr,
+                                    displayName = displayName,
+                                    status = if (res.resultCode == Activity.RESULT_CANCELED) {
+                                        VaultMoveItemStatus.USER_CANCELLED
+                                    } else {
+                                        VaultMoveItemStatus.SOURCE_DELETE_FAILED
+                                    },
+                                    session = session
+                                )
+                                rolledBackCount++
+                            }
+                        } else if (deviceSource.verifyDeleted(uri)) {
+                            confirmedMovedUris += uriStr
+                        } else {
+                            rolledBackCount++
+                        }
+                    }
+                }
+                refreshEntries(session)
+            } else {
+                rolledBackCount = urisToCheck.size
             }
-            if (verifiedRemoved.isNotEmpty()) {
-                libraryViewModel.reconcileMovedMediaUris(verifiedRemoved.map { it.toString() })
+            if (confirmedMovedUris.isNotEmpty()) {
+                libraryViewModel.reconcileMovedMediaUris(confirmedMovedUris)
                 browserRefreshKey++
             }
-            val keptCount = urisToCheck.size - verifiedRemoved.size
             message = when {
-                verifiedRemoved.isNotEmpty() && keptCount == 0 ->
-                    context.getString(R.string.vault_browser_move_result_success, verifiedRemoved.size)
-                verifiedRemoved.isEmpty() ->
-                    context.getString(R.string.vault_browser_media_delete_kept, urisToCheck.size)
+                confirmedMovedUris.isNotEmpty() && rolledBackCount == 0 ->
+                    context.getString(R.string.vault_browser_move_result_success, confirmedMovedUris.size)
+                confirmedMovedUris.isEmpty() ->
+                    context.getString(R.string.vault_browser_move_result_rolled_back, rolledBackCount.coerceAtLeast(1))
                 else ->
                     context.getString(
-                        R.string.vault_browser_move_result_partial,
-                        urisToCheck.size,
-                        verifiedRemoved.size,
-                        keptCount,
-                        0
+                        R.string.vault_move_partial_consent_summary,
+                        confirmedMovedUris.size,
+                        rolledBackCount
                     )
             }
         }
@@ -568,11 +575,13 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
 
     launchAndroid10DeleteHead = {
         scope.launch {
+            val session = vaultSession
             while (true) {
                 val queue = android10DeleteQueue
                 if (queue.isEmpty()) {
                     val deleted = android10DeletedUris
                     val kept = android10KeptCount
+                    if (session != null) refreshEntries(session)
                     if (deleted.isNotEmpty()) {
                         libraryViewModel.reconcileMovedMediaUris(deleted)
                         browserRefreshKey++
@@ -582,26 +591,38 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                             deleted.isNotEmpty() && kept == 0 ->
                                 context.getString(R.string.vault_browser_move_result_success, deleted.size)
                             deleted.isEmpty() ->
-                                context.getString(R.string.vault_browser_media_delete_kept, kept)
+                                context.getString(R.string.vault_browser_move_result_rolled_back, kept.coerceAtLeast(1))
                             else ->
                                 context.getString(
-                                    R.string.vault_browser_move_result_partial,
-                                    deleted.size + kept,
+                                    R.string.vault_move_partial_consent_summary,
                                     deleted.size,
-                                    kept,
-                                    0
+                                    kept
                                 )
                         }
                     }
                     android10DeletedUris = emptyList()
                     android10KeptCount = 0
+                    pendingMediaDeleteEntriesMap = emptyMap()
+                    pendingMediaDeleteNamesMap = emptyMap()
                     break
                 }
                 val head = queue.first()
+                val headStr = head.toString()
+                val entryId = pendingMediaDeleteEntriesMap[headStr]
+                val displayName = pendingMediaDeleteNamesMap[headStr] ?: head.lastPathSegment.orEmpty()
                 android10DeleteQueue = queue.drop(1)
                 when (val outcome = withContext(Dispatchers.IO) { deviceSource.deleteMediaStoreUriAndVerify(head) }) {
                     MediaStoreDeleteOutcome.DeletedVerified -> {
-                        android10DeletedUris = android10DeletedUris + head.toString()
+                        val finalized = if (session != null && entryId != null) {
+                            withContext(Dispatchers.IO) {
+                                treeSupport.finalizePendingMediaStoreMove(entryId, head, displayName, session)
+                            }.status == VaultMoveItemStatus.MOVED
+                        } else true
+                        if (finalized) {
+                            android10DeletedUris = android10DeletedUris + headStr
+                        } else {
+                            android10KeptCount += 1
+                        }
                     }
                     is MediaStoreDeleteOutcome.NeedsRecoverableConsent -> {
                         android10ActiveUri = head
@@ -611,6 +632,17 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                     }
                     MediaStoreDeleteOutcome.NeedsBatchSystemConsent,
                     MediaStoreDeleteOutcome.FailedKeptSource -> {
+                        if (session != null && entryId != null) {
+                            withContext(Dispatchers.IO) {
+                                treeSupport.rollbackPendingMove(
+                                    entryId = entryId,
+                                    sourceUri = headStr,
+                                    displayName = displayName,
+                                    status = VaultMoveItemStatus.SOURCE_DELETE_FAILED,
+                                    session = session
+                                )
+                            }
+                        }
                         android10KeptCount += 1
                     }
                 }
@@ -624,28 +656,21 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
         browserOpen = true
     }
 
-    fun requestTransfer(targetEntries: List<PrivateVaultEntry>, removeFromVault: Boolean) {
+    fun requestRestore(targetEntries: List<PrivateVaultEntry>) {
         if (targetEntries.isEmpty() || busy) return
         touchActivity()
-        if (removeFromVault) {
-            if (!deviceSource.hasLegacyWriteStoragePermission() && Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-                pendingOriginalRestoreAfterPermission = targetEntries
-                suppressNextBackgroundLock = true
-                restoreStoragePermissionLauncher.launch(arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE))
-                return
-            }
-            // Automatic picker-free restoration directly back to each file's original folder
-            executeRestoreBatch(
-                targetEntries = targetEntries,
-                destinationTree = null,
-                useOriginalFolder = true,
-                removeFromVault = true
-            )
+        if (!deviceSource.hasLegacyWriteStoragePermission() && Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            pendingOriginalRestoreAfterPermission = targetEntries
+            suppressNextBackgroundLock = true
+            restoreStoragePermissionLauncher.launch(arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE))
             return
         }
-        transferSheetRequest = PendingTransferRequest(
-            entries = targetEntries,
-            removeFromVault = false
+        // Automatic picker-free restoration directly back to each file's original folder
+        executeRestoreBatch(
+            targetEntries = targetEntries,
+            destinationTree = null,
+            useOriginalFolder = true,
+            removeFromVault = true
         )
     }
 
@@ -692,31 +717,30 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                 runCatching { Uri.parse(raw) }.getOrNull()
             }
             if (pendingUris.isNotEmpty()) {
+                pendingMediaDeleteEntriesMap = result.pendingSystemDeleteEntries
+                pendingMediaDeleteNamesMap = result.itemOutcomes.associate { it.sourceKey to it.displayName }
                 val batchSender = deviceSource.createBatchDeleteIntentSender(pendingUris)
                 if (batchSender != null) {
                     pendingMediaDeleteUris = pendingUris
                     suppressNextBackgroundLock = true
                     mediaStoreDeleteLauncher.launch(IntentSenderRequest.Builder(batchSender).build())
-                    message = context.getString(R.string.vault_browser_media_delete_pending, result.importedCount)
+                    message = context.getString(R.string.vault_browser_media_delete_pending, pendingUris.size)
                 } else {
                     // Android 10 (API 29) sequential RecoverableSecurityException consent queue
                     android10DeletedUris = result.deletedSourceMediaIds
                     android10KeptCount = 0
                     android10DeleteQueue = pendingUris
-                    message = context.getString(R.string.vault_browser_media_delete_pending, result.importedCount)
+                    message = context.getString(R.string.vault_browser_media_delete_pending, pendingUris.size)
                     launchAndroid10DeleteHead()
                 }
             } else {
-                message = if (result.copiedOnlyCount == 0 && result.failedCount == 0) {
-                    context.getString(R.string.vault_browser_move_result_success, result.movedCount)
-                } else {
-                    context.getString(
-                        R.string.vault_browser_move_result_partial,
-                        result.importedCount,
-                        result.movedCount,
-                        result.copiedOnlyCount,
-                        result.failedCount
-                    )
+                message = when {
+                    result.movedCount > 0 && result.failedCount == 0 ->
+                        context.getString(R.string.vault_browser_move_result_success, result.movedCount)
+                    result.movedCount > 0 ->
+                        context.getString(R.string.vault_browser_move_result_partial_v2, result.movedCount, result.failedCount)
+                    else ->
+                        context.getString(R.string.vault_browser_move_result_rolled_back, result.failedCount.coerceAtLeast(1))
                 }
             }
             result
@@ -865,7 +889,7 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Button(
-                            onClick = { requestTransfer(chosenEntries, removeFromVault = true) },
+                            onClick = { requestRestore(chosenEntries) },
                             enabled = !busy && chosenEntries.isNotEmpty(),
                             modifier = Modifier.weight(1f),
                             colors = ButtonDefaults.buttonColors(
@@ -881,24 +905,6 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                             Spacer(Modifier.width(6.dp))
                             Text(
                                 stringResource(R.string.vault_take_out),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                        OutlinedButton(
-                            onClick = { requestTransfer(chosenEntries, removeFromVault = false) },
-                            enabled = !busy && chosenEntries.isNotEmpty(),
-                            modifier = Modifier.weight(1f),
-                            border = BorderStroke(1.dp, Color(0xFFA855F7))
-                        ) {
-                            Icon(
-                                Icons.Filled.ContentCopy,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                stringResource(R.string.vault_export_copy),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -1031,6 +1037,16 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                                     } else {
                                         withContext(Dispatchers.IO) {
                                             val s = repository.openSession(pwdChars)
+                                            val reconciled = treeSupport.reconcilePendingMovesOnUnlock(
+                                                session = s,
+                                                rollbackUnfinishedSources = true
+                                            )
+                                            val completedMovedUris = reconciled
+                                                .filter { it.status == VaultMoveItemStatus.MOVED }
+                                                .map { it.sourceKey }
+                                            if (completedMovedUris.isNotEmpty()) {
+                                                libraryViewModel.reconcileMovedMediaUris(completedMovedUris)
+                                            }
                                             val list = repository.list(s)
                                             s to list
                                         }
@@ -1388,15 +1404,7 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                                                     text = { Text(stringResource(R.string.vault_take_out)) },
                                                     onClick = {
                                                         rowMenuOpen = false
-                                                        requestTransfer(listOf(entry), removeFromVault = true)
-                                                    }
-                                                )
-                                                DropdownMenuItem(
-                                                    leadingIcon = { Icon(Icons.Filled.ContentCopy, contentDescription = null) },
-                                                    text = { Text(stringResource(R.string.vault_export_copy)) },
-                                                    onClick = {
-                                                        rowMenuOpen = false
-                                                        requestTransfer(listOf(entry), removeFromVault = false)
+                                                        requestRestore(listOf(entry))
                                                     }
                                                 )
                                                 DropdownMenuItem(
@@ -1481,86 +1489,6 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
             onSuppressNextBackgroundLock = { suppressNextBackgroundLock = it },
             onMoveDeviceSelection = ::moveDeviceItems,
             onDismiss = { browserOpen = false }
-        )
-    }
-
-    // Export-copy destination dialog (when keeping the encrypted item inside the vault)
-    transferSheetRequest?.let { req ->
-        val canRestoreOriginal = remember(req) {
-            treeSupport.canRestoreAllToOriginalFolder(req.entries)
-        }
-        val singleOriginLabel = remember(req) {
-            req.entries.singleOrNull()?.sourceDisplayPath?.takeIf { it.isNotBlank() }
-        }
-        AlertDialog(
-            onDismissRequest = { transferSheetRequest = null },
-            title = { Text(stringResource(R.string.vault_export_copy_dialog_title)) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(stringResource(R.string.vault_export_copy_dialog_message, req.entries.size))
-                    if (!canRestoreOriginal) {
-                        Text(
-                            text = stringResource(R.string.vault_restore_to_original_unavailable),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    } else if (singleOriginLabel != null) {
-                        Text(
-                            text = stringResource(R.string.vault_info_original_location, singleOriginLabel),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFFD8B4FE)
-                        )
-                    }
-                    if (canRestoreOriginal) {
-                        Button(
-                            onClick = {
-                                transferSheetRequest = null
-                                executeRestoreBatch(
-                                    targetEntries = req.entries,
-                                    destinationTree = null,
-                                    useOriginalFolder = true,
-                                    removeFromVault = false
-                                )
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFFA855F7),
-                                contentColor = Color.White
-                            )
-                        ) {
-                            Text(stringResource(R.string.vault_restore_to_original))
-                        }
-                    }
-                    OutlinedButton(
-                        onClick = {
-                            transferSheetRequest = null
-                            val singleNonFolder = req.entries.singleOrNull()?.takeIf {
-                                it.mimeType != PrivateVaultTreeSupport.FOLDER_ARCHIVE_MIME
-                            }
-                            if (singleNonFolder != null && !canRestoreOriginal) {
-                                pendingSingleCreateDocEntry = singleNonFolder
-                                suppressNextBackgroundLock = true
-                                singleDocumentExporter.launch(singleNonFolder.displayName)
-                            } else {
-                                customDestTransferRequest = req
-                                suppressNextBackgroundLock = true
-                                customDestRestorePicker.launch(null)
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Filled.FolderOpen, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text(stringResource(R.string.vault_restore_choose_folder))
-                    }
-                }
-            },
-            confirmButton = {},
-            dismissButton = {
-                TextButton(onClick = { transferSheetRequest = null }) {
-                    Text(stringResource(R.string.common_cancel))
-                }
-            }
         )
     }
 

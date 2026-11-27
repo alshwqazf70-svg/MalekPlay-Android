@@ -17,7 +17,9 @@ import com.malekplay.data.local.entity.PlaylistEntity
 import com.malekplay.data.local.entity.PlaylistItemEntity
 import com.malekplay.domain.model.LibraryItem
 import com.malekplay.domain.model.MediaFolder
+import android.os.Environment
 import com.malekplay.domain.model.MediaItem
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -33,6 +35,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowContentResolver
+import java.io.ByteArrayInputStream
 import java.io.File
 import java.nio.file.Files
 import java.security.MessageDigest
@@ -657,6 +660,258 @@ class PrivateVaultDeviceBrowserTest {
         )
         assertTrue(deviceSource.canRestoreToMediaStoreOrigin(customDirEntry))
         assertTrue(treeSupport.canRestoreToOriginalFolder(customDirEntry))
+    }
+
+    @Test
+    fun verifyEncryptedEntryIntegrityDetectsPayloadCorruptionBeforeSourceDeletion() {
+        val payload = "Integrity-Verified-Video-Payload-123456".toByteArray()
+        val stored = vault.importStream("integrity.mp4", "video/mp4", ByteArrayInputStream(payload), session)
+        assertTrue(vault.verifyEncryptedEntryIntegrity(stored.id, session))
+
+        val payloadFile = File(File(context.filesDir, "private_vault"), "${stored.id}.mkv")
+        assertTrue(payloadFile.isFile)
+        val bytes = payloadFile.readBytes()
+        bytes[bytes.size - 1] = (bytes[bytes.size - 1].toInt() xor 0xFF).toByte()
+        payloadFile.writeBytes(bytes)
+
+        assertFalse(vault.verifyEncryptedEntryIntegrity(stored.id, session))
+    }
+
+    @Test
+    fun partialMoveFailureRollsBackFailedItemsWithoutLeavingDuplicatesAndKeepsSucceededMoves() {
+        val treeUri = DocumentsContract.buildTreeDocumentUri(InMemoryVaultDocumentsProvider.AUTHORITY, "root")
+        val videoPayload = ByteArray(4096) { (it * 7).toByte() }
+        val stubbornPayload = ByteArray(2048) { (it * 19).toByte() }
+
+        val movableId = provider.addFile("root", "movable_clip.mp4", "video/mp4", videoPayload)
+        val stubbornId = provider.addFile("root", "stubborn_song.mp3", "audio/mpeg", stubbornPayload)
+        provider.unremovableDocumentIds.add(stubbornId)
+
+        val result = treeSupport.importBrowserSelection(
+            items = listOf(
+                SelectedVaultBrowserItem(
+                    documentId = movableId,
+                    uri = DocumentsContract.buildDocumentUriUsingTree(treeUri, movableId),
+                    displayName = "movable_clip.mp4",
+                    mimeType = "video/mp4",
+                    sizeBytes = videoPayload.size.toLong(),
+                    lastModified = 100L,
+                    isDirectory = false,
+                    treeUri = treeUri,
+                    parentDocumentId = "root",
+                    displayFolderPath = "Movies"
+                ),
+                SelectedVaultBrowserItem(
+                    documentId = stubbornId,
+                    uri = DocumentsContract.buildDocumentUriUsingTree(treeUri, stubbornId),
+                    displayName = "stubborn_song.mp3",
+                    mimeType = "audio/mpeg",
+                    sizeBytes = stubbornPayload.size.toLong(),
+                    lastModified = 200L,
+                    isDirectory = false,
+                    treeUri = treeUri,
+                    parentDocumentId = "root",
+                    displayFolderPath = "Music"
+                )
+            ),
+            session = session,
+            moveSource = true
+        )
+
+        assertEquals(1, result.importedCount)
+        assertEquals(1, result.movedCount)
+        assertEquals(1, result.failedCount)
+        assertEquals(0, result.copiedOnlyCount)
+        assertEquals(setOf(DocumentsContract.buildDocumentUriUsingTree(treeUri, movableId).toString()), result.succeededKeys)
+        assertEquals(VaultMoveItemStatus.MOVED, result.itemOutcomes[0].status)
+        assertEquals(VaultMoveItemStatus.SOURCE_DELETE_FAILED, result.itemOutcomes[1].status)
+
+        // Succeeded item disappeared from source; failed item stayed untouched and was rolled back from vault!
+        assertFalse(provider.hasDocument(movableId))
+        assertTrue(provider.hasDocument(stubbornId))
+        val vaultEntries = vault.list(session)
+        assertEquals(1, vaultEntries.size)
+        assertEquals("movable_clip.mp4", vaultEntries.single().displayName)
+    }
+
+    @Test
+    fun pendingMoveRetryDoesNotDuplicateEntryAndRollbackCleansVaultOnDenial() {
+        val payload = "Pending-Consent-Media-Payload".toByteArray()
+        val sourceUri = Uri.parse("content://media/external/video/media/9012")
+        val stored = vault.importStream(
+            displayName = "consent_clip.mp4",
+            mimeType = "video/mp4",
+            input = ByteArrayInputStream(payload),
+            session = session,
+            sourceOrigin = VaultSourceOrigin(
+                treeUri = PrivateVaultTreeSupport.MEDIASTORE_ORIGIN_TREE_URI,
+                parentDocumentId = "WhatsApp/Media/WhatsApp Video",
+                displayPath = "WhatsApp/Media/WhatsApp Video/consent_clip.mp4"
+            )
+        )
+        vault.addPendingMoves(
+            listOf(PendingVaultMove(stored.id, sourceUri.toString(), "consent_clip.mp4")),
+            session
+        )
+
+        // Simulating user denying system consent -> rollback removes encrypted copy and clears pending state
+        val rolledBack = treeSupport.rollbackPendingMove(
+            entryId = stored.id,
+            sourceUri = sourceUri.toString(),
+            displayName = "consent_clip.mp4",
+            status = VaultMoveItemStatus.USER_CANCELLED,
+            session = session
+        )
+        assertEquals(VaultMoveItemStatus.USER_CANCELLED, rolledBack.status)
+        assertTrue(vault.list(session).isEmpty())
+        assertTrue(vault.loadPendingMoves(session).isEmpty())
+
+        // Simulating interrupted session reconciliation where source actually disappeared
+        val stored2 = vault.importStream("reconcile_clip.mp4", "video/mp4", ByteArrayInputStream(payload), session)
+        vault.addPendingMoves(
+            listOf(PendingVaultMove(stored2.id, "content://media/external/video/media/9013", "reconcile_clip.mp4")),
+            session
+        )
+        val reconciled = treeSupport.reconcilePendingMovesOnUnlock(session, rollbackUnfinishedSources = true)
+        assertEquals(1, reconciled.size)
+        // Robolectric MediaStore query returns null/false (not present) -> completes as MOVED and clears pending list
+        assertEquals(VaultMoveItemStatus.MOVED, reconciled.single().status)
+        assertTrue(vault.loadPendingMoves(session).isEmpty())
+    }
+
+    @Test
+    @Config(sdk = [29, 34])
+    fun customSubfoldersHaveNoHardcodedWhitelistOnAndroid10And14Plus() {
+        val deviceSource = PrivateVaultDeviceSource(context)
+        val whatsappVideo = PrivateVaultEntry(
+            id = "wa-1",
+            displayName = "VID-2026.mp4",
+            mimeType = "video/mp4",
+            sizeBytes = 500L,
+            sourceTreeUri = PrivateVaultTreeSupport.MEDIASTORE_ORIGIN_TREE_URI,
+            sourceParentDocumentId = "WhatsApp/Media/WhatsApp Video"
+        )
+        val telegramAudio = PrivateVaultEntry(
+            id = "tg-1",
+            displayName = "voice_note.mp3",
+            mimeType = "audio/mpeg",
+            sizeBytes = 300L,
+            sourceTreeUri = PrivateVaultTreeSupport.MEDIASTORE_ORIGIN_TREE_URI,
+            sourceParentDocumentId = "Telegram/Telegram Audio/Custom"
+        )
+        assertTrue(deviceSource.canRestoreToMediaStoreOrigin(whatsappVideo))
+        assertTrue(deviceSource.canRestoreToMediaStoreOrigin(telegramAudio))
+        assertTrue(treeSupport.canRestoreAllToOriginalFolder(listOf(whatsappVideo, telegramAudio)))
+    }
+
+    @Test
+    @Config(sdk = [28])
+    fun legacyApi28RecreatesDeletedCustomOriginalFolderAndRestoresExactBytes() {
+        Shadows.shadowOf(context as Application).grantPermissions(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        @Suppress("DEPRECATION")
+        val extRoot = Environment.getExternalStorageDirectory()
+        val customRel = "WhatsApp/Media/WhatsApp Video"
+        val customDir = File(extRoot, customRel)
+        customDir.deleteRecursively()
+        assertFalse(customDir.exists())
+
+        val payload = ByteArray(16 * 1024) { (it * 29).toByte() }
+        val entry = vault.importStream(
+            displayName = "wa_restored_clip.mp4",
+            mimeType = "video/mp4",
+            input = ByteArrayInputStream(payload),
+            session = session,
+            sourceOrigin = VaultSourceOrigin(
+                treeUri = PrivateVaultTreeSupport.MEDIASTORE_ORIGIN_TREE_URI,
+                parentDocumentId = customRel,
+                displayPath = "$customRel/wa_restored_clip.mp4"
+            )
+        )
+
+        val summary = treeSupport.restoreEntries(
+            entries = listOf(entry),
+            destinationTree = null,
+            session = session,
+            useOriginalFolder = true,
+            removeFromVaultAfterRestore = true
+        )
+        assertEquals(1, summary.succeededCount)
+        assertEquals(0, summary.failedCount)
+        assertEquals(1, summary.removedFromVaultCount)
+        assertTrue(vault.list(session).isEmpty())
+
+        val restoredFile = File(customDir, "wa_restored_clip.mp4")
+        assertTrue(customDir.isDirectory)
+        assertTrue(restoredFile.isFile)
+        assertEquals(sha256Hex(payload), sha256Hex(restoredFile.readBytes()))
+        customDir.deleteRecursively()
+    }
+
+    @Test
+    fun cancellationDuringMoveIsPropagatedWithoutSwallowingOrLeavingOrphanEntry() {
+        val treeUri = DocumentsContract.buildTreeDocumentUri(InMemoryVaultDocumentsProvider.AUTHORITY, "root")
+        val payload = "Cancel-Check-Video".toByteArray()
+        val docId = provider.addFile("root", "cancel_clip.mp4", "video/mp4", payload)
+        val item = SelectedVaultBrowserItem(
+            documentId = docId,
+            uri = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId),
+            displayName = "cancel_clip.mp4",
+            mimeType = "video/mp4",
+            sizeBytes = payload.size.toLong(),
+            lastModified = 10L,
+            isDirectory = false,
+            treeUri = treeUri,
+            parentDocumentId = "root",
+            displayFolderPath = "Movies"
+        )
+        val result = treeSupport.importBrowserSelection(
+            items = listOf(item),
+            session = session,
+            moveSource = true,
+            isCancelled = { true }
+        )
+        assertEquals(0, result.importedCount)
+        assertEquals(0, result.movedCount)
+        assertTrue(provider.hasDocument(docId))
+        assertTrue(vault.list(session).isEmpty())
+        assertEquals(VaultMoveItemStatus.USER_CANCELLED, result.itemOutcomes.single().status)
+
+        // Also ensure CancellationException thrown inside callback is never swallowed
+        var threwCancellation = false
+        try {
+            treeSupport.importBrowserSelection(
+                items = listOf(item),
+                session = session,
+                moveSource = true,
+                onItemProgress = { _, _, _ -> throw CancellationException("User cancelled job") }
+            )
+        } catch (_: CancellationException) {
+            threwCancellation = true
+        }
+        assertTrue(threwCancellation)
+        assertTrue(provider.hasDocument(docId))
+    }
+
+    @Test
+    fun legacyVaultEntriesAndArchivesRemainIntactAndRestorable() {
+        val treeUri = DocumentsContract.buildTreeDocumentUri(InMemoryVaultDocumentsProvider.AUTHORITY, "root")
+        val legacyDir = provider.addDirectory("root", "legacy-dir", "LegacyAlbum")
+        val songBytes = "Legacy-Audio-Bytes".toByteArray()
+        provider.addFile(legacyDir, "old_song.mp3", "audio/mpeg", songBytes)
+
+        val folderRes = treeSupport.importFolder(
+            treeUri = treeUri,
+            session = session,
+            moveSource = false,
+            rootDocumentId = legacyDir,
+            sourceParentDocumentId = "root",
+            sourceDisplayPath = "Root / LegacyAlbum"
+        )
+        assertEquals(PrivateVaultTreeSupport.FOLDER_ARCHIVE_MIME, folderRes.entry.mimeType)
+
+        val archiveBrowser = PrivateVaultArchiveBrowser(context, vault, treeSupport)
+        val listed = archiveBrowser.listAllEntries(folderRes.entry, session)
+        assertTrue(listed.any { !it.isDirectory && it.name == "old_song.mp3" })
     }
 
     private fun fakeDeviceItem(

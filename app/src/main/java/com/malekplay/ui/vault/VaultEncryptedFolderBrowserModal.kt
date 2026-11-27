@@ -2,8 +2,6 @@ package com.malekplay.ui.vault
 
 import android.net.Uri
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -34,11 +32,9 @@ import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.InsertDriveFile
@@ -59,7 +55,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -107,11 +102,6 @@ import java.text.DateFormat
 import java.util.Date
 import java.util.concurrent.atomic.AtomicBoolean
 
-private data class ArchiveExtractRequest(
-    val items: List<VaultArchiveListingItem>,
-    val removeFromArchive: Boolean
-)
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun VaultEncryptedFolderBrowserModal(
@@ -154,9 +144,6 @@ internal fun VaultEncryptedFolderBrowserModal(
     var viewingItem by remember { mutableStateOf<VaultArchiveListingItem?>(null) }
     var infoItem by remember { mutableStateOf<VaultArchiveListingItem?>(null) }
     var pendingDeleteItems by remember { mutableStateOf<List<VaultArchiveListingItem>?>(null) }
-    var extractDialogRequest by remember { mutableStateOf<ArchiveExtractRequest?>(null) }
-    var confirmOriginalExtractRequest by remember { mutableStateOf<ArchiveExtractRequest?>(null) }
-    var customDestExtractRequest by remember { mutableStateOf<ArchiveExtractRequest?>(null) }
 
     val currentPath = pathSegments.joinToString("/")
 
@@ -339,36 +326,18 @@ internal fun VaultEncryptedFolderBrowserModal(
         }
     }
 
-    val customFolderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { treeUri ->
-        onSuppressNextBackgroundLock(false)
-        onTouchActivity()
-        val pending = customDestExtractRequest
-        customDestExtractRequest = null
-        if (treeUri == null || pending == null) return@rememberLauncherForActivityResult
-        executeArchiveExtract(
-            items = pending.items,
-            destinationTree = treeUri,
-            useOriginalFolder = false,
-            removeFromArchive = pending.removeFromArchive
-        )
-    }
-
-    fun requestArchiveExtract(items: List<VaultArchiveListingItem>, removeFromArchive: Boolean) {
+    fun requestArchiveExtract(items: List<VaultArchiveListingItem>) {
         onTouchActivity()
         if (busy || items.isEmpty()) return
-        if (removeFromArchive) {
-            if (treeSupport.canRestoreToOriginalFolder(currentArchiveEntry)) {
-                executeArchiveExtract(
-                    items = items,
-                    destinationTree = null,
-                    useOriginalFolder = true,
-                    removeFromArchive = true
-                )
-            } else {
-                errorMessage = context.getString(R.string.vault_take_out_original_failed)
-            }
+        if (treeSupport.canRestoreToOriginalFolder(currentArchiveEntry)) {
+            executeArchiveExtract(
+                items = items,
+                destinationTree = null,
+                useOriginalFolder = true,
+                removeFromArchive = true
+            )
         } else {
-            extractDialogRequest = ArchiveExtractRequest(items, removeFromArchive = false)
+            errorMessage = context.getString(R.string.vault_take_out_original_failed)
         }
     }
 
@@ -520,7 +489,7 @@ internal fun VaultEncryptedFolderBrowserModal(
                             ) {
                                 Button(
                                     onClick = {
-                                        requestArchiveExtract(selectedSnapshot, removeFromArchive = true)
+                                        requestArchiveExtract(selectedSnapshot)
                                     },
                                     enabled = !busy,
                                     modifier = Modifier.weight(1f),
@@ -532,18 +501,6 @@ internal fun VaultEncryptedFolderBrowserModal(
                                     Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = null, modifier = Modifier.size(18.dp))
                                     Spacer(Modifier.width(4.dp))
                                     Text(stringResource(R.string.vault_take_out), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                }
-                                OutlinedButton(
-                                    onClick = {
-                                        requestArchiveExtract(selectedSnapshot, removeFromArchive = false)
-                                    },
-                                    enabled = !busy,
-                                    modifier = Modifier.weight(1f),
-                                    border = BorderStroke(1.dp, Color(0xFFA855F7))
-                                ) {
-                                    Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                    Text(stringResource(R.string.vault_export_copy), maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 }
                                 IconButton(
                                     onClick = {
@@ -889,15 +846,7 @@ internal fun VaultEncryptedFolderBrowserModal(
                                                 text = { Text(stringResource(R.string.vault_take_out)) },
                                                 onClick = {
                                                     rowMenuOpen = false
-                                                    requestArchiveExtract(listOf(item), removeFromArchive = true)
-                                                }
-                                            )
-                                            DropdownMenuItem(
-                                                leadingIcon = { Icon(Icons.Filled.ContentCopy, contentDescription = null) },
-                                                text = { Text(stringResource(R.string.vault_export_copy)) },
-                                                onClick = {
-                                                    rowMenuOpen = false
-                                                    requestArchiveExtract(listOf(item), removeFromArchive = false)
+                                                    requestArchiveExtract(listOf(item))
                                                 }
                                             )
                                             DropdownMenuItem(
@@ -945,100 +894,6 @@ internal fun VaultEncryptedFolderBrowserModal(
                 onPlaybackActiveChanged(false)
                 viewingItem = null
                 onTouchActivity()
-            }
-        )
-    }
-
-    // Extract / Take Out destination dialog
-    extractDialogRequest?.let { req ->
-        val canRestoreOriginal = remember(currentArchiveEntry) {
-            treeSupport.canRestoreToOriginalFolder(currentArchiveEntry)
-        }
-        AlertDialog(
-            onDismissRequest = { extractDialogRequest = null },
-            title = {
-                Text(
-                    stringResource(
-                        if (req.removeFromArchive) R.string.vault_take_out_dialog_title
-                        else R.string.vault_export_copy_dialog_title
-                    )
-                )
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        stringResource(
-                            if (req.removeFromArchive) R.string.vault_take_out_dialog_message
-                            else R.string.vault_export_copy_dialog_message,
-                            req.items.size
-                        )
-                    )
-                    if (!canRestoreOriginal) {
-                        Text(
-                            text = stringResource(R.string.vault_restore_to_original_unavailable),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    if (canRestoreOriginal) {
-                        Button(
-                            onClick = {
-                                extractDialogRequest = null
-                                if (req.removeFromArchive) {
-                                    confirmOriginalExtractRequest = req
-                                } else {
-                                    executeArchiveExtract(req.items, null, useOriginalFolder = true, removeFromArchive = false)
-                                }
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFA855F7), contentColor = Color.White)
-                        ) {
-                            Text(stringResource(R.string.vault_restore_to_original))
-                        }
-                    }
-                    OutlinedButton(
-                        onClick = {
-                            extractDialogRequest = null
-                            customDestExtractRequest = req
-                            onSuppressNextBackgroundLock(true)
-                            customFolderPicker.launch(null)
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Filled.FolderOpen, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text(stringResource(R.string.vault_restore_choose_folder))
-                    }
-                }
-            },
-            confirmButton = {},
-            dismissButton = {
-                TextButton(onClick = { extractDialogRequest = null }) {
-                    Text(stringResource(R.string.common_cancel))
-                }
-            }
-        )
-    }
-
-    confirmOriginalExtractRequest?.let { req ->
-        AlertDialog(
-            onDismissRequest = { confirmOriginalExtractRequest = null },
-            title = { Text(stringResource(R.string.vault_confirm_take_out_title)) },
-            text = { Text(stringResource(R.string.vault_confirm_take_out_body, req.items.size)) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        confirmOriginalExtractRequest = null
-                        executeArchiveExtract(req.items, null, useOriginalFolder = true, removeFromArchive = true)
-                    }
-                ) {
-                    Text(stringResource(R.string.vault_confirm_action), color = Color(0xFFA855F7))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmOriginalExtractRequest = null }) {
-                    Text(stringResource(R.string.common_cancel))
-                }
             }
         )
     }

@@ -648,8 +648,11 @@
     <string name="vault_browser_pending_selected">%1$d selected · %2$s</string>
     <string name="vault_take_out_original_fallback_needed">Original folder is unavailable for %1$d item(s). Choose a destination folder.</string>
     <string name="vault_take_out_original_failed">Could not restore to the original folder because it is unavailable or permission was denied. Encrypted copies remain safely in the vault.</string>
-    <string name="vault_browser_media_delete_pending">Encrypted %1$d file(s). Confirm system prompt to remove the original source files from device.</string>
+    <string name="vault_browser_media_delete_pending">Confirm system prompt for %1$d file(s) to finish moving them out of device library.</string>
     <string name="vault_browser_media_delete_kept">Encrypted %1$d file(s) safely in vault; original source files were kept on device.</string>
+    <string name="vault_browser_move_result_partial_v2">Moved %1$d item(s); %2$d failed or rolled back with originals kept intact.</string>
+    <string name="vault_browser_move_result_rolled_back">Could not complete move for %1$d item(s). Encrypted copies were rolled back and originals remain untouched.</string>
+    <string name="vault_move_partial_consent_summary">Moved %1$d item(s); %2$d cancelled or denied and rolled back.</string>
 
     <!-- Music & Video Categories enhancements -->
     <string name="music_search_hint">Search songs, albums, artists, or genres</string>

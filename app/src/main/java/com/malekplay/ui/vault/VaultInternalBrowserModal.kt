@@ -257,32 +257,39 @@ internal fun VaultInternalBrowserModal(
         val batch = stateHolder.tryBeginSave() ?: return
         syncState(stateHolder.snapshot)
         scope.launch {
-            val outcome = runCatching {
-                onMoveDeviceSelection(batch)
+            try {
+                val result = onMoveDeviceSelection(batch)
+                val failedOrRolledBack = result.failedCount + result.itemOutcomes.count {
+                    it.status == com.malekplay.vault.VaultMoveItemStatus.USER_CANCELLED ||
+                        it.status == com.malekplay.vault.VaultMoveItemStatus.SOURCE_DELETE_FAILED ||
+                        it.status == com.malekplay.vault.VaultMoveItemStatus.SOURCE_VERIFICATION_FAILED ||
+                        it.status == com.malekplay.vault.VaultMoveItemStatus.ENCRYPTION_FAILED
+                }.coerceAtLeast(result.failedCount)
+                val messageText = when {
+                    result.pendingSystemDeleteUris.isNotEmpty() ->
+                        context.getString(R.string.vault_browser_media_delete_pending, result.pendingSystemDeleteUris.size)
+                    result.movedCount > 0 && result.failedCount == 0 ->
+                        context.getString(R.string.vault_browser_move_result_success, result.movedCount)
+                    result.movedCount > 0 ->
+                        context.getString(
+                            R.string.vault_browser_move_result_partial_v2,
+                            result.movedCount,
+                            failedOrRolledBack.coerceAtLeast(result.failedCount)
+                        )
+                    else ->
+                        context.getString(
+                            R.string.vault_browser_move_result_rolled_back,
+                            failedOrRolledBack.coerceAtLeast(1)
+                        )
+                }
+                // Only mark items as vaulted/excluded once verified moved and source disappeared
+                syncState(stateHolder.finishSave(result.succeededKeys, messageText))
+            } catch (ce: CancellationException) {
+                syncState(stateHolder.finishSave(emptySet(), null))
+                throw ce
+            } catch (err: Throwable) {
+                syncState(stateHolder.finishSave(emptySet(), err.localizedMessage))
             }
-            if (outcome.isFailure) {
-                val err = outcome.exceptionOrNull()
-                if (err is CancellationException) throw err
-                syncState(stateHolder.finishSave(emptySet(), err?.localizedMessage))
-                return@launch
-            }
-            val result = outcome.getOrThrow()
-            val messageText = when {
-                result.pendingSystemDeleteUris.isNotEmpty() ->
-                    context.getString(R.string.vault_browser_media_delete_pending, result.importedCount)
-                result.movedCount > 0 && result.copiedOnlyCount == 0 && result.failedCount == 0 ->
-                    context.getString(R.string.vault_browser_move_result_success, result.movedCount)
-                else ->
-                    context.getString(
-                        R.string.vault_browser_move_result_partial,
-                        result.importedCount,
-                        result.movedCount,
-                        result.copiedOnlyCount,
-                        result.failedCount
-                    )
-            }
-            // Only permanently mark items as vaulted/excluded once verified moved or encrypted
-            syncState(stateHolder.finishSave(result.succeededKeys, messageText))
         }
     }
 

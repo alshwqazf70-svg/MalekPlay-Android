@@ -155,7 +155,8 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
 
     /**
      * Imports a list of selected browser files/folders into the vault.
-     * Supports copying or verified moving without dropping items selected across multiple folders.
+     * Enforces verified move-only semantics with pre-delete integrity check,
+     * zero duplicate creation on retry, and immediate rollback if source deletion fails.
      */
     fun importBrowserSelection(
         items: List<SelectedVaultBrowserItem>,
@@ -168,17 +169,33 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
         var importedCount = 0
         var failedCount = 0
         var movedCount = 0
-        var copiedOnlyCount = 0
+        val copiedOnlyCount = 0
         val deletedSourceMediaIds = mutableListOf<String>()
         val failures = mutableListOf<String>()
         val succeededKeys = linkedSetOf<String>()
         val pendingSystemDeleteUris = mutableListOf<String>()
+        val pendingSystemDeleteEntries = linkedMapOf<String, String>()
+        val itemOutcomes = mutableListOf<VaultMoveItemOutcome>()
         val total = items.size.coerceAtLeast(1)
 
+        val existingPendingByUri = vault.loadPendingMoves(session)
+            .associateBy { it.sourceUri }
+            .toMutableMap()
+
         for ((index, item) in items.withIndex()) {
-            if (isCancelled()) break
+            if (isCancelled()) {
+                itemOutcomes += VaultMoveItemOutcome(
+                    sourceKey = item.uri.toString(),
+                    displayName = item.displayName,
+                    status = VaultMoveItemStatus.USER_CANCELLED,
+                    detail = "Cancelled before processing."
+                )
+                break
+            }
             onItemProgress?.invoke(index + 1, total, item.displayName)
-            val outcome = runCatching {
+            val key = item.uri.toString()
+            var newlyImportedEntryId: String? = null
+            try {
                 if (item.isDirectory) {
                     val folderRes = importFolder(
                         treeUri = item.treeUri,
@@ -191,24 +208,89 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
                             onItemProgress?.invoke(index + 1, total, "${item.displayName}/$childName")
                         }
                     )
+                    newlyImportedEntryId = folderRes.entry.id
+                    if (!vault.verifyEncryptedEntryIntegrity(folderRes.entry.id, session)) {
+                        runCatching { vault.delete(folderRes.entry.id, session) }
+                        failedCount++
+                        failures += "${item.displayName}: Encrypted copy verification failed."
+                        itemOutcomes += VaultMoveItemOutcome(
+                            sourceKey = key,
+                            displayName = item.displayName,
+                            status = VaultMoveItemStatus.ENCRYPTION_FAILED,
+                            detail = "Encrypted archive integrity verification failed."
+                        )
+                        continue
+                    }
+                    if (moveSource && !folderRes.sourceFullyMoved) {
+                        runCatching { vault.delete(folderRes.entry.id, session) }
+                        failedCount++
+                        failures += "${item.displayName}: Could not delete all original files; rolled back."
+                        itemOutcomes += VaultMoveItemOutcome(
+                            sourceKey = key,
+                            displayName = item.displayName,
+                            status = VaultMoveItemStatus.SOURCE_DELETE_FAILED,
+                            detail = "Source folder deletion incomplete; rolled back encrypted archive."
+                        )
+                        continue
+                    }
                     importedCount++
-                    succeededKeys += item.uri.toString()
+                    succeededKeys += key
                     if (moveSource) {
+                        movedCount++
                         deletedSourceMediaIds += folderRes.deletedSourceUris
-                        if (folderRes.sourceFullyMoved) movedCount++ else copiedOnlyCount++
                     }
+                    itemOutcomes += VaultMoveItemOutcome(
+                        sourceKey = key,
+                        displayName = item.displayName,
+                        status = VaultMoveItemStatus.MOVED,
+                        vaultEntryId = folderRes.entry.id
+                    )
+                    continue
+                }
+
+                val isMediaStoreOrigin = item.treeUri.toString() == MEDIASTORE_ORIGIN_TREE_URI
+                if (isMediaStoreOrigin) {
+                    require(isVaultAllowedMediaMime(item.mimeType)) {
+                        "Private Vault accepts video and audio files only."
+                    }
+                }
+
+                // Check if this item already has an unfinalized pending move from an interrupted session
+                // so we never encrypt a duplicate copy.
+                val priorPending = existingPendingByUri[key]
+                if (priorPending != null) {
+                    val priorIntact = vault.verifyEncryptedEntryIntegrity(priorPending.entryId, session)
+                    if (!priorIntact) {
+                        runCatching { vault.delete(priorPending.entryId, session) }
+                        vault.removePendingMoves(listOf(priorPending.entryId), session)
+                        existingPendingByUri.remove(key)
+                    } else if (isMediaStoreOrigin && deviceSource.verifyDeleted(item.uri)) {
+                        vault.removePendingMoves(listOf(priorPending.entryId), session)
+                        existingPendingByUri.remove(key)
+                        importedCount++
+                        movedCount++
+                        succeededKeys += key
+                        deletedSourceMediaIds += libraryMediaId(item.uri)
+                        itemOutcomes += VaultMoveItemOutcome(
+                            sourceKey = key,
+                            displayName = item.displayName,
+                            status = VaultMoveItemStatus.MOVED,
+                            vaultEntryId = priorPending.entryId
+                        )
+                        continue
+                    }
+                }
+
+                check(deviceSource.isUriReadable(item.uri)) {
+                    "File is unavailable, moved, or permission was revoked."
+                }
+
+                val existingReusableId = existingPendingByUri[key]?.entryId
+                val entryId: String = if (existingReusableId != null) {
+                    existingReusableId
                 } else {
-                    val isMediaStoreOrigin = item.treeUri.toString() == MEDIASTORE_ORIGIN_TREE_URI
-                    if (isMediaStoreOrigin) {
-                        require(isVaultAllowedMediaMime(item.mimeType)) {
-                            "Private Vault accepts video and audio files only."
-                        }
-                    }
-                    check(deviceSource.isUriReadable(item.uri)) {
-                        "File is unavailable, moved, or permission was revoked."
-                    }
                     val resolvedOriginParentId = if (isMediaStoreOrigin) {
-                        deviceSource.resolveLegacyOriginRelativeFolder(item.uri) ?: item.parentDocumentId
+                        deviceSource.resolveOriginRelativeFolder(item.uri) ?: item.parentDocumentId
                     } else {
                         item.parentDocumentId
                     }
@@ -217,7 +299,7 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
                         parentDocumentId = resolvedOriginParentId,
                         displayPath = item.displayFolderPath
                     )
-                    vault.importUri(
+                    val stored = vault.importUri(
                         uri = item.uri,
                         session = session,
                         displayNameOverride = item.displayName,
@@ -227,41 +309,147 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
                             onBytesProgress?.invoke(done, item.sizeBytes)
                         }
                     )
+                    newlyImportedEntryId = stored.id
+                    if (!vault.verifyEncryptedEntryIntegrity(stored.id, session)) {
+                        runCatching { vault.delete(stored.id, session) }
+                        failedCount++
+                        failures += "${item.displayName}: Encrypted copy failed verification."
+                        itemOutcomes += VaultMoveItemOutcome(
+                            sourceKey = key,
+                            displayName = item.displayName,
+                            status = VaultMoveItemStatus.ENCRYPTION_FAILED,
+                            detail = "Encrypted payload verification failed before source deletion."
+                        )
+                        continue
+                    }
+                    stored.id
+                }
+
+                if (isCancelled()) {
+                    if (newlyImportedEntryId != null) {
+                        runCatching { vault.delete(newlyImportedEntryId, session) }
+                    }
+                    itemOutcomes += VaultMoveItemOutcome(
+                        sourceKey = key,
+                        displayName = item.displayName,
+                        status = VaultMoveItemStatus.USER_CANCELLED,
+                        detail = "Cancelled before deleting source."
+                    )
+                    break
+                }
+
+                if (!moveSource) {
                     importedCount++
-                    succeededKeys += item.uri.toString()
-                    if (moveSource) {
-                        if (isMediaStoreOrigin) {
-                            when (deviceSource.deleteMediaStoreUriAndVerify(item.uri)) {
-                                MediaStoreDeleteOutcome.DeletedVerified -> {
-                                    movedCount++
-                                    deletedSourceMediaIds += libraryMediaId(item.uri)
-                                }
-                                MediaStoreDeleteOutcome.NeedsBatchSystemConsent,
-                                is MediaStoreDeleteOutcome.NeedsRecoverableConsent -> {
-                                    copiedOnlyCount++
-                                    pendingSystemDeleteUris += item.uri.toString()
-                                }
-                                MediaStoreDeleteOutcome.FailedKeptSource -> {
-                                    copiedOnlyCount++
-                                }
-                            }
-                        } else {
-                            if (deleteSourceDocumentAndVerify(item.uri, item.treeUri, item.parentDocumentId, item.documentId)) {
+                    succeededKeys += key
+                    itemOutcomes += VaultMoveItemOutcome(
+                        sourceKey = key,
+                        displayName = item.displayName,
+                        status = VaultMoveItemStatus.MOVED,
+                        vaultEntryId = entryId
+                    )
+                    continue
+                }
+
+                if (isMediaStoreOrigin) {
+                    when (deviceSource.deleteMediaStoreUriAndVerify(item.uri)) {
+                        MediaStoreDeleteOutcome.DeletedVerified -> {
+                            if (deviceSource.verifyDeleted(item.uri)) {
+                                vault.removePendingMoves(listOf(entryId), session)
+                                importedCount++
                                 movedCount++
+                                succeededKeys += key
                                 deletedSourceMediaIds += libraryMediaId(item.uri)
+                                itemOutcomes += VaultMoveItemOutcome(
+                                    sourceKey = key,
+                                    displayName = item.displayName,
+                                    status = VaultMoveItemStatus.MOVED,
+                                    vaultEntryId = entryId
+                                )
                             } else {
-                                copiedOnlyCount++
+                                runCatching { vault.delete(entryId, session) }
+                                vault.removePendingMoves(listOf(entryId), session)
+                                failedCount++
+                                failures += "${item.displayName}: Source still exists after deletion; rolled back."
+                                itemOutcomes += VaultMoveItemOutcome(
+                                    sourceKey = key,
+                                    displayName = item.displayName,
+                                    status = VaultMoveItemStatus.SOURCE_VERIFICATION_FAILED,
+                                    detail = "Original file remained present after delete."
+                                )
                             }
                         }
+                        MediaStoreDeleteOutcome.NeedsBatchSystemConsent,
+                        is MediaStoreDeleteOutcome.NeedsRecoverableConsent -> {
+                            vault.addPendingMoves(
+                                listOf(PendingVaultMove(entryId = entryId, sourceUri = key, displayName = item.displayName)),
+                                session
+                            )
+                            pendingSystemDeleteUris += key
+                            pendingSystemDeleteEntries[key] = entryId
+                            itemOutcomes += VaultMoveItemOutcome(
+                                sourceKey = key,
+                                displayName = item.displayName,
+                                status = VaultMoveItemStatus.AWAITING_SYSTEM_CONSENT,
+                                vaultEntryId = entryId
+                            )
+                        }
+                        MediaStoreDeleteOutcome.FailedKeptSource -> {
+                            runCatching { vault.delete(entryId, session) }
+                            vault.removePendingMoves(listOf(entryId), session)
+                            failedCount++
+                            failures += "${item.displayName}: Could not delete original file; rolled back."
+                            itemOutcomes += VaultMoveItemOutcome(
+                                sourceKey = key,
+                                displayName = item.displayName,
+                                status = VaultMoveItemStatus.SOURCE_DELETE_FAILED,
+                                detail = "Original source could not be removed."
+                            )
+                        }
+                    }
+                } else {
+                    if (deleteSourceDocumentAndVerify(item.uri, item.treeUri, item.parentDocumentId, item.documentId)) {
+                        vault.removePendingMoves(listOf(entryId), session)
+                        importedCount++
+                        movedCount++
+                        succeededKeys += key
+                        deletedSourceMediaIds += libraryMediaId(item.uri)
+                        itemOutcomes += VaultMoveItemOutcome(
+                            sourceKey = key,
+                            displayName = item.displayName,
+                            status = VaultMoveItemStatus.MOVED,
+                            vaultEntryId = entryId
+                        )
+                    } else {
+                        runCatching { vault.delete(entryId, session) }
+                        vault.removePendingMoves(listOf(entryId), session)
+                        failedCount++
+                        failures += "${item.displayName}: Could not delete original file; rolled back."
+                        itemOutcomes += VaultMoveItemOutcome(
+                            sourceKey = key,
+                            displayName = item.displayName,
+                            status = VaultMoveItemStatus.SOURCE_DELETE_FAILED,
+                            detail = "Original document could not be removed."
+                        )
                     }
                 }
-            }
-            if (outcome.isFailure) {
-                val err = outcome.exceptionOrNull()
-                if (err is CancellationException) throw err
+            } catch (ce: CancellationException) {
+                if (newlyImportedEntryId != null && newlyImportedEntryId !in pendingSystemDeleteEntries.values) {
+                    runCatching { vault.delete(newlyImportedEntryId, session) }
+                }
+                throw ce
+            } catch (err: Throwable) {
+                if (newlyImportedEntryId != null && newlyImportedEntryId !in pendingSystemDeleteEntries.values) {
+                    runCatching { vault.delete(newlyImportedEntryId, session) }
+                }
                 failedCount++
-                val msg = err?.localizedMessage ?: item.displayName
+                val msg = err.localizedMessage ?: item.displayName
                 failures += "${item.displayName}: $msg"
+                itemOutcomes += VaultMoveItemOutcome(
+                    sourceKey = key,
+                    displayName = item.displayName,
+                    status = VaultMoveItemStatus.ENCRYPTION_FAILED,
+                    detail = msg
+                )
             }
         }
         return VaultImportBatchResult(
@@ -272,8 +460,116 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
             deletedSourceMediaIds = deletedSourceMediaIds,
             failures = failures,
             succeededKeys = succeededKeys,
-            pendingSystemDeleteUris = pendingSystemDeleteUris
+            pendingSystemDeleteUris = pendingSystemDeleteUris,
+            pendingSystemDeleteEntries = pendingSystemDeleteEntries,
+            itemOutcomes = itemOutcomes
         )
+    }
+
+    /**
+     * Completes a pending MediaStore move after the system delete consent was granted, verifying
+     * the original file actually disappeared. If the original still remains, rolls back the
+     * encrypted vault copy so no duplicate exists.
+     */
+    fun finalizePendingMediaStoreMove(
+        entryId: String,
+        sourceUri: Uri,
+        displayName: String,
+        session: PrivateVaultSession
+    ): VaultMoveItemOutcome {
+        val intact = vault.verifyEncryptedEntryIntegrity(entryId, session)
+        if (!intact) {
+            runCatching { vault.delete(entryId, session) }
+            vault.removePendingMoves(listOf(entryId), session)
+            return VaultMoveItemOutcome(
+                sourceKey = sourceUri.toString(),
+                displayName = displayName,
+                status = VaultMoveItemStatus.ENCRYPTION_FAILED,
+                detail = "Encrypted entry failed integrity verification."
+            )
+        }
+        val deleted = deviceSource.verifyDeleted(sourceUri) || deviceSource.executeAuthorizedAndroid10Delete(sourceUri)
+        return if (deleted && deviceSource.verifyDeleted(sourceUri)) {
+            vault.removePendingMoves(listOf(entryId), session)
+            VaultMoveItemOutcome(
+                sourceKey = sourceUri.toString(),
+                displayName = displayName,
+                status = VaultMoveItemStatus.MOVED,
+                vaultEntryId = entryId
+            )
+        } else {
+            runCatching { vault.delete(entryId, session) }
+            vault.removePendingMoves(listOf(entryId), session)
+            VaultMoveItemOutcome(
+                sourceKey = sourceUri.toString(),
+                displayName = displayName,
+                status = VaultMoveItemStatus.SOURCE_DELETE_FAILED,
+                detail = "Original file was not removed; encrypted copy rolled back."
+            )
+        }
+    }
+
+    /**
+     * Rolls back an uncompleted pending move (for instance when system delete consent was denied
+     * or cancelled), removing the encrypted vault copy while leaving the original untouched.
+     */
+    fun rollbackPendingMove(
+        entryId: String,
+        sourceUri: String,
+        displayName: String,
+        status: VaultMoveItemStatus,
+        session: PrivateVaultSession
+    ): VaultMoveItemOutcome {
+        runCatching { vault.delete(entryId, session) }
+        vault.removePendingMoves(listOf(entryId), session)
+        return VaultMoveItemOutcome(
+            sourceKey = sourceUri,
+            displayName = displayName,
+            status = status
+        )
+    }
+
+    /**
+     * Reconciles pending moves persisted before an unexpected interruption:
+     * - If the source file actually disappeared, clears pending state and reports MOVED (for DB purge).
+     * - If the source file still exists and the encrypted entry is intact, leaves or cleans up safely.
+     */
+    fun reconcilePendingMovesOnUnlock(
+        session: PrivateVaultSession,
+        rollbackUnfinishedSources: Boolean = true
+    ): List<VaultMoveItemOutcome> {
+        val pending = vault.loadPendingMoves(session)
+        if (pending.isEmpty()) return emptyList()
+        val results = mutableListOf<VaultMoveItemOutcome>()
+        for (item in pending) {
+            val uri = runCatching { Uri.parse(item.sourceUri) }.getOrNull()
+            val intact = vault.verifyEncryptedEntryIntegrity(item.entryId, session)
+            if (uri != null && intact && deviceSource.verifyDeleted(uri)) {
+                vault.removePendingMoves(listOf(item.entryId), session)
+                results += VaultMoveItemOutcome(
+                    sourceKey = item.sourceUri,
+                    displayName = item.displayName,
+                    status = VaultMoveItemStatus.MOVED,
+                    vaultEntryId = item.entryId
+                )
+            } else if (!intact || rollbackUnfinishedSources) {
+                runCatching { vault.delete(item.entryId, session) }
+                vault.removePendingMoves(listOf(item.entryId), session)
+                results += VaultMoveItemOutcome(
+                    sourceKey = item.sourceUri,
+                    displayName = item.displayName,
+                    status = if (intact) VaultMoveItemStatus.PENDING_COMPLETION else VaultMoveItemStatus.ENCRYPTION_FAILED
+                )
+            } else {
+                results += VaultMoveItemOutcome(
+                    sourceKey = item.sourceUri,
+                    displayName = item.displayName,
+                    status = VaultMoveItemStatus.PENDING_COMPLETION,
+                    vaultEntryId = item.entryId
+                )
+            }
+        }
+        return results
     }
 
     fun importDeviceSelection(

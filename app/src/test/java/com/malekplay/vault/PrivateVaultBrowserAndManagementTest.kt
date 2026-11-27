@@ -287,16 +287,21 @@ class PrivateVaultBrowserAndManagementTest {
             )
 
             val result = treeSupport.importBrowserSelection(selected, session, moveSource = true)
-            assertEquals(2, result.importedCount)
-            assertEquals(0, result.failedCount)
+            assertEquals(1, result.importedCount)
+            assertEquals(1, result.failedCount)
             assertEquals(1, result.movedCount)
-            assertEquals(1, result.copiedOnlyCount)
+            assertEquals(0, result.copiedOnlyCount)
             assertFalse(provider.hasDocument(movableDocId))
             assertTrue(provider.hasDocument(stubbornDocId))
 
             val storedEntries = repository.list(session)
-            assertEquals(2, storedEntries.size)
-            assertTrue(storedEntries.all { it.sourceTreeUri == treeUri.toString() })
+            assertEquals(1, storedEntries.size)
+            assertEquals("movable.bin", storedEntries.single().displayName)
+            assertEquals(treeUri.toString(), storedEntries.single().sourceTreeUri)
+            assertEquals(
+                listOf(VaultMoveItemStatus.MOVED, VaultMoveItemStatus.SOURCE_DELETE_FAILED),
+                result.itemOutcomes.map { it.status }
+            )
         } finally {
             session.close()
         }

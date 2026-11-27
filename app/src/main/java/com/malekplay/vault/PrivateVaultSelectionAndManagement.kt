@@ -331,6 +331,24 @@ class VaultArchiveSelectionManager {
         items.isNotEmpty() && items.all { selectedByPath.containsKey(it.path) }
 }
 
+enum class VaultMoveItemStatus {
+    MOVED,
+    ENCRYPTION_FAILED,
+    SOURCE_VERIFICATION_FAILED,
+    SOURCE_DELETE_FAILED,
+    AWAITING_SYSTEM_CONSENT,
+    USER_CANCELLED,
+    PENDING_COMPLETION
+}
+
+data class VaultMoveItemOutcome(
+    val sourceKey: String,
+    val displayName: String,
+    val status: VaultMoveItemStatus,
+    val vaultEntryId: String? = null,
+    val detail: String? = null
+)
+
 data class VaultImportBatchResult(
     val importedCount: Int,
     val failedCount: Int,
@@ -339,5 +357,7 @@ data class VaultImportBatchResult(
     val deletedSourceMediaIds: List<String>,
     val failures: List<String> = emptyList(),
     val succeededKeys: Set<String> = emptySet(),
-    val pendingSystemDeleteUris: List<String> = emptyList()
+    val pendingSystemDeleteUris: List<String> = emptyList(),
+    val pendingSystemDeleteEntries: Map<String, String> = emptyMap(),
+    val itemOutcomes: List<VaultMoveItemOutcome> = emptyList()
 )
