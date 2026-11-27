@@ -24,7 +24,8 @@ data class UltraSharePeerDeliveryEntry(
     val displayName: String,
     val status: String,
     val error: String? = null,
-    val updatedAtMillis: Long = System.currentTimeMillis()
+    val updatedAtMillis: Long = System.currentTimeMillis(),
+    val transferSessionId: String? = null
 ) {
     val parsedUri: Uri get() = Uri.parse(fileUri)
 }
@@ -43,7 +44,8 @@ object UltraSharePeerDeliveryStore {
         context: Context,
         files: List<Pair<Uri, String>>,
         peers: List<UltraShareMultiRecipientCoordinator.Target>,
-        preserveCompleted: Boolean = true
+        preserveCompleted: Boolean = true,
+        transferSessionId: String? = null
     ) {
         require(peers.map { it.sessionId }.distinct().size == peers.size) { "Duplicate peer session IDs." }
         require(peers.map { it.host }.distinct().size == peers.size) { "Duplicate peer hosts." }
@@ -57,7 +59,8 @@ object UltraSharePeerDeliveryStore {
                         peerSessionId = peer.sessionId,
                         peerHost = peer.host,
                         displayName = name.take(240).ifBlank { "ملف" },
-                        status = STATUS_PENDING
+                        status = STATUS_PENDING,
+                        transferSessionId = transferSessionId
                     )
                 }
             }
@@ -74,7 +77,8 @@ object UltraSharePeerDeliveryStore {
                     previous.copy(
                         peerHost = entry.peerHost,
                         displayName = entry.displayName,
-                        updatedAtMillis = entry.updatedAtMillis
+                        updatedAtMillis = entry.updatedAtMillis,
+                        transferSessionId = transferSessionId ?: previous.transferSessionId
                     )
                 } else entry
             }
@@ -87,7 +91,8 @@ object UltraSharePeerDeliveryStore {
         fileUri: Uri,
         peerSessionId: String,
         status: String,
-        error: String? = null
+        error: String? = null,
+        transferSessionId: String? = null
     ) {
         require(status in STATUSES) { "Unknown peer delivery status." }
         context.applicationContext.ultraShareDeliveryDataStore.edit { preferences ->
@@ -98,7 +103,8 @@ object UltraSharePeerDeliveryStore {
                     entry.copy(
                         status = status,
                         error = error?.take(240),
-                        updatedAtMillis = System.currentTimeMillis()
+                        updatedAtMillis = System.currentTimeMillis(),
+                        transferSessionId = transferSessionId ?: entry.transferSessionId
                     )
                 } else entry
             }
@@ -106,6 +112,34 @@ object UltraSharePeerDeliveryStore {
                 "سجل التسليم غير موجود لهذا الملف والجهاز؛ أوقفنا تحديث الحالة لتجنب تأكيد وهمي."
             }
             preferences[DELIVERIES] = encode(entries)
+        }
+    }
+
+    /**
+     * Marks in-flight `sending` deliveries for a single departing peer as interrupted without
+     * affecting completed receipts or any other paired peer's active/pending deliveries.
+     */
+    suspend fun cancelInFlightForPeer(
+        context: Context,
+        peerSessionId: String?,
+        peerHost: String?
+    ) {
+        if (peerSessionId.isNullOrBlank() && peerHost.isNullOrBlank()) return
+        context.applicationContext.ultraShareDeliveryDataStore.edit { preferences ->
+            val updated = decodeForMutation(preferences[DELIVERIES].orEmpty()).map { entry ->
+                val matchesPeer = (!peerSessionId.isNullOrBlank() && entry.peerSessionId == peerSessionId) ||
+                    (!peerHost.isNullOrBlank() && entry.peerHost == peerHost)
+                if (matchesPeer && entry.status == STATUS_SENDING) {
+                    entry.copy(
+                        status = STATUS_FAILED,
+                        error = "غادر الجهاز الجلسة قبل اكتمال الإرسال.",
+                        updatedAtMillis = System.currentTimeMillis()
+                    )
+                } else {
+                    entry
+                }
+            }
+            preferences[DELIVERIES] = encode(updated)
         }
     }
 
@@ -163,7 +197,8 @@ object UltraSharePeerDeliveryStore {
                     displayName = item.optString("displayName", "ملف").takeIf { it.isNotBlank() } ?: "ملف",
                     status = status.takeIf { it in STATUSES } ?: STATUS_PENDING,
                     error = item.optString("error").takeIf { it.isNotBlank() && it != "null" },
-                    updatedAtMillis = item.optLong("updatedAtMillis", 0L)
+                    updatedAtMillis = item.optLong("updatedAtMillis", 0L),
+                    transferSessionId = item.optString("transferSessionId").takeIf { it.isNotBlank() && it != "null" }
                 )
             }.getOrNull() ?: continue
             val entryKey = key(entry.fileUri, entry.peerSessionId)
@@ -182,6 +217,7 @@ object UltraSharePeerDeliveryStore {
                 put("status", entry.status)
                 put("error", entry.error ?: JSONObject.NULL)
                 put("updatedAtMillis", entry.updatedAtMillis)
+                put("transferSessionId", entry.transferSessionId ?: JSONObject.NULL)
             })
         }
     }.toString()

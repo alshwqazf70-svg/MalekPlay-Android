@@ -20,7 +20,9 @@ data class UltraShareQueueEntry(
     val uri: String,
     val displayName: String,
     val status: String,
-    val error: String? = null
+    val error: String? = null,
+    val transferSessionId: String? = null,
+    val updatedAtMillis: Long = 0L
 ) {
     val parsedUri: Uri get() = Uri.parse(uri)
 }
@@ -38,12 +40,19 @@ object UltraShareQueueStore {
     suspend fun pending(context: Context): List<UltraShareQueueEntry> =
         observe(context).first().filter { it.status == STATUS_PENDING || it.status == STATUS_FAILED }
 
-    suspend fun replace(context: Context, uris: List<Uri>) {
+    suspend fun replace(
+        context: Context,
+        uris: List<Uri>,
+        transferSessionId: String? = null
+    ) {
+        val now = System.currentTimeMillis()
         val entries = uris.distinctBy { it.toString() }.map { uri ->
             UltraShareQueueEntry(
                 uri = uri.toString(),
                 displayName = uri.lastPathSegment?.substringAfterLast('/') ?: "ملف",
-                status = STATUS_PENDING
+                status = STATUS_PENDING,
+                transferSessionId = transferSessionId,
+                updatedAtMillis = now
             )
         }
         context.applicationContext.ultraShareQueueDataStore.edit { preferences ->
@@ -57,8 +66,13 @@ object UltraShareQueueStore {
      * Adds a new transfer batch without deleting earlier history.
      * URIs in the new batch are reset to pending; unrelated history is retained.
      */
-    suspend fun enqueue(context: Context, uris: List<Uri>) {
+    suspend fun enqueue(
+        context: Context,
+        uris: List<Uri>,
+        transferSessionId: String? = null
+    ) {
         if (uris.isEmpty()) return
+        val now = System.currentTimeMillis()
         context.applicationContext.ultraShareQueueDataStore.edit { preferences ->
             val existing = decodeForMutation(preferences[QUEUE].orEmpty())
             val incoming = uris.distinctBy { it.toString() }
@@ -68,7 +82,9 @@ object UltraShareQueueStore {
                 UltraShareQueueEntry(
                     uri = uri.toString(),
                     displayName = uri.lastPathSegment?.substringAfterLast('/')?.takeIf { it.isNotBlank() } ?: "ملف",
-                    status = STATUS_PENDING
+                    status = STATUS_PENDING,
+                    transferSessionId = transferSessionId,
+                    updatedAtMillis = now
                 )
             }
             preferences[QUEUE] = encode(retained + added)
@@ -80,14 +96,18 @@ object UltraShareQueueStore {
         uri: Uri,
         displayName: String? = null,
         status: String,
-        error: String? = null
+        error: String? = null,
+        transferSessionId: String? = null
     ) {
+        val now = System.currentTimeMillis()
         context.applicationContext.ultraShareQueueDataStore.edit { preferences ->
             val entries = decodeForMutation(preferences[QUEUE].orEmpty()).map { entry ->
                 if (entry.uri == uri.toString()) entry.copy(
                     displayName = displayName ?: entry.displayName,
                     status = status,
-                    error = error
+                    error = error,
+                    transferSessionId = transferSessionId ?: entry.transferSessionId,
+                    updatedAtMillis = now
                 ) else entry
             }
             preferences[QUEUE] = encode(entries)
@@ -106,12 +126,47 @@ object UltraShareQueueStore {
         }
     }
 
+    /**
+     * Stops any in-flight `sending` or ephemeral `pending` queue entries belonging to an ended
+     * session without deleting completed entries or permanent transfer history.
+     */
+    suspend fun cancelInFlightForSessionEnd(
+        context: Context,
+        endedSessionId: String? = null
+    ) {
+        context.applicationContext.ultraShareQueueDataStore.edit { preferences ->
+            val entries = decodeForMutation(preferences[QUEUE].orEmpty()).map { entry ->
+                val matchesSession = endedSessionId == null ||
+                    entry.transferSessionId == null ||
+                    entry.transferSessionId == endedSessionId
+                if (matchesSession && entry.status == STATUS_SENDING) {
+                    entry.copy(
+                        status = STATUS_SKIPPED,
+                        error = "انتهت جلسة النقل قبل اكتمال الإرسال.",
+                        updatedAtMillis = System.currentTimeMillis()
+                    )
+                } else if (matchesSession && entry.status == STATUS_PENDING) {
+                    entry.copy(
+                        status = STATUS_SKIPPED,
+                        error = "تم إنهاء جلسة النقل قبل بدء إرسال هذا الملف.",
+                        updatedAtMillis = System.currentTimeMillis()
+                    )
+                } else {
+                    entry
+                }
+            }
+            preferences[QUEUE] = encode(entries)
+        }
+    }
+
     suspend fun claimForSending(
         context: Context,
         uri: Uri,
-        displayName: String
+        displayName: String,
+        transferSessionId: String? = null
     ): Boolean {
         var claimed = false
+        val now = System.currentTimeMillis()
         context.applicationContext.ultraShareQueueDataStore.edit { preferences ->
             val entries = decodeForMutation(preferences[QUEUE].orEmpty()).map { entry ->
                 if (entry.uri == uri.toString() &&
@@ -121,7 +176,9 @@ object UltraShareQueueStore {
                     entry.copy(
                         displayName = displayName,
                         status = STATUS_SENDING,
-                        error = null
+                        error = null,
+                        transferSessionId = transferSessionId ?: entry.transferSessionId,
+                        updatedAtMillis = now
                     )
                 } else entry
             }
@@ -157,6 +214,8 @@ object UltraShareQueueStore {
                 put("name", entry.displayName)
                 put("status", entry.status)
                 put("error", entry.error ?: JSONObject.NULL)
+                put("transferSessionId", entry.transferSessionId ?: JSONObject.NULL)
+                put("updatedAtMillis", entry.updatedAtMillis)
             })
         }
     }.toString()
@@ -197,7 +256,9 @@ object UltraShareQueueStore {
                     status = status.takeIf {
                         it in setOf(STATUS_PENDING, STATUS_SENDING, STATUS_COMPLETED, STATUS_FAILED, STATUS_SKIPPED)
                     } ?: STATUS_PENDING,
-                    error = item.optString("error").takeIf { it.isNotBlank() && it != "null" }
+                    error = item.optString("error").takeIf { it.isNotBlank() && it != "null" },
+                    transferSessionId = item.optString("transferSessionId").takeIf { it.isNotBlank() && it != "null" },
+                    updatedAtMillis = item.optLong("updatedAtMillis", 0L)
                 )
             }.getOrNull() ?: continue
             if (entry.uri !in decoded) decoded[entry.uri] = entry

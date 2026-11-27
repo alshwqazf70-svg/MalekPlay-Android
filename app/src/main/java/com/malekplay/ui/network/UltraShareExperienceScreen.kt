@@ -90,10 +90,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import com.malekplay.core.ui.theme.MalekPlayColors
 import com.malekplay.core.ui.theme.contrastingOnColor
+import com.malekplay.network.QrLocationResumeCoordinator
 import com.malekplay.network.UltraShareForegroundService
 import com.malekplay.network.UltraSharePeerDeliveryStore
 import com.malekplay.network.UltraShareQueueStore
@@ -150,6 +154,7 @@ fun UltraShareExperienceScreen(
     var host by remember { mutableStateOf("") }
     var secret by remember { mutableStateOf("") }
     var pendingQrPairing by remember { mutableStateOf<UltraShareQrCode.PairingDetails?>(null) }
+    var pendingQrRawPayload by remember { mutableStateOf<String?>(null) }
     var pendingInvitationAdvertisement by remember { mutableStateOf(false) }
     var pendingReceiverStart by remember { mutableStateOf(false) }
     var search by remember { mutableStateOf("") }
@@ -170,6 +175,7 @@ fun UltraShareExperienceScreen(
                 host = pairing.host
                 secret = pairing.pairingSecret
                 qrAutoSendArmed = selectedUris.isNotEmpty()
+                pendingQrRawPayload = raw
                 pendingQrPairing = pairing
                 page = UltraSharePage.SEND
                 Toast.makeText(context, "تمت قراءة الدعوة؛ جارٍ الاقتران التلقائي الفوري...", Toast.LENGTH_SHORT).show()
@@ -412,11 +418,33 @@ fun UltraShareExperienceScreen(
         }
     }
 
-    val locationSettingsLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) {
-        val action = pendingWifiDirectAction
-        pendingWifiDirectAction = null
+    fun recordPendingLocationOperationInCoordinator() {
+        val qr = pendingQrPairing
+        when {
+            qr != null -> {
+                viewModel.recordPausedLocationOperation(
+                    kind = QrLocationResumeCoordinator.PendingKind.QR_JOIN_PEER,
+                    invitationId = qr.invitationId,
+                    pairingSecret = qr.pairingSecret,
+                    qrPayload = pendingQrRawPayload
+                )
+            }
+            pendingReceiverStart || state.receiving -> {
+                viewModel.recordPausedLocationOperation(
+                    kind = QrLocationResumeCoordinator.PendingKind.QR_HOST_RECEIVE,
+                    invitationId = state.invitationId.takeIf { it.isNotBlank() },
+                    pairingSecret = state.pairingSecret.takeIf { it.isNotBlank() }
+                )
+            }
+            else -> {
+                viewModel.recordPausedLocationOperation(
+                    kind = QrLocationResumeCoordinator.PendingKind.WIFI_DIRECT_DISCOVERY
+                )
+            }
+        }
+    }
+
+    fun handleReturnFromLocationSettings(fromExplicitSettingsReturn: Boolean) {
         val missing = UltraSharePlatformCompatibility.wifiDirectRuntimePermissions(Build.VERSION.SDK_INT)
             .filter { ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED }
         val result = UltraSharePlatformCompatibility.evaluateWifiDirectPrerequisite(
@@ -424,6 +452,27 @@ fun UltraShareExperienceScreen(
             permissionGranted = missing.isEmpty(),
             locationServiceEnabled = isWifiDirectLocationServiceEnabled()
         )
+        val resumeDecision = viewModel.onLocationPrerequisiteCheck(
+            fromExplicitSettingsReturn = fromExplicitSettingsReturn
+        )
+        when (resumeDecision) {
+            is QrLocationResumeCoordinator.ResumeDecision.ResumeNow -> {
+                pendingWifiDirectAction = null
+                pendingQrPairing = null
+                pendingQrRawPayload = null
+                pendingReceiverStart = false
+                pendingInvitationAdvertisement = false
+                return
+            }
+            QrLocationResumeCoordinator.ResumeDecision.AlreadyResumingOrCompleted -> {
+                pendingWifiDirectAction = null
+                return
+            }
+            else -> Unit
+        }
+        if (!fromExplicitSettingsReturn) return
+        val action = pendingWifiDirectAction
+        pendingWifiDirectAction = null
         when (result) {
             UltraSharePlatformCompatibility.WifiDirectPrerequisiteResult.OK -> {
                 if (action != null) action() else runPendingWifiDirectAction()
@@ -446,6 +495,23 @@ fun UltraShareExperienceScreen(
         }
     }
 
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                handleReturnFromLocationSettings(fromExplicitSettingsReturn = false)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    val locationSettingsLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        handleReturnFromLocationSettings(fromExplicitSettingsReturn = true)
+    }
+
     val wifiPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
         wifiPermissionPromptInFlight = false
         val action = pendingWifiDirectAction
@@ -462,6 +528,7 @@ fun UltraShareExperienceScreen(
             }
             UltraSharePlatformCompatibility.WifiDirectPrerequisiteResult.LOCATION_SERVICE_DISABLED -> {
                 pendingWifiDirectAction = action
+                recordPendingLocationOperationInCoordinator()
                 Toast.makeText(
                     context,
                     UltraSharePlatformCompatibility.messageFor(result),
@@ -495,6 +562,7 @@ fun UltraShareExperienceScreen(
             }
             UltraSharePlatformCompatibility.WifiDirectPrerequisiteResult.LOCATION_SERVICE_DISABLED -> {
                 pendingWifiDirectAction = action
+                recordPendingLocationOperationInCoordinator()
                 Toast.makeText(
                     context,
                     UltraSharePlatformCompatibility.messageFor(result),
@@ -1278,6 +1346,7 @@ fun UltraShareExperienceScreen(
                                     .onSuccess { pairing ->
                                         host = pairing.host
                                         secret = pairing.pairingSecret
+                                        pendingQrRawPayload = raw
                                         pendingQrPairing = pairing
                                         page = UltraSharePage.SEND
                                     }
@@ -1680,7 +1749,17 @@ fun UltraShareExperienceScreen(
                         OutlinedButton(onClick = viewModel::pauseSending, modifier = Modifier.fillMaxWidth()) { Text("إيقاف مؤقت") }
                         OutlinedButton(onClick = viewModel::cancelSending, modifier = Modifier.fillMaxWidth()) { Text("إلغاء الإرسال") }
                     }
-                    state.queueEntries.take(10).forEach { entry ->
+                    val hasActiveTransferRoom = connectedHosts.isNotEmpty() ||
+                        !state.approvedPeerHost.isNullOrBlank() ||
+                        state.receiving || state.sending ||
+                        state.sendProgress != null || state.receiveProgress != null
+                    val activeRoomQueueEntries = filterSessionRoomQueueEntries(
+                        entries = state.queueEntries,
+                        activeTransferSessionId = state.transferSessionId,
+                        roomStartedAtMillis = state.roomStartedAtMillis,
+                        hasActiveRoom = hasActiveTransferRoom
+                    )
+                    activeRoomQueueEntries.take(10).forEach { entry ->
                         Card(
                             colors = CardDefaults.cardColors(containerColor = Color(0xFF21192D)),
                             modifier = Modifier.fillMaxWidth()
@@ -1770,7 +1849,7 @@ fun UltraShareExperienceScreen(
                             }
                         }
                     }
-                    if (state.queueEntries.any {
+                    if (activeRoomQueueEntries.any {
                             it.status == UltraShareQueueStore.STATUS_PENDING || it.status == UltraShareQueueStore.STATUS_FAILED
                         }) {
                         OutlinedButton(onClick = { viewModel.resumePendingBatch(host) },

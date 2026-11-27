@@ -276,6 +276,9 @@ class UltraShareScreenMirrorService : Service() {
                         audioActive = activeMode != UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE,
                         audioNote = note ?: fgsMicFallbackNote
                     )
+                    updateNotificationText(
+                        "${UltraShareScreenMirrorPolicy.audioModeLabelAr(activeMode)} • المشاهدون: ${prev.connectedViewers.size}"
+                    )
                 }
             )
             screenCapturer = capturer

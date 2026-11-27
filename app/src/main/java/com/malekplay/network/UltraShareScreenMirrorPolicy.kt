@@ -19,6 +19,7 @@ import androidx.core.content.ContextCompat
  */
 object UltraShareScreenMirrorPolicy {
     const val DEFAULT_STREAM_PORT = 38_746
+    const val STREAM_KEY_BYTES = 32
     const val MAX_MIRROR_VIEWERS = 8
     const val DEFAULT_MAX_WIDTH = 1280
     const val DEFAULT_MAX_HEIGHT = 720
@@ -38,6 +39,82 @@ object UltraShareScreenMirrorPolicy {
             fun fromWireId(wireId: String?): MirrorAudioMode =
                 entries.firstOrNull { it.wireId == wireId } ?: NONE
         }
+    }
+
+    /**
+     * Honest Arabic label for each audio mode. Microphone capture must never be labeled or
+     * presented as internal device audio.
+     */
+    fun audioModeLabelAr(mode: MirrorAudioMode): String = when (mode) {
+        MirrorAudioMode.NONE -> "فيديو فقط (بدون صوت)"
+        MirrorAudioMode.SYSTEM_AUDIO -> "الصوت الداخلي للجهاز"
+        MirrorAudioMode.MICROPHONE -> "صوت الميكروفون"
+    }
+
+    fun isValidCanonicalHexId(value: String?): Boolean {
+        if (value == null || value.length != 32) return false
+        return value.all { ch -> ch in '0'..'9' || ch in 'a'..'f' }
+    }
+
+    data class MicrophoneCaptureCandidate(
+        val audioSource: Int,
+        val sampleRateHz: Int,
+        val channelMask: Int,
+        val channelCount: Int,
+        val aacBitrateBps: Int
+    )
+
+    /**
+     * Selects a conservative AAC-LC bitrate scaled to the negotiated sample rate and channel count
+     * so legacy Android 6–9 `OMX.google.aac.encoder` instances never reject `configure()`.
+     */
+    fun selectMicrophoneAacBitrateBps(sampleRateHz: Int, encoderChannelCount: Int): Int {
+        val isStereo = encoderChannelCount >= 2
+        return when {
+            sampleRateHz >= 44_100 -> if (isStereo) 96_000 else 64_000
+            sampleRateHz >= 24_000 -> if (isStereo) 64_000 else 48_000
+            else -> if (isStereo) 48_000 else 32_000
+        }
+    }
+
+    /**
+     * Ordered fallback matrix of `AudioRecord` configurations across Android 6–16 devices.
+     * Covers 48 kHz / 44.1 kHz / 32 kHz / 24 kHz / 16 kHz, mono and stereo inputs, and standard
+     * microphone sources (`MIC`, `VOICE_RECOGNITION`, `CAMCORDER`).
+     */
+    fun buildMicrophoneCaptureCandidates(
+        sampleRatesHz: IntArray = intArrayOf(48_000, 44_100, 32_000, 24_000, 16_000),
+        channelMasks: IntArray = intArrayOf(
+            android.media.AudioFormat.CHANNEL_IN_MONO,
+            android.media.AudioFormat.CHANNEL_IN_STEREO
+        ),
+        audioSources: IntArray = intArrayOf(
+            android.media.MediaRecorder.AudioSource.MIC,
+            android.media.MediaRecorder.AudioSource.VOICE_RECOGNITION,
+            android.media.MediaRecorder.AudioSource.CAMCORDER
+        )
+    ): List<MicrophoneCaptureCandidate> {
+        val candidates = ArrayList<MicrophoneCaptureCandidate>(
+            sampleRatesHz.size * channelMasks.size * audioSources.size
+        )
+        for (source in audioSources) {
+            for (rate in sampleRatesHz) {
+                if (rate <= 0) continue
+                for (mask in channelMasks) {
+                    val channels = if (mask == android.media.AudioFormat.CHANNEL_IN_STEREO) 2 else 1
+                    candidates.add(
+                        MicrophoneCaptureCandidate(
+                            audioSource = source,
+                            sampleRateHz = rate,
+                            channelMask = mask,
+                            channelCount = channels,
+                            aacBitrateBps = selectMicrophoneAacBitrateBps(rate, encoderChannelCount = 2)
+                        )
+                    )
+                }
+            }
+        }
+        return candidates
     }
 
     data class CaptureProfile(
@@ -217,5 +294,152 @@ object UltraShareScreenMirrorPolicy {
         val alignedW = ((rawW / alignW) * alignW).coerceAtLeast(alignW * 8)
         val alignedH = ((rawH / alignH) * alignH).coerceAtLeast(alignH * 8)
         return alignedW to alignedH
+    }
+}
+
+/**
+ * Pure, stateful security and UX coordinator for automatic viewer activation when an
+ * authenticated, currently paired host starts sharing its screen inside the Transfer Room.
+ *
+ * Security & UX invariants:
+ * 1. Viewers NEVER request `MediaProjection` permission (`requiresMediaProjectionPermissionForViewer == false`).
+ * 2. Only offers from a currently paired peer in the active `(transferSessionId, generation)`
+ *    with a canonical 32-hex `sessionId`/`hostPeerId`, private LAN IPv4 `hostAddress`,
+ *    valid `streamPort`, and 32-byte `streamKey` may auto-open.
+ * 3. Never opens duplicate viewer sessions for the same `(sessionId, hostAddress, streamPort)`.
+ * 4. Deduplicates `ViewerAction.JOINED` notifications by `(sessionId, revision)`.
+ * 5. Clears transient "waiting for host" and "host start sharing" banners on transition.
+ */
+class MirrorViewerAutoOpenCoordinator {
+
+    val requiresMediaProjectionPermissionForViewer: Boolean = false
+
+    enum class RejectReason {
+        LOCAL_DEVICE_IS_HOSTING,
+        INVALID_SESSION_ID,
+        INVALID_HOST_PEER_ID,
+        SELF_OFFER,
+        INVALID_PRIVATE_LAN_HOST,
+        INVALID_STREAM_PORT,
+        INVALID_STREAM_KEY,
+        STALE_TRANSFER_SESSION,
+        PEER_NOT_PAIRED,
+        DISMISSED_BY_USER,
+        ALREADY_OPEN
+    }
+
+    sealed class Evaluation {
+        data class AutoOpen(
+            val canonicalSessionId: String,
+            val canonicalHostPeerId: String,
+            val offer: IncomingMirrorOffer,
+            val sendJoinedControlMessage: Boolean,
+            val clearWaitingBanner: Boolean = true,
+            val clearHostStartPrompt: Boolean = true
+        ) : Evaluation()
+
+        data class Rejected(val reason: RejectReason) : Evaluation()
+    }
+
+    private data class OpenViewerKey(
+        val sessionId: String,
+        val hostAddress: String,
+        val streamPort: Int
+    )
+
+    private data class RevisionKey(
+        val sessionId: String,
+        val revision: Long
+    )
+
+    private val lock = Any()
+    private var openViewerKey: OpenViewerKey? = null
+    private val dismissedRevisions = LinkedHashSet<RevisionKey>()
+    private val joinedNotifiedRevisions = LinkedHashSet<RevisionKey>()
+
+    fun evaluateOffer(
+        offer: IncomingMirrorOffer,
+        localPeerId: String?,
+        activeTransferSessionId: String,
+        activeTransferSessionGeneration: Long,
+        pairedPeerHosts: Set<String>,
+        pairedPeerIds: Set<String>,
+        isLocalHostSharing: Boolean
+    ): Evaluation = synchronized(lock) {
+        if (isLocalHostSharing) {
+            return Evaluation.Rejected(RejectReason.LOCAL_DEVICE_IS_HOSTING)
+        }
+        val canonicalSessionId = UltraShareScreenMirrorProtocol.canonicalId(offer.sessionId)
+            ?: return Evaluation.Rejected(RejectReason.INVALID_SESSION_ID)
+        val canonicalHostPeerId = UltraShareScreenMirrorProtocol.canonicalId(offer.hostPeerId)
+            ?: return Evaluation.Rejected(RejectReason.INVALID_HOST_PEER_ID)
+        val canonicalLocalPeerId = UltraShareScreenMirrorProtocol.canonicalId(localPeerId)
+        if (canonicalLocalPeerId != null && canonicalLocalPeerId == canonicalHostPeerId) {
+            return Evaluation.Rejected(RejectReason.SELF_OFFER)
+        }
+        if (!UltraShareCore.isValidPrivateLanHost(offer.hostAddress)) {
+            return Evaluation.Rejected(RejectReason.INVALID_PRIVATE_LAN_HOST)
+        }
+        if (offer.streamPort !in 1024..65535) {
+            return Evaluation.Rejected(RejectReason.INVALID_STREAM_PORT)
+        }
+        if (offer.streamKey.size != UltraShareScreenMirrorProtocol.STREAM_KEY_BYTES) {
+            return Evaluation.Rejected(RejectReason.INVALID_STREAM_KEY)
+        }
+        if (offer.transferSessionId.isNotBlank() &&
+            (offer.transferSessionId != activeTransferSessionId ||
+                offer.transferSessionGeneration != activeTransferSessionGeneration)
+        ) {
+            return Evaluation.Rejected(RejectReason.STALE_TRANSFER_SESSION)
+        }
+        val canonicalPairedIds = pairedPeerIds.mapNotNull { UltraShareScreenMirrorProtocol.canonicalId(it) }.toSet()
+        val peerIsPaired = offer.hostAddress in pairedPeerHosts || canonicalHostPeerId in canonicalPairedIds
+        if (!peerIsPaired) {
+            return Evaluation.Rejected(RejectReason.PEER_NOT_PAIRED)
+        }
+        val revisionKey = RevisionKey(canonicalSessionId, offer.revision)
+        if (revisionKey in dismissedRevisions) {
+            return Evaluation.Rejected(RejectReason.DISMISSED_BY_USER)
+        }
+        val candidateOpenKey = OpenViewerKey(canonicalSessionId, offer.hostAddress, offer.streamPort)
+        if (openViewerKey == candidateOpenKey) {
+            return Evaluation.Rejected(RejectReason.ALREADY_OPEN)
+        }
+        openViewerKey = candidateOpenKey
+        val shouldNotifyJoined = joinedNotifiedRevisions.add(revisionKey)
+        return Evaluation.AutoOpen(
+            canonicalSessionId = canonicalSessionId,
+            canonicalHostPeerId = canonicalHostPeerId,
+            offer = offer,
+            sendJoinedControlMessage = shouldNotifyJoined
+        )
+    }
+
+    /** Called when the user explicitly closes/leaves the viewer modal for [sessionId] at [revision]. */
+    fun markDismissedByUser(sessionId: String?, revision: Long?) = synchronized(lock) {
+        val canonicalSessionId = UltraShareScreenMirrorProtocol.canonicalId(sessionId)
+        if (canonicalSessionId != null && openViewerKey?.sessionId == canonicalSessionId) {
+            openViewerKey = null
+        } else if (sessionId == null) {
+            openViewerKey = null
+        }
+        if (canonicalSessionId != null && revision != null) {
+            dismissedRevisions.add(RevisionKey(canonicalSessionId, revision))
+        }
+    }
+
+    /** Called when the host stops sharing or the viewer closes due to session end (not manual dismissal). */
+    fun clearOpenViewer(sessionId: String? = null) = synchronized(lock) {
+        val canonicalSessionId = UltraShareScreenMirrorProtocol.canonicalId(sessionId)
+        if (canonicalSessionId == null || openViewerKey?.sessionId == canonicalSessionId) {
+            openViewerKey = null
+        }
+    }
+
+    /** Reset all state when the Transfer Room ends. */
+    fun resetForSessionEnd() = synchronized(lock) {
+        openViewerKey = null
+        dismissedRevisions.clear()
+        joinedNotifiedRevisions.clear()
     }
 }

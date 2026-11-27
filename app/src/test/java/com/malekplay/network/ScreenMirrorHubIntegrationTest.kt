@@ -2,6 +2,9 @@ package com.malekplay.network
 
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.BufferedInputStream
@@ -508,6 +511,352 @@ class ScreenMirrorHubIntegrationTest {
                 // Detaching Surface resets firstFrameRendered cleanly:
                 client.notifySurfaceDetached()
                 assertFalse(client.status.value.firstFrameRendered)
+            }
+        }
+    }
+
+    @Test
+    fun mirrorAudioModePolicyAndMutualExclusionCoverAndroid6To15() {
+        // Android 6.0 (API 23) & Android 9 (API 28): NONE + MICROPHONE only; SYSTEM_AUDIO unavailable.
+        for (sdk in listOf(23, 28)) {
+            assertEquals(
+                listOf(
+                    UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE,
+                    UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE
+                ),
+                UltraShareScreenMirrorPolicy.availableAudioModes(sdk)
+            )
+            assertEquals(
+                UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE,
+                UltraShareScreenMirrorPolicy.resolveEffectiveAudioMode(
+                    requestedMode = UltraShareScreenMirrorPolicy.MirrorAudioMode.SYSTEM_AUDIO,
+                    sdkInt = sdk,
+                    recordAudioGranted = true
+                )
+            )
+            assertEquals(
+                UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE,
+                UltraShareScreenMirrorPolicy.resolveEffectiveAudioMode(
+                    requestedMode = UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE,
+                    sdkInt = sdk,
+                    recordAudioGranted = true
+                )
+            )
+            // Missing RECORD_AUDIO degrades cleanly to video-only NONE without failing mirroring:
+            assertEquals(
+                UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE,
+                UltraShareScreenMirrorPolicy.resolveEffectiveAudioMode(
+                    requestedMode = UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE,
+                    sdkInt = sdk,
+                    recordAudioGranted = false
+                )
+            )
+        }
+
+        // Android 10–15 (API 29, 33, 35): NONE, SYSTEM_AUDIO, and MICROPHONE available.
+        for (sdk in listOf(29, 33, 35)) {
+            assertEquals(
+                listOf(
+                    UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE,
+                    UltraShareScreenMirrorPolicy.MirrorAudioMode.SYSTEM_AUDIO,
+                    UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE
+                ),
+                UltraShareScreenMirrorPolicy.availableAudioModes(sdk)
+            )
+            assertEquals(
+                UltraShareScreenMirrorPolicy.MirrorAudioMode.SYSTEM_AUDIO,
+                UltraShareScreenMirrorPolicy.resolveEffectiveAudioMode(
+                    requestedMode = UltraShareScreenMirrorPolicy.MirrorAudioMode.SYSTEM_AUDIO,
+                    sdkInt = sdk,
+                    recordAudioGranted = true
+                )
+            )
+            assertEquals(
+                UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE,
+                UltraShareScreenMirrorPolicy.resolveEffectiveAudioMode(
+                    requestedMode = UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE,
+                    sdkInt = sdk,
+                    recordAudioGranted = true
+                )
+            )
+        }
+
+        // Mutual exclusion guard: SYSTEM_AUDIO and MICROPHONE can never be active simultaneously.
+        val guard = MirrorAudioModeGuard()
+        assertFalse(guard.tryActivate(UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE))
+        assertTrue(guard.tryActivate(UltraShareScreenMirrorPolicy.MirrorAudioMode.SYSTEM_AUDIO))
+        assertFalse(guard.tryActivate(UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE))
+        assertEquals(
+            UltraShareScreenMirrorPolicy.MirrorAudioMode.SYSTEM_AUDIO,
+            guard.replaceActiveMode(UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE)
+        )
+        assertEquals(UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE, guard.currentActiveMode())
+        guard.deactivate(UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE)
+        assertEquals(UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE, guard.currentActiveMode())
+
+        // Notification labels reflect actual audio state accurately:
+        assertEquals(
+            "فيديو فقط (بدون صوت)",
+            UltraShareScreenMirrorPolicy.audioModeLabelAr(
+                UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE,
+                audioActive = false
+            )
+        )
+        assertEquals(
+            "صوت الميكروفون مفعّل",
+            UltraShareScreenMirrorPolicy.audioModeLabelAr(
+                UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE,
+                audioActive = true
+            )
+        )
+        assertEquals(
+            "صوت النظام الداخلي مفعّل",
+            UltraShareScreenMirrorPolicy.audioModeLabelAr(
+                UltraShareScreenMirrorPolicy.MirrorAudioMode.SYSTEM_AUDIO,
+                audioActive = true
+            )
+        )
+    }
+
+    @Test
+    fun microphoneCandidateFallbackSelectsFirstWorkingSourceAndReleasesFailedProbes() {
+        val candidates = listOf(
+            MicrophoneCaptureCandidate(audioSource = 7, sampleRateHz = 48_000, channelCount = 1),
+            MicrophoneCaptureCandidate(audioSource = 1, sampleRateHz = 44_100, channelCount = 1),
+            MicrophoneCaptureCandidate(audioSource = 5, sampleRateHz = 16_000, channelCount = 1)
+        )
+        val releasedHandles = mutableListOf<String>()
+        val chosen = selectFirstWorkingMicrophoneCandidate(
+            candidates = candidates,
+            probe = { candidate ->
+                if (candidate.audioSource == 7) {
+                    null // e.g. VOICE_COMMUNICATION rejected by OEM HAL
+                } else {
+                    "handle-${candidate.audioSource}-${candidate.sampleRateHz}"
+                }
+            },
+            releaseHandle = { handle -> releasedHandles += handle }
+        )
+        assertNotNull(chosen)
+        assertEquals(1, chosen!!.first.audioSource)
+        assertEquals(44_100, chosen.first.sampleRateHz)
+        assertEquals("handle-1-44100", chosen.second)
+        assertTrue(releasedHandles.isEmpty())
+
+        // If every candidate fails, returns null cleanly so video mirroring proceeds uninterrupted.
+        val noneWorking = selectFirstWorkingMicrophoneCandidate<String>(
+            candidates = candidates,
+            probe = { null },
+            releaseHandle = { releasedHandles += it }
+        )
+        assertNull(noneWorking)
+    }
+
+    @Test
+    fun mirrorViewerAutoOpenValidatesPairedPeerAndNeverRequiresMediaProjectionOnViewer() {
+        val coordinator = MirrorViewerAutoOpenCoordinator()
+        assertFalse(
+            "Paired viewer must NEVER request MediaProjection permission",
+            coordinator.requiresMediaProjectionPermissionForViewer
+        )
+        val validOffer = IncomingMirrorOffer(
+            sessionId = sessionId,
+            hostPeerId = hostPeerId,
+            hostName = "Galaxy Host",
+            hostAddress = "192.168.43.1",
+            streamPort = 39_123,
+            width = 720,
+            height = 1280,
+            fps = 30,
+            audioEnabled = true,
+            streamKey = streamKey,
+            revision = 1L,
+            transferSessionId = "room-session-1",
+            transferSessionGeneration = 2L
+        )
+
+        // 1. Unpaired peer offer is rejected:
+        val unpairedEval = coordinator.evaluateOffer(
+            offer = validOffer,
+            localPeerId = viewerOneId,
+            activeTransferSessionId = "room-session-1",
+            activeTransferSessionGeneration = 2L,
+            pairedPeerHosts = setOf("192.168.43.99"),
+            pairedPeerIds = setOf(viewerTwoId),
+            isLocalHostSharing = false
+        )
+        assertEquals(
+            MirrorViewerAutoOpenCoordinator.Evaluation.Rejected(
+                MirrorViewerAutoOpenCoordinator.RejectReason.PEER_NOT_PAIRED
+            ),
+            unpairedEval
+        )
+
+        // 2. Public IP offer is rejected:
+        val publicHostEval = coordinator.evaluateOffer(
+            offer = validOffer.copy(hostAddress = "8.8.8.8"),
+            localPeerId = viewerOneId,
+            activeTransferSessionId = "room-session-1",
+            activeTransferSessionGeneration = 2L,
+            pairedPeerHosts = setOf("8.8.8.8"),
+            pairedPeerIds = setOf(hostPeerId),
+            isLocalHostSharing = false
+        )
+        assertEquals(
+            MirrorViewerAutoOpenCoordinator.Evaluation.Rejected(
+                MirrorViewerAutoOpenCoordinator.RejectReason.INVALID_PRIVATE_LAN_HOST
+            ),
+            publicHostEval
+        )
+
+        // 3. Stale transfer session offer is rejected:
+        val staleSessionEval = coordinator.evaluateOffer(
+            offer = validOffer.copy(transferSessionId = "ended-room-0"),
+            localPeerId = viewerOneId,
+            activeTransferSessionId = "room-session-1",
+            activeTransferSessionGeneration = 2L,
+            pairedPeerHosts = setOf("192.168.43.1"),
+            pairedPeerIds = setOf(hostPeerId),
+            isLocalHostSharing = false
+        )
+        assertEquals(
+            MirrorViewerAutoOpenCoordinator.Evaluation.Rejected(
+                MirrorViewerAutoOpenCoordinator.RejectReason.STALE_TRANSFER_SESSION
+            ),
+            staleSessionEval
+        )
+
+        // 4. Valid paired host offer auto-opens immediately & sends JOINED once:
+        val openedEval = coordinator.evaluateOffer(
+            offer = validOffer,
+            localPeerId = viewerOneId,
+            activeTransferSessionId = "room-session-1",
+            activeTransferSessionGeneration = 2L,
+            pairedPeerHosts = setOf("192.168.43.1"),
+            pairedPeerIds = setOf(hostPeerId),
+            isLocalHostSharing = false
+        )
+        assertTrue(openedEval is MirrorViewerAutoOpenCoordinator.Evaluation.AutoOpen)
+        val autoOpen = openedEval as MirrorViewerAutoOpenCoordinator.Evaluation.AutoOpen
+        assertTrue(autoOpen.sendJoinedControlMessage)
+        assertTrue(autoOpen.clearWaitingBanner)
+        assertTrue(autoOpen.clearHostStartPrompt)
+
+        // 5. Duplicate state emission for the same open session is deduplicated:
+        val duplicateEval = coordinator.evaluateOffer(
+            offer = validOffer,
+            localPeerId = viewerOneId,
+            activeTransferSessionId = "room-session-1",
+            activeTransferSessionGeneration = 2L,
+            pairedPeerHosts = setOf("192.168.43.1"),
+            pairedPeerIds = setOf(hostPeerId),
+            isLocalHostSharing = false
+        )
+        assertEquals(
+            MirrorViewerAutoOpenCoordinator.Evaluation.Rejected(
+                MirrorViewerAutoOpenCoordinator.RejectReason.ALREADY_OPEN
+            ),
+            duplicateEval
+        )
+
+        // 6. User dismisses revision 1 -> revision 1 stays dismissed, revision 2 auto-opens cleanly:
+        coordinator.markDismissedByUser(sessionId, revision = 1L)
+        val afterDismissSameRev = coordinator.evaluateOffer(
+            offer = validOffer,
+            localPeerId = viewerOneId,
+            activeTransferSessionId = "room-session-1",
+            activeTransferSessionGeneration = 2L,
+            pairedPeerHosts = setOf("192.168.43.1"),
+            pairedPeerIds = setOf(hostPeerId),
+            isLocalHostSharing = false
+        )
+        assertEquals(
+            MirrorViewerAutoOpenCoordinator.Evaluation.Rejected(
+                MirrorViewerAutoOpenCoordinator.RejectReason.DISMISSED_BY_USER
+            ),
+            afterDismissSameRev
+        )
+        val nextRevEval = coordinator.evaluateOffer(
+            offer = validOffer.copy(revision = 2L),
+            localPeerId = viewerOneId,
+            activeTransferSessionId = "room-session-1",
+            activeTransferSessionGeneration = 2L,
+            pairedPeerHosts = setOf("192.168.43.1"),
+            pairedPeerIds = setOf(hostPeerId),
+            isLocalHostSharing = false
+        )
+        assertTrue(nextRevEval is MirrorViewerAutoOpenCoordinator.Evaluation.AutoOpen)
+    }
+
+    @Test
+    fun decoderOutputRenderGateAndBoundedFirstFrameTimeoutPreventInfiniteBlackScreen() {
+        // DecoderOutputRenderGate: never renders when surface is invalid; only confirms render on valid surface.
+        val invalidSurfaceDecision = DecoderOutputRenderGate.decide(
+            isCodecConfigBuffer = false,
+            payloadSizeBytes = 4096,
+            surfaceValid = false
+        )
+        assertFalse(invalidSurfaceDecision.renderToSurface)
+        assertFalse(invalidSurfaceDecision.confirmFrameRendered)
+
+        val validRenderDecision = DecoderOutputRenderGate.decide(
+            isCodecConfigBuffer = false,
+            payloadSizeBytes = 4096,
+            surfaceValid = true
+        )
+        assertTrue(validRenderDecision.renderToSurface)
+        assertTrue(validRenderDecision.confirmFrameRendered)
+
+        // Bounded first-frame timeout: host sends VIDEO_CONFIG + heartbeats, but NEVER a video frame.
+        val authorized = setOf(viewerOneId)
+        val idrRequests = AtomicInteger(0)
+        val decoderResets = AtomicInteger(0)
+        val hub = ScreenMirrorBroadcasterHub(
+            sessionId = sessionId,
+            hostPeerId = hostPeerId,
+            streamKey = streamKey,
+            authorizedViewerIdsProvider = { authorized },
+            allowLoopbackForTest = true
+        )
+        hub.use { server ->
+            val port = server.start(0)
+            val spsPps = byteArrayOf(0, 0, 0, 1, 0x67, 0x42, 0x00, 0x1E, 0, 0, 0, 1, 0x68, 0xCE.toByte(), 0x38, 0x80.toByte())
+            server.publishVideoConfig(spsPps, 720, 1280, 0)
+
+            val client = ScreenMirrorViewerClient(
+                context = null,
+                hostAddress = "127.0.0.1",
+                streamPort = port,
+                sessionId = sessionId,
+                hostPeerId = hostPeerId,
+                localViewerPeerId = viewerOneId,
+                streamKey = streamKey,
+                allowLoopbackForTest = true,
+                maxReconnectAttempts = 1,
+                firstFrameTimeoutMs = 250L,
+                maxFirstFrameTimeoutRetries = 1,
+                onKeyframeNeeded = { idrRequests.incrementAndGet() },
+                onFirstFrameTimeoutReset = { decoderResets.incrementAndGet() },
+                frameSink = { }
+            )
+            client.use {
+                client.start()
+                val deadline = System.currentTimeMillis() + 4_000L
+                while (System.currentTimeMillis() < deadline &&
+                    client.status.value.phase != ScreenMirrorViewerClient.ConnectionPhase.ERROR
+                ) {
+                    Thread.sleep(50L)
+                }
+                val finalStatus = client.status.value
+                assertEquals(
+                    "Viewer must fail deterministically instead of hanging forever on a black screen",
+                    ScreenMirrorViewerClient.ConnectionPhase.ERROR,
+                    finalStatus.phase
+                )
+                assertFalse(finalStatus.isDisplayingStream)
+                assertTrue("Viewer must request IDR recovery before failing", idrRequests.get() >= 1)
+                assertTrue("Viewer must reset decoder once on first-frame timeout", decoderResets.get() >= 1)
+                assertNotNull(finalStatus.errorMessage)
             }
         }
     }

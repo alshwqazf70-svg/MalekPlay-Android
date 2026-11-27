@@ -212,4 +212,65 @@ class UltraSharePlatformCompatibilityTest {
         assertTrue(serviceMsg.contains("إعدادات"))
         assertTrue(nearbyMsg.contains("الأجهزة القريبة"))
     }
+
+    @Test fun qrLocationResumeCoordinatorResumesOnceAcrossActivityResultAndOnResumePreservingIds() {
+        val coordinator = QrLocationResumeCoordinator()
+        val paused = coordinator.recordPausedForLocationService(
+            kind = QrLocationResumeCoordinator.PendingKind.QR_JOIN_PEER,
+            invitationId = "inv-fixed-123456",
+            pairingSecret = "987654321",
+            qrPayload = "malekplay://ultrashare?v=6&inv=inv-fixed-123456&sec=987654321"
+        )
+        // Re-recording the same paused operation never resets invitationId or pairingSecret:
+        val samePaused = coordinator.recordPausedForLocationService(
+            kind = QrLocationResumeCoordinator.PendingKind.QR_JOIN_PEER,
+            invitationId = "inv-fixed-123456",
+            pairingSecret = "987654321",
+            qrPayload = "malekplay://ultrashare?v=6&inv=inv-fixed-123456&sec=987654321"
+        )
+        assertEquals(paused.id, samePaused.id)
+        assertEquals("inv-fixed-123456", samePaused.invitationId)
+        assertEquals("987654321", samePaused.pairingSecret)
+
+        // 1. User returns from Settings with Location STILL disabled on Android 10 (API 29):
+        val stillOff = coordinator.onReturnFromSettingsOrResume(
+            sdkInt = 29,
+            permissionGranted = true,
+            locationServiceEnabled = false
+        )
+        assertTrue(stillOff is QrLocationResumeCoordinator.ResumeDecision.StillDisabled)
+        assertTrue((stillOff as QrLocationResumeCoordinator.ResumeDecision.StillDisabled).messageAr.contains("الموقع"))
+
+        // 2. User enables Location and returns: ActivityResult fires first, ON_RESUME fires 5ms later:
+        val fromActivityResult = coordinator.onReturnFromSettingsOrResume(
+            sdkInt = 29,
+            permissionGranted = true,
+            locationServiceEnabled = true
+        )
+        assertTrue(fromActivityResult is QrLocationResumeCoordinator.ResumeDecision.ResumeNow)
+        val resumedOp = (fromActivityResult as QrLocationResumeCoordinator.ResumeDecision.ResumeNow).operation
+        assertEquals("inv-fixed-123456", resumedOp.invitationId)
+        assertEquals("987654321", resumedOp.pairingSecret)
+
+        // Simultaneous ON_RESUME while resume is in-flight is deduplicated (no duplicate jobs!):
+        val duplicateOnResume = coordinator.onReturnFromSettingsOrResume(
+            sdkInt = 29,
+            permissionGranted = true,
+            locationServiceEnabled = true
+        )
+        assertEquals(
+            QrLocationResumeCoordinator.ResumeDecision.AlreadyResumingOrCompleted,
+            duplicateOnResume
+        )
+
+        coordinator.markResumeCompleted(resumedOp.id)
+        assertEquals(
+            QrLocationResumeCoordinator.ResumeDecision.NoPendingOperation,
+            coordinator.onReturnFromSettingsOrResume(
+                sdkInt = 29,
+                permissionGranted = true,
+                locationServiceEnabled = true
+            )
+        )
+    }
 }

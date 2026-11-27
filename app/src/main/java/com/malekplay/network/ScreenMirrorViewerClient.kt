@@ -24,6 +24,7 @@ import java.net.NetworkInterface
 import java.net.Socket
 import java.util.Collections
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Independent encrypted TCP media-stream receiver for UltraShare Group Screen Mirroring viewers.
@@ -31,11 +32,14 @@ import java.util.concurrent.atomic.AtomicBoolean
  * Strictly receive-only: viewers never send host input/control commands; the only upstream
  * signal available is requesting an IDR keyframe via MPC2 when recovering from packet loss.
  *
- * State reporting is strictly truthful:
- *   [ConnectionPhase.CONNECTING] -> [ConnectionPhase.CONNECTED_WAITING_CONFIG] ->
- *   [ConnectionPhase.CONFIG_RECEIVED_WAITING_FRAME] -> [ConnectionPhase.FRAME_RECEIVED_RENDERING] ->
- *   [ConnectionPhase.STREAMING] (entered ONLY after [notifyFirstFrameRendered] confirms the decoder
- *   actually rendered a frame onto the viewer `Surface`).
+ * Distinguishes all 7 viewer progression stages explicitly:
+ *   1. [ConnectionPhase.PAIRED] — Peer paired in group session
+ *   2. [ConnectionPhase.OFFER_ACCEPTED] — Broadcast offer validated & accepted
+ *   3. [ConnectionPhase.CONNECTED_WAITING_CONFIG] — TCP + mutual AEAD handshake succeeded («متصل، بانتظار الصورة»)
+ *   4. [ConnectionPhase.CONFIG_RECEIVED_WAITING_FRAME] — `VIDEO_CONFIG` received («متصل، بانتظار الصورة»)
+ *   5. [ConnectionPhase.FRAME_RECEIVED_RENDERING] — Encoded video frame received from network
+ *   6. [ConnectionPhase.FRAME_DECODED_WAITING_RENDER] — Frame decoded by `MediaCodec`, awaiting `Surface` render
+ *   7. [ConnectionPhase.STREAMING] — First frame confirmed rendered onto a valid `Surface`
  */
 class ScreenMirrorViewerClient internal constructor(
     private val context: Context?,
@@ -47,15 +51,21 @@ class ScreenMirrorViewerClient internal constructor(
     streamKey: ByteArray,
     private val frameSink: (UltraShareScreenMirrorProtocol.MediaFrame) -> Unit,
     private val onRequestKeyframe: () -> Unit = {},
+    private val onFirstFrameTimeoutRetry: () -> Unit = {},
     private val allowLoopbackForTest: Boolean = false,
-    private val maxReconnectAttempts: Int = 8
+    private val maxReconnectAttempts: Int = 8,
+    private val firstFrameTimeoutMs: Long = DEFAULT_FIRST_FRAME_TIMEOUT_MS,
+    private val maxFirstFrameTimeoutRetries: Int = DEFAULT_MAX_FIRST_FRAME_TIMEOUT_RETRIES
 ) : Closeable {
 
     enum class ConnectionPhase {
+        PAIRED,
+        OFFER_ACCEPTED,
         CONNECTING,
         CONNECTED_WAITING_CONFIG,
         CONFIG_RECEIVED_WAITING_FRAME,
         FRAME_RECEIVED_RENDERING,
+        FRAME_DECODED_WAITING_RENDER,
         STREAMING,
         RECONNECTING,
         SCREEN_PROTECTED,
@@ -64,9 +74,13 @@ class ScreenMirrorViewerClient internal constructor(
     }
 
     data class ViewerStatus(
-        val phase: ConnectionPhase = ConnectionPhase.CONNECTING,
+        val phase: ConnectionPhase = ConnectionPhase.PAIRED,
+        val paired: Boolean = true,
+        val offerAccepted: Boolean = false,
+        val connectedToSource: Boolean = false,
         val videoConfigReceived: Boolean = false,
         val firstFrameReceived: Boolean = false,
+        val firstFrameDecoded: Boolean = false,
         val firstFrameRendered: Boolean = false,
         val width: Int = 0,
         val height: Int = 0,
@@ -74,33 +88,102 @@ class ScreenMirrorViewerClient internal constructor(
         val estimatedFps: Int = 0,
         val bitrateKbps: Int = 0,
         val reconnectAttempt: Int = 0,
+        val firstFrameTimeoutRetryCount: Int = 0,
         val droppedMediaFrames: Long = 0L,
         val protectedScreenActive: Boolean = false,
         val audioPacketsReceived: Long = 0L,
         val errorMessage: String? = null
-    )
+    ) {
+        /**
+         * Strictly `true` ONLY at Stage 7 ([ConnectionPhase.STREAMING] with [firstFrameRendered]).
+         * Pairing, handshake, config, packet receipt, and decode alone NEVER satisfy this property.
+         */
+        val isDisplayingStream: Boolean
+            get() = phase == ConnectionPhase.STREAMING && firstFrameRendered && !protectedScreenActive
+
+        fun arabicStageText(): String = when (phase) {
+            ConnectionPhase.PAIRED -> "تم الاقتران، بانتظار دعوة البث"
+            ConnectionPhase.OFFER_ACCEPTED -> "تم قبول دعوة البث، جاري فتح الاتصال..."
+            ConnectionPhase.CONNECTING -> "جاري الاتصال ببث المضيف..."
+            ConnectionPhase.CONNECTED_WAITING_CONFIG,
+            ConnectionPhase.CONFIG_RECEIVED_WAITING_FRAME -> "متصل، بانتظار الصورة"
+            ConnectionPhase.FRAME_RECEIVED_RENDERING -> "وصل إطار الفيديو، جاري فك الترميز..."
+            ConnectionPhase.FRAME_DECODED_WAITING_RENDER -> "تم فك ترميز الإطار، جاري عرضه على الشاشة..."
+            ConnectionPhase.STREAMING -> "المشاهدة تعمل"
+            ConnectionPhase.RECONNECTING -> "انقطع البث مؤقتاً، جاري إعادة المحاولة..."
+            ConnectionPhase.SCREEN_PROTECTED -> "الشاشة متوقفة مؤقتاً أو محمية على جهاز المضيف"
+            ConnectionPhase.STOPPED -> "توقف البث"
+            ConnectionPhase.ERROR -> errorMessage ?: "تعذر عرض بث الشاشة."
+        }
+    }
 
     private val streamKeyCopy = streamKey.copyOf()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val closed = AtomicBoolean(false)
+    private val decodedFrameFlag = AtomicBoolean(false)
     private val renderedOnSurface = AtomicBoolean(false)
+    private val terminalErrorFlag = AtomicBoolean(false)
+    private val firstFrameTimeoutRetries = AtomicInteger(0)
     @Volatile private var activeSocket: Socket? = null
     @Volatile private var readerJob: Job? = null
 
     private val _status = MutableStateFlow(ViewerStatus())
     val status: StateFlow<ViewerStatus> = _status.asStateFlow()
 
+    /** Stage 2: Marks that a validated broadcast offer was accepted for this viewer session. */
+    fun notifyOfferAccepted() {
+        if (closed.get() || terminalErrorFlag.get()) return
+        val cur = _status.value
+        if (cur.phase == ConnectionPhase.PAIRED) {
+            _status.value = cur.copy(
+                phase = ConnectionPhase.OFFER_ACCEPTED,
+                offerAccepted = true,
+                errorMessage = null
+            )
+        } else {
+            _status.value = cur.copy(offerAccepted = true)
+        }
+    }
+
     /**
-     * Called by [AndroidScreenMirrorDecoder] strictly after `MediaCodec.releaseOutputBuffer(idx, true)`
-     * renders the first decoded frame onto the attached `Surface`. Never called speculatively.
+     * Stage 6: Called when `MediaCodec.dequeueOutputBuffer` produces a decoded video frame,
+     * BEFORE confirming that the frame was rendered onto a valid `Surface`.
+     * Never transitions to [ConnectionPhase.STREAMING].
+     */
+    fun notifyFirstFrameDecoded() {
+        if (closed.get() || terminalErrorFlag.get()) return
+        decodedFrameFlag.set(true)
+        val cur = _status.value
+        if (cur.phase == ConnectionPhase.STOPPED || cur.phase == ConnectionPhase.ERROR) return
+        val nextPhase = when {
+            cur.protectedScreenActive -> ConnectionPhase.SCREEN_PROTECTED
+            renderedOnSurface.get() -> ConnectionPhase.STREAMING
+            else -> ConnectionPhase.FRAME_DECODED_WAITING_RENDER
+        }
+        _status.value = cur.copy(
+            firstFrameReceived = true,
+            firstFrameDecoded = true,
+            firstFrameRendered = renderedOnSurface.get(),
+            phase = nextPhase
+        )
+    }
+
+    /**
+     * Stage 7: Called strictly after `MediaCodec.OnFrameRenderedListener` (or guarded valid-Surface
+     * latch confirmation) confirms that a decoded frame was rendered onto a valid viewer `Surface`.
      */
     fun notifyFirstFrameRendered() {
-        if (closed.get()) return
+        if (closed.get() || terminalErrorFlag.get()) return
+        decodedFrameFlag.set(true)
         renderedOnSurface.set(true)
+        firstFrameTimeoutRetries.set(0)
         val cur = _status.value
         if (cur.phase != ConnectionPhase.STOPPED && cur.phase != ConnectionPhase.ERROR) {
             _status.value = cur.copy(
+                firstFrameReceived = true,
+                firstFrameDecoded = true,
                 firstFrameRendered = true,
+                errorMessage = null,
                 phase = if (cur.protectedScreenActive) {
                     ConnectionPhase.SCREEN_PROTECTED
                 } else {
@@ -113,10 +196,12 @@ class ScreenMirrorViewerClient internal constructor(
     /** Resets surface-render confirmation when the underlying `Surface` is destroyed/recreated. */
     fun notifySurfaceDetached() {
         if (closed.get()) return
+        decodedFrameFlag.set(false)
         renderedOnSurface.set(false)
         val cur = _status.value
-        if (cur.phase == ConnectionPhase.STREAMING) {
+        if (cur.phase == ConnectionPhase.STREAMING || cur.phase == ConnectionPhase.FRAME_DECODED_WAITING_RENDER) {
             _status.value = cur.copy(
+                firstFrameDecoded = false,
                 firstFrameRendered = false,
                 phase = if (cur.firstFrameReceived) {
                     ConnectionPhase.FRAME_RECEIVED_RENDERING
@@ -129,6 +214,39 @@ class ScreenMirrorViewerClient internal constructor(
         }
     }
 
+    /**
+     * Surfaces a decoder or `Surface` failure truthfully. If [fatal] is `true`, transitions
+     * immediately to [ConnectionPhase.ERROR] and closes the active stream socket cleanly.
+     */
+    fun notifyDecoderError(message: String, fatal: Boolean = false) {
+        if (closed.get()) return
+        renderedOnSurface.set(false)
+        if (fatal) {
+            terminalErrorFlag.set(true)
+            _status.value = _status.value.copy(
+                phase = ConnectionPhase.ERROR,
+                firstFrameRendered = false,
+                errorMessage = message
+            )
+            runCatching { activeSocket?.close() }
+        } else {
+            val cur = _status.value
+            val degradedPhase = when {
+                cur.phase == ConnectionPhase.ERROR || cur.phase == ConnectionPhase.STOPPED -> cur.phase
+                cur.firstFrameDecoded -> ConnectionPhase.FRAME_DECODED_WAITING_RENDER
+                cur.firstFrameReceived -> ConnectionPhase.FRAME_RECEIVED_RENDERING
+                cur.videoConfigReceived -> ConnectionPhase.CONFIG_RECEIVED_WAITING_FRAME
+                cur.connectedToSource -> ConnectionPhase.CONNECTED_WAITING_CONFIG
+                else -> cur.phase
+            }
+            _status.value = cur.copy(
+                phase = degradedPhase,
+                firstFrameRendered = false,
+                errorMessage = message
+            )
+        }
+    }
+
     fun start() {
         check(!closed.get()) { "ScreenMirrorViewerClient is closed." }
         if (readerJob != null) return
@@ -136,6 +254,7 @@ class ScreenMirrorViewerClient internal constructor(
             (allowLoopbackForTest && hostAddress == "127.0.0.1")
         require(isValidHost) { "عنوان المضيف غير صالح لشبكة محلية." }
         require(streamPort in 1024..65535) { "منفذ البث غير صالح." }
+        notifyOfferAccepted()
 
         readerJob = scope.launch {
             var attempt = 0
@@ -143,37 +262,50 @@ class ScreenMirrorViewerClient internal constructor(
             var expectedAudioSeq = -1L
             var droppedTotal = 0L
             var audioCount = 0L
-            while (!closed.get() && isActive) {
-                if (attempt > 0) {
+            while (!closed.get() && !terminalErrorFlag.get() && isActive) {
+                val timedOutThisSocket = AtomicBoolean(false)
+                if (attempt > 0 || firstFrameTimeoutRetries.get() > 0) {
                     if (attempt > maxReconnectAttempts) {
                         _status.value = _status.value.copy(
                             phase = ConnectionPhase.ERROR,
+                            connectedToSource = false,
                             errorMessage = "تعذر إعادة الاتصال ببث شاشة المنشئ."
                         )
                         break
                     }
+                    decodedFrameFlag.set(false)
                     renderedOnSurface.set(false)
                     _status.value = _status.value.copy(
                         phase = ConnectionPhase.RECONNECTING,
+                        offerAccepted = true,
+                        connectedToSource = false,
                         videoConfigReceived = false,
                         firstFrameReceived = false,
+                        firstFrameDecoded = false,
                         firstFrameRendered = false,
                         reconnectAttempt = attempt,
+                        firstFrameTimeoutRetryCount = firstFrameTimeoutRetries.get(),
                         errorMessage = null
                     )
-                    delay(minOf(2_500L, 400L * attempt))
+                    val backoffAttempt = maxOf(attempt, firstFrameTimeoutRetries.get())
+                    delay(minOf(2_000L, 350L * backoffAttempt))
                 } else {
+                    decodedFrameFlag.set(false)
                     renderedOnSurface.set(false)
                     _status.value = _status.value.copy(
                         phase = ConnectionPhase.CONNECTING,
+                        offerAccepted = true,
+                        connectedToSource = false,
                         videoConfigReceived = false,
                         firstFrameReceived = false,
+                        firstFrameDecoded = false,
                         firstFrameRendered = false,
                         errorMessage = null
                     )
                 }
 
                 var keyframeWatchdog: Job? = null
+                var firstFrameDeadlineJob: Job? = null
                 try {
                     val socket = openLanSocket()
                     activeSocket = socket
@@ -196,10 +328,14 @@ class ScreenMirrorViewerClient internal constructor(
                         expectedAudioSeq = -1L
                         _status.value = _status.value.copy(
                             phase = ConnectionPhase.CONNECTED_WAITING_CONFIG,
+                            offerAccepted = true,
+                            connectedToSource = true,
                             videoConfigReceived = false,
                             firstFrameReceived = false,
+                            firstFrameDecoded = decodedFrameFlag.get(),
                             firstFrameRendered = renderedOnSurface.get(),
                             reconnectAttempt = 0,
+                            firstFrameTimeoutRetryCount = firstFrameTimeoutRetries.get(),
                             errorMessage = null
                         )
                         onRequestKeyframe()
@@ -217,12 +353,47 @@ class ScreenMirrorViewerClient internal constructor(
                             }
                         }
 
+                        // Bounded first-frame timeout with limited safe retries so waiting never hangs forever.
+                        if (firstFrameTimeoutMs > 0L) {
+                            firstFrameDeadlineJob = scope.launch {
+                                delay(firstFrameTimeoutMs)
+                                if (closed.get() || terminalErrorFlag.get() || renderedOnSurface.get()) {
+                                    return@launch
+                                }
+                                if (_status.value.protectedScreenActive) {
+                                    return@launch
+                                }
+                                val retryNum = firstFrameTimeoutRetries.incrementAndGet()
+                                timedOutThisSocket.set(true)
+                                if (retryNum <= maxFirstFrameTimeoutRetries) {
+                                    _status.value = _status.value.copy(
+                                        phase = ConnectionPhase.RECONNECTING,
+                                        firstFrameTimeoutRetryCount = retryNum,
+                                        errorMessage = "تأخر ظهور الصورة؛ جاري إعادة طلب إطار مفتاحي وإعادة المزامنة ($retryNum/$maxFirstFrameTimeoutRetries)..."
+                                    )
+                                    runCatching { onFirstFrameTimeoutRetry() }
+                                    runCatching { onRequestKeyframe() }
+                                    runCatching { socket.close() }
+                                } else {
+                                    terminalErrorFlag.set(true)
+                                    _status.value = _status.value.copy(
+                                        phase = ConnectionPhase.ERROR,
+                                        connectedToSource = false,
+                                        firstFrameRendered = false,
+                                        firstFrameTimeoutRetryCount = maxFirstFrameTimeoutRetries,
+                                        errorMessage = "انتهت مهلة انتظار ظهور الصورة من المضيف. تحقق من استمرار البث أو اضغط إعادة المحاولة."
+                                    )
+                                    runCatching { socket.close() }
+                                }
+                            }
+                        }
+
                         var windowStartNs = System.nanoTime()
                         var framesInWindow = 0
                         var bytesInWindow = 0L
 
                         cipher.use { session ->
-                            while (!closed.get() && isActive && !socket.isClosed) {
+                            while (!closed.get() && !terminalErrorFlag.get() && isActive && !socket.isClosed) {
                                 val frame = session.readFrame(input)
                                 val hdr = frame.header
                                 val prevDropped = droppedTotal
@@ -251,6 +422,7 @@ class ScreenMirrorViewerClient internal constructor(
                                         val resumedPhase = when {
                                             protectedActive -> ConnectionPhase.SCREEN_PROTECTED
                                             renderedOnSurface.get() -> ConnectionPhase.STREAMING
+                                            decodedFrameFlag.get() -> ConnectionPhase.FRAME_DECODED_WAITING_RENDER
                                             _status.value.firstFrameReceived -> ConnectionPhase.FRAME_RECEIVED_RENDERING
                                             _status.value.videoConfigReceived -> ConnectionPhase.CONFIG_RECEIVED_WAITING_FRAME
                                             else -> ConnectionPhase.CONNECTED_WAITING_CONFIG
@@ -265,6 +437,7 @@ class ScreenMirrorViewerClient internal constructor(
                                         val nextPhase = when {
                                             cur.protectedScreenActive -> ConnectionPhase.SCREEN_PROTECTED
                                             renderedOnSurface.get() -> ConnectionPhase.STREAMING
+                                            decodedFrameFlag.get() -> ConnectionPhase.FRAME_DECODED_WAITING_RENDER
                                             cur.firstFrameReceived -> ConnectionPhase.FRAME_RECEIVED_RENDERING
                                             else -> ConnectionPhase.CONFIG_RECEIVED_WAITING_FRAME
                                         }
@@ -279,16 +452,18 @@ class ScreenMirrorViewerClient internal constructor(
                                     UltraShareScreenMirrorProtocol.FrameType.VIDEO_IDR,
                                     UltraShareScreenMirrorProtocol.FrameType.VIDEO_DELTA -> {
                                         val isRendered = renderedOnSurface.get()
-                                        val targetPhase = if (isRendered) {
-                                            ConnectionPhase.STREAMING
-                                        } else {
-                                            ConnectionPhase.FRAME_RECEIVED_RENDERING
+                                        val isDecoded = decodedFrameFlag.get()
+                                        val targetPhase = when {
+                                            isRendered -> ConnectionPhase.STREAMING
+                                            isDecoded -> ConnectionPhase.FRAME_DECODED_WAITING_RENDER
+                                            else -> ConnectionPhase.FRAME_RECEIVED_RENDERING
                                         }
                                         val cur = _status.value
                                         if (cur.phase != targetPhase || cur.protectedScreenActive || !cur.firstFrameReceived) {
                                             _status.value = cur.copy(
                                                 phase = targetPhase,
                                                 firstFrameReceived = true,
+                                                firstFrameDecoded = isDecoded,
                                                 firstFrameRendered = isRendered,
                                                 protectedScreenActive = false,
                                                 width = if (hdr.width > 0) hdr.width else cur.width,
@@ -304,13 +479,15 @@ class ScreenMirrorViewerClient internal constructor(
                                             val fps = ((framesInWindow * 1_000_000_000L) / elapsedNs).toInt()
                                             val kbps = ((bytesInWindow * 8L * 1_000_000L) / elapsedNs).toInt()
                                             val liveRendered = renderedOnSurface.get()
+                                            val liveDecoded = decodedFrameFlag.get()
                                             _status.value = _status.value.copy(
-                                                phase = if (liveRendered) {
-                                                    ConnectionPhase.STREAMING
-                                                } else {
-                                                    ConnectionPhase.FRAME_RECEIVED_RENDERING
+                                                phase = when {
+                                                    liveRendered -> ConnectionPhase.STREAMING
+                                                    liveDecoded -> ConnectionPhase.FRAME_DECODED_WAITING_RENDER
+                                                    else -> ConnectionPhase.FRAME_RECEIVED_RENDERING
                                                 },
                                                 firstFrameReceived = true,
+                                                firstFrameDecoded = liveDecoded,
                                                 firstFrameRendered = liveRendered,
                                                 protectedScreenActive = false,
                                                 width = if (hdr.width > 0) hdr.width else _status.value.width,
@@ -337,29 +514,35 @@ class ScreenMirrorViewerClient internal constructor(
                         }
                     } finally {
                         keyframeWatchdog?.cancel()
+                        firstFrameDeadlineJob?.cancel()
                         activeSocket = null
                         runCatching { socket.close() }
                     }
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (sec: SecurityException) {
+                    terminalErrorFlag.set(true)
                     // Authentication/integrity errors must stop immediately without retrying.
                     _status.value = _status.value.copy(
                         phase = ConnectionPhase.ERROR,
+                        connectedToSource = false,
                         errorMessage = sec.localizedMessage ?: "فشل التحقق الأمني من بث الشاشة."
                     )
                     break
                 } catch (failure: Exception) {
-                    if (closed.get()) break
-                    attempt++
-                    _status.value = _status.value.copy(
-                        phase = ConnectionPhase.RECONNECTING,
-                        reconnectAttempt = attempt,
-                        errorMessage = failure.localizedMessage
-                    )
+                    if (closed.get() || terminalErrorFlag.get()) break
+                    if (!timedOutThisSocket.get()) {
+                        attempt++
+                        _status.value = _status.value.copy(
+                            phase = ConnectionPhase.RECONNECTING,
+                            connectedToSource = false,
+                            reconnectAttempt = attempt,
+                            errorMessage = failure.localizedMessage
+                        )
+                    }
                 }
             }
-            if (closed.get()) {
+            if (closed.get() && !terminalErrorFlag.get()) {
                 _status.value = _status.value.copy(phase = ConnectionPhase.STOPPED)
             }
         }
@@ -426,6 +609,8 @@ class ScreenMirrorViewerClient internal constructor(
     companion object {
         const val HANDSHAKE_TIMEOUT_MS = 8_000
         const val STREAM_READ_TIMEOUT_MS = 8_000
+        const val DEFAULT_FIRST_FRAME_TIMEOUT_MS = 8_000L
+        const val DEFAULT_MAX_FIRST_FRAME_TIMEOUT_RETRIES = 2
 
         /**
          * Finds a local up non-loopback IPv4 interface address whose subnet prefix contains

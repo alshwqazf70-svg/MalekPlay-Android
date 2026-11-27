@@ -175,4 +175,46 @@ class UltraShareMultiRecipientCoordinatorTest {
 
         assertTrue("Peer socket/resource cleanup must run on cancellation.", resourceReleased.get())
     }
+
+    @Test
+    fun cancellingSingleDepartingPeerChildJobCompletesRemainingPeersUninterrupted() = runBlocking {
+        val threeTargets = targets(3)
+        val peerTwoStarted = CompletableDeferred<Unit>()
+        val childJobs = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.Job>()
+
+        val batchDeferred = launch {
+            val results = UltraShareMultiRecipientCoordinator.execute(
+                targets = threeTargets,
+                maxParallelPeers = 3,
+                onPeerJobStarted = { target, childJob ->
+                    childJobs[target.sessionId] = childJob
+                }
+            ) { target ->
+                if (target.sessionId == "session-2") {
+                    peerTwoStarted.complete(Unit)
+                    awaitCancellation()
+                } else {
+                    peerTwoStarted.await()
+                    delay(60)
+                    "completed:${target.sessionId}"
+                }
+            }
+            assertEquals(
+                listOf(
+                    UltraShareMultiRecipientCoordinator.Status.COMPLETED,
+                    UltraShareMultiRecipientCoordinator.Status.FAILED,
+                    UltraShareMultiRecipientCoordinator.Status.COMPLETED
+                ),
+                results.map { it.status }
+            )
+            assertEquals("completed:session-1", results[0].value)
+            assertEquals("completed:session-3", results[2].value)
+        }
+
+        kotlinx.coroutines.withTimeout(1_000) { peerTwoStarted.await() }
+        // Cancel ONLY session-2 (simulating Peer 2 unpairing mid-batch while Peer 1 & Peer 3 stay paired):
+        childJobs["session-2"]?.cancel(kotlinx.coroutines.CancellationException("Peer 2 left transfer room"))
+        batchDeferred.join()
+        assertFalse(batchDeferred.isCancelled)
+    }
 }

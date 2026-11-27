@@ -1,6 +1,7 @@
 package com.malekplay.network
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -44,13 +45,15 @@ object UltraShareMultiRecipientCoordinator {
     )
 
     /**
-     * One peer failure does not block other peers. Parent cancellation propagates.
+     * One peer failure or individual departing-peer cancellation does not block other peers.
+     * Parent/session cancellation propagates immediately to all peers.
      * Pairing credentials stay outside this model and observable UI state.
      */
     suspend fun <T> execute(
         targets: List<Target>,
         maxParallelPeers: Int = DEFAULT_MAX_PARALLEL_PEERS,
         onStatus: (Delivery<T>) -> Unit = {},
+        onPeerJobStarted: (Target, Job) -> Unit = { _, _ -> },
         sendToPeer: suspend (Target) -> T
     ): List<Delivery<T>> {
         require(maxParallelPeers in 1..DEFAULT_MAX_PARALLEL_PEERS) {
@@ -65,23 +68,38 @@ object UltraShareMultiRecipientCoordinator {
 
         val semaphore = Semaphore(maxParallelPeers)
         return coroutineScope {
+            val parentScopeJob = coroutineContext[Job]
             targets.map { target ->
                 async {
-                    onStatus(Delivery(target, Status.PENDING))
-                    semaphore.withPermit {
-                        onStatus(Delivery(target, Status.SENDING))
-                        try {
+                    val childJob = coroutineContext[Job]
+                    if (childJob != null) {
+                        onPeerJobStarted(target, childJob)
+                    }
+                    try {
+                        onStatus(Delivery(target, Status.PENDING))
+                        semaphore.withPermit {
+                            onStatus(Delivery(target, Status.SENDING))
                             val result = sendToPeer(target)
                             Delivery(target, Status.COMPLETED, value = result).also(onStatus)
-                        } catch (cancelled: CancellationException) {
-                            throw cancelled
-                        } catch (failure: Exception) {
-                            Delivery<T>(
-                                target = target,
-                                status = Status.FAILED,
-                                error = failure.message?.take(240) ?: failure.javaClass.simpleName
-                            ).also(onStatus)
                         }
+                    } catch (cancelled: CancellationException) {
+                        // If the whole session / parent coroutine was cancelled, propagate immediately.
+                        // If ONLY this departing peer's child job was cancelled, isolate it so other
+                        // still-paired peers in the batch complete uninterrupted.
+                        if (parentScopeJob != null && !parentScopeJob.isActive) {
+                            throw cancelled
+                        }
+                        Delivery<T>(
+                            target = target,
+                            status = Status.FAILED,
+                            error = cancelled.message?.take(240) ?: "غادر الجهاز الجلسة أثناء النقل"
+                        ).also(onStatus)
+                    } catch (failure: Exception) {
+                        Delivery<T>(
+                            target = target,
+                            status = Status.FAILED,
+                            error = failure.message?.take(240) ?: failure.javaClass.simpleName
+                        ).also(onStatus)
                     }
                 }
             }.awaitAll()

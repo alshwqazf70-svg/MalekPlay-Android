@@ -30,6 +30,8 @@ import com.malekplay.network.UltraShareWifiDirect
 import com.malekplay.network.UltraShareBluetoothDiscovery
 import com.malekplay.network.UltraShareBleDiscovery
 import com.malekplay.network.IncomingMirrorOffer
+import com.malekplay.network.MirrorViewerAutoOpenCoordinator
+import com.malekplay.network.QrLocationResumeCoordinator
 import com.malekplay.network.UltraShareScreenMirrorProtocol
 import com.malekplay.network.UltraShareScreenMirrorService
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -100,6 +102,7 @@ data class UltraShareUiState(
     val approvedSenderPeerHosts: List<String> = emptyList(),
     val reconnectableSenderPeerHosts: List<String> = emptyList(),
     val peerDeliveryEntries: List<com.malekplay.network.UltraSharePeerDeliveryEntry> = emptyList(),
+    val transferSessionId: String = "",
     val roomStartedAtMillis: Long = 0L,
     val roomResetGeneration: Long = 0L,
     val mirrorHostState: UltraShareScreenMirrorService.MirrorHostState =
@@ -203,7 +206,8 @@ class UltraShareViewModel @Inject constructor(
     private var dnsSdQrFallbackScheduledFor: String? = null
     @Volatile private var wifiDirectAdvertisedInvitationId: String? = null
     private var wifiDirectCleanupInProgress = false
-    private var lastAutoOpenedMirrorSessionId: String? = null
+    internal val mirrorViewerAutoOpenCoordinator = MirrorViewerAutoOpenCoordinator()
+    internal val qrLocationResumeCoordinator = QrLocationResumeCoordinator()
     private companion object {
         const val PEER_SIGHTING_TTL_MS = 12_000L
         @Volatile private var retainedHotspotNetworkCallback:
@@ -242,28 +246,50 @@ class UltraShareViewModel @Inject constructor(
                 val received = serviceState.receivedFile
                 val roomPresentationWasReset = serviceState.roomResetGeneration != current.roomResetGeneration
                 if (roomPresentationWasReset) {
-                    lastAutoOpenedMirrorSessionId = null
+                    mirrorViewerAutoOpenCoordinator.resetForSessionEnd()
                 }
                 val incomingOffer = serviceState.incomingMirrorOffer
-                val autoOpenOffer = shouldAutoOpenIncomingMirrorOffer(
-                    incomingSessionId = incomingOffer?.sessionId,
-                    currentWatchingSessionId = current.watchingMirrorSession?.sessionId,
-                    lastAutoOpenedSessionId = lastAutoOpenedMirrorSessionId,
-                    localMirrorHostActive = current.mirrorHostState.active || current.mirrorHostState.starting
-                )
-                if (autoOpenOffer && incomingOffer != null) {
-                    lastAutoOpenedMirrorSessionId = incomingOffer.sessionId
+                if (incomingOffer == null && current.watchingMirrorSession != null) {
+                    mirrorViewerAutoOpenCoordinator.clearOpenViewer(current.watchingMirrorSession.sessionId)
+                }
+                val pairedPeerHosts = buildSet {
+                    serviceState.activePeers.forEach { add(it.host) }
+                    serviceState.approvedSenderPeerHosts.forEach { add(it) }
+                }
+                val pairedPeerIds = buildSet {
+                    serviceState.activePeers.forEach { add(it.sessionId) }
+                    UltraShareForegroundService.approvedSendTargets().mapNotNull { it.peerId }.forEach { add(it) }
+                }
+                val autoOpenEvaluation = incomingOffer?.let { offer ->
+                    mirrorViewerAutoOpenCoordinator.evaluateOffer(
+                        offer = offer,
+                        localPeerId = UltraShareDiscovery.localPeerId(context),
+                        activeTransferSessionId = serviceState.transferSessionId,
+                        activeTransferSessionGeneration = serviceState.transferSessionGeneration,
+                        pairedPeerHosts = pairedPeerHosts,
+                        pairedPeerIds = pairedPeerIds,
+                        isLocalHostSharing = current.mirrorHostState.active || current.mirrorHostState.starting
+                    )
+                }
+                val autoOpenedOffer = (autoOpenEvaluation as? MirrorViewerAutoOpenCoordinator.Evaluation.AutoOpen)?.offer
+                if (autoOpenEvaluation is MirrorViewerAutoOpenCoordinator.Evaluation.AutoOpen &&
+                    autoOpenEvaluation.sendJoinedControlMessage
+                ) {
                     UltraShareForegroundService.sendMirrorViewerAction(
                         context = context,
-                        hostAddress = incomingOffer.hostAddress,
-                        sessionId = incomingOffer.sessionId,
+                        hostAddress = autoOpenEvaluation.offer.hostAddress,
+                        sessionId = autoOpenEvaluation.canonicalSessionId,
                         action = UltraShareScreenMirrorProtocol.ViewerAction.JOINED
                     )
                 }
                 val updatedWatching = when {
-                    autoOpenOffer && incomingOffer != null -> incomingOffer
+                    autoOpenedOffer != null -> autoOpenedOffer
                     current.watchingMirrorSession == null -> null
                     incomingOffer == null -> null
+                    incomingOffer.hostAddress !in pairedPeerHosts -> {
+                        mirrorViewerAutoOpenCoordinator.clearOpenViewer(current.watchingMirrorSession.sessionId)
+                        null
+                    }
                     incomingOffer.sessionId == current.watchingMirrorSession.sessionId ->
                         incomingOffer
                     else -> current.watchingMirrorSession
@@ -319,6 +345,7 @@ class UltraShareViewModel @Inject constructor(
                     activePeers = serviceState.roomPeers.ifEmpty { serviceState.activePeers },
                     reconnectablePeers = serviceState.reconnectablePeers,
                     peerTransfers = serviceState.peerTransfers,
+                    transferSessionId = serviceState.transferSessionId,
                     roomStartedAtMillis = serviceState.roomStartedAtMillis,
                     roomResetGeneration = serviceState.roomResetGeneration,
                     approvedSenderPeerCount = serviceState.approvedSenderPeerHosts.size,
@@ -542,6 +569,13 @@ class UltraShareViewModel @Inject constructor(
 
         val wifiDirectPrereq = UltraSharePlatformCompatibility.evaluateWifiDirectPrerequisite(context)
         if (wifiDirectPrereq != UltraSharePlatformCompatibility.WifiDirectPrerequisiteResult.OK) {
+            if (wifiDirectPrereq == UltraSharePlatformCompatibility.WifiDirectPrerequisiteResult.LOCATION_SERVICE_DISABLED) {
+                qrLocationResumeCoordinator.recordPausedForLocationService(
+                    kind = QrLocationResumeCoordinator.PendingKind.QR_HOST_RECEIVE,
+                    invitationId = _state.value.invitationId.takeIf { it.isNotBlank() },
+                    pairingSecret = secret
+                )
+            }
             UltraShareDiagnostics.event(
                 "PAIRING",
                 "WIFI_DIRECT_PREREQUISITE_MISSING_FALLING_BACK_TO_LAN",
@@ -560,6 +594,7 @@ class UltraShareViewModel @Inject constructor(
             startHotspotFallback(fallbackMessage)
             return
         }
+        qrLocationResumeCoordinator.clear()
 
         advertiseCurrentWifiDirectInvitation()
         receiverWifiDirectTimeoutJob = viewModelScope.launch {
@@ -1144,7 +1179,8 @@ private fun forgetApprovedSenderTarget(host: String) {
             releaseLegacyWifiNetwork()
             UltraShareForegroundService.stopIfUnpaired(context)
         }
-        lastAutoOpenedMirrorSessionId = null
+        mirrorViewerAutoOpenCoordinator.resetForSessionEnd()
+        qrLocationResumeCoordinator.clear()
         _state.value = _state.value.copy(
             activePeers = emptyList(),
             approvedPeerHost = null,
@@ -1218,7 +1254,8 @@ private fun forgetApprovedSenderTarget(host: String) {
         UltraShareForegroundService.stopReceiving(context)
         releaseLegacyWifiNetwork()
         clearStoredInvitation()
-        lastAutoOpenedMirrorSessionId = null
+        mirrorViewerAutoOpenCoordinator.resetForSessionEnd()
+        qrLocationResumeCoordinator.clear()
         _state.value = _state.value.copy(
             receiving = false,
             sending = false,
@@ -1560,6 +1597,7 @@ private fun forgetApprovedSenderTarget(host: String) {
     fun cancelPendingPairingAttempt() {
         pendingQrPairing = null
         qrP2pConnectStarted = false
+        qrLocationResumeCoordinator.clear()
         val activeNetworkCallback = hotspotNetworkCallback ?: retainedHotspotNetworkCallback
         if (activeNetworkCallback != null && !hotspotNetworkPaired) {
             val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE)
@@ -3345,8 +3383,18 @@ private fun forgetApprovedSenderTarget(host: String) {
     }
 
     fun joinMirrorViewer() {
-        val offer = _state.value.incomingMirrorOffer ?: return
-        _state.value = _state.value.copy(watchingMirrorSession = offer)
+        val current = _state.value
+        val offer = current.incomingMirrorOffer ?: return
+        val pairedHosts = (current.activePeers.map { it.host } + current.approvedSenderPeerHosts).toSet()
+        if (offer.hostAddress !in pairedHosts ||
+            !UltraShareCore.isValidPrivateLanHost(offer.hostAddress) ||
+            offer.streamPort !in 1024..65535 ||
+            offer.streamKey.size != UltraShareScreenMirrorProtocol.STREAM_KEY_BYTES ||
+            UltraShareScreenMirrorProtocol.canonicalId(offer.sessionId) == null
+        ) {
+            return
+        }
+        _state.value = current.copy(watchingMirrorSession = offer)
         UltraShareForegroundService.sendMirrorViewerAction(
             context = context,
             hostAddress = offer.hostAddress,
@@ -3357,6 +3405,10 @@ private fun forgetApprovedSenderTarget(host: String) {
 
     fun leaveMirrorViewer() {
         val watching = _state.value.watchingMirrorSession ?: return
+        mirrorViewerAutoOpenCoordinator.markDismissedByUser(
+            sessionId = watching.sessionId,
+            revision = watching.revision
+        )
         _state.value = _state.value.copy(watchingMirrorSession = null)
         UltraShareForegroundService.sendMirrorViewerAction(
             context = context,
@@ -3364,6 +3416,105 @@ private fun forgetApprovedSenderTarget(host: String) {
             sessionId = watching.sessionId,
             action = UltraShareScreenMirrorProtocol.ViewerAction.LEFT
         )
+    }
+
+    fun recordPausedLocationOperation(
+        kind: QrLocationResumeCoordinator.PendingKind,
+        invitationId: String? = null,
+        pairingSecret: String? = null,
+        qrPayload: String? = null
+    ): QrLocationResumeCoordinator.PendingOperation =
+        qrLocationResumeCoordinator.recordPausedForLocationService(
+            kind = kind,
+            invitationId = invitationId,
+            pairingSecret = pairingSecret,
+            qrPayload = qrPayload
+        )
+
+    /**
+     * Evaluated on both `ACTION_LOCATION_SOURCE_SETTINGS` return and `Lifecycle.Event.ON_RESUME`.
+     * Idempotent: if both callbacks fire back-to-back, only the first dispatches the resumed
+     * Wi-Fi Direct / QR operation, preserving the active `invitationId` and `pairingSecret`.
+     */
+    fun onLocationPrerequisiteCheck(
+        fromExplicitSettingsReturn: Boolean = false
+    ): QrLocationResumeCoordinator.ResumeDecision {
+        val requiredPerms = UltraSharePlatformCompatibility.wifiDirectRuntimePermissions(Build.VERSION.SDK_INT)
+        val permissionGranted = requiredPerms.all {
+            androidx.core.content.ContextCompat.checkSelfPermission(context, it) ==
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+        }
+        val locationEnabled = UltraSharePlatformCompatibility.isLocationServiceEnabled(context, Build.VERSION.SDK_INT)
+        val decision = qrLocationResumeCoordinator.onReturnFromSettingsOrResume(
+            sdkInt = Build.VERSION.SDK_INT,
+            permissionGranted = permissionGranted,
+            locationServiceEnabled = locationEnabled
+        )
+        when (decision) {
+            is QrLocationResumeCoordinator.ResumeDecision.ResumeNow -> {
+                val op = decision.operation
+                try {
+                    when (op.kind) {
+                        QrLocationResumeCoordinator.PendingKind.QR_HOST_RECEIVE -> {
+                            val current = _state.value
+                            if (current.receiving &&
+                                !op.pairingSecret.isNullOrBlank() &&
+                                current.pairingSecret == op.pairingSecret &&
+                                current.activePeers.isEmpty()
+                            ) {
+                                // Upgrade the existing receiving session in-place without rotating
+                                // pairingSecret or invitationId!
+                                hotspotFallbackStarted = false
+                                wifiDirectPrimaryAttempt = true
+                                _state.value = current.copy(
+                                    error = null,
+                                    status = "تم تفعيل خدمة الموقع؛ نستأنف إعلان الغرفة عبر Wi-Fi Direct..."
+                                )
+                                advertiseCurrentWifiDirectInvitation()
+                            } else if (!current.receiving) {
+                                startReceiving()
+                            }
+                            qrLocationResumeCoordinator.markResumeCompleted(op.id)
+                        }
+                        QrLocationResumeCoordinator.PendingKind.QR_JOIN_PEER -> {
+                            val parsed = op.qrPayload?.let { raw ->
+                                runCatching { UltraShareQrCode.parsePayload(raw) }.getOrNull()
+                            }
+                            if (parsed != null) {
+                                _state.value = _state.value.copy(
+                                    error = null,
+                                    status = "تم تفعيل خدمة الموقع؛ نستأنف الاقتران عبر رمز QR..."
+                                )
+                                joinUnifiedInvitation(parsed)
+                            }
+                            qrLocationResumeCoordinator.markResumeCompleted(op.id)
+                        }
+                        QrLocationResumeCoordinator.PendingKind.WIFI_DIRECT_DISCOVERY -> {
+                            _state.value = _state.value.copy(error = null)
+                            if (!_state.value.wifiDirectScanning) {
+                                scanWifiDirectPeers()
+                            }
+                            qrLocationResumeCoordinator.markResumeCompleted(op.id)
+                        }
+                    }
+                } catch (_: Exception) {
+                    qrLocationResumeCoordinator.markResumeFailed(op.id)
+                }
+            }
+            is QrLocationResumeCoordinator.ResumeDecision.StillDisabled -> {
+                if (fromExplicitSettingsReturn) {
+                    _state.value = _state.value.copy(error = decision.messageAr)
+                }
+            }
+            is QrLocationResumeCoordinator.ResumeDecision.MissingPermission -> {
+                if (fromExplicitSettingsReturn) {
+                    _state.value = _state.value.copy(error = decision.messageAr)
+                }
+            }
+            QrLocationResumeCoordinator.ResumeDecision.AlreadyResumingOrCompleted,
+            QrLocationResumeCoordinator.ResumeDecision.NoPendingOperation -> Unit
+        }
+        return decision
     }
 
     override fun onCleared() {

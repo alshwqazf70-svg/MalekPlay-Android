@@ -96,8 +96,15 @@ fun ScreenMirrorViewerModal(
                     action = UltraShareScreenMirrorProtocol.ViewerAction.REQUEST_IDR
                 )
             },
-            onDecoderError = { msg -> decoderError = msg },
+            onDecoderError = { msg ->
+                decoderError = msg
+                viewerClientRef[0]?.notifyDecoderError(msg)
+            },
+            onFirstFrameDecoded = {
+                viewerClientRef[0]?.notifyFirstFrameDecoded()
+            },
             onFirstFrameRendered = {
+                decoderError = null
                 viewerClientRef[0]?.notifyFirstFrameRendered()
             }
         )
@@ -126,6 +133,9 @@ fun ScreenMirrorViewerModal(
                     sessionId = offer.sessionId,
                     action = UltraShareScreenMirrorProtocol.ViewerAction.REQUEST_IDR
                 )
+            },
+            onFirstFrameTimeoutRetry = {
+                decoder.resetForReconnect()
             }
         )
     }
@@ -224,27 +234,34 @@ fun ScreenMirrorViewerModal(
             val centerMessage: Pair<String, String?>? = when {
                 decoderError != null -> "تعذر عرض البث" to decoderError
                 status.phase == ScreenMirrorViewerClient.ConnectionPhase.ERROR ->
-                    "انقطع بث الشاشة" to (status.errorMessage ?: "تعذر الاتصال بجهاز المنشئ.")
+                    "تعذر عرض بث الشاشة" to (status.errorMessage ?: "تعذر الاتصال بجهاز المنشئ.")
                 status.phase == ScreenMirrorViewerClient.ConnectionPhase.SCREEN_PROTECTED ->
                     "شاشة المضيف مقفلة أو محمية حالياً" to "يعود العرض تلقائياً عند فتح الشاشة أو مغادرة المحتوى المحمي."
-                status.phase == ScreenMirrorViewerClient.ConnectionPhase.CONNECTING ->
+                status.phase == ScreenMirrorViewerClient.ConnectionPhase.PAIRED ||
+                    status.phase == ScreenMirrorViewerClient.ConnectionPhase.OFFER_ACCEPTED ||
+                    status.phase == ScreenMirrorViewerClient.ConnectionPhase.CONNECTING ->
                     "جارٍ الاتصال ببث الشاشة الجماعية…" to "${offer.hostName} • ${offer.width}×${offer.height}"
                 status.phase == ScreenMirrorViewerClient.ConnectionPhase.CONNECTED_WAITING_CONFIG ->
-                    "تم الاتصال بالبث…" to "في انتظار استلام تهيئة الفيديو (VIDEO_CONFIG) من المنشئ"
+                    "متصل، بانتظار الصورة" to "تم الاتصال بالمصدر، بانتظار استلام تهيئة الفيديو (VIDEO_CONFIG)"
                 status.phase == ScreenMirrorViewerClient.ConnectionPhase.CONFIG_RECEIVED_WAITING_FRAME ->
-                    "تم استلام تهيئة الفيديو (${videoWidth}×${videoHeight})…" to "في انتظار استلام الإطار الأول من المنشئ"
+                    "متصل، بانتظار الصورة" to "وصلت تهيئة الفيديو (${videoWidth}×${videoHeight})، بانتظار وصول الإطار الأول"
                 status.phase == ScreenMirrorViewerClient.ConnectionPhase.FRAME_RECEIVED_RENDERING ->
-                    "تم استلام الإطار الأول…" to "جارٍ فك الترميز والعرض على الشاشة"
+                    "وصل الإطار الأول، جاري فك الترميز…" to "${videoWidth}×${videoHeight}"
+                status.phase == ScreenMirrorViewerClient.ConnectionPhase.FRAME_DECODED_WAITING_RENDER ->
+                    "تم فك ترميز الإطار، جاري عرضه على الشاشة…" to "${videoWidth}×${videoHeight}"
                 status.phase == ScreenMirrorViewerClient.ConnectionPhase.RECONNECTING ->
-                    "إعادة الاتصال التلقائي…" to "محاولة ${status.reconnectAttempt}"
+                    "إعادة الاتصال التلقائي…" to (status.errorMessage ?: "محاولة ${maxOf(1, status.reconnectAttempt)}")
                 else -> null
             }
 
             val showLoadingSpinner = decoderError == null && (
-                status.phase == ScreenMirrorViewerClient.ConnectionPhase.CONNECTING ||
+                status.phase == ScreenMirrorViewerClient.ConnectionPhase.PAIRED ||
+                    status.phase == ScreenMirrorViewerClient.ConnectionPhase.OFFER_ACCEPTED ||
+                    status.phase == ScreenMirrorViewerClient.ConnectionPhase.CONNECTING ||
                     status.phase == ScreenMirrorViewerClient.ConnectionPhase.CONNECTED_WAITING_CONFIG ||
                     status.phase == ScreenMirrorViewerClient.ConnectionPhase.CONFIG_RECEIVED_WAITING_FRAME ||
                     status.phase == ScreenMirrorViewerClient.ConnectionPhase.FRAME_RECEIVED_RENDERING ||
+                    status.phase == ScreenMirrorViewerClient.ConnectionPhase.FRAME_DECODED_WAITING_RENDER ||
                     status.phase == ScreenMirrorViewerClient.ConnectionPhase.RECONNECTING
                 )
 
@@ -363,14 +380,15 @@ fun ScreenMirrorViewerModal(
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
-                        val statusTag = when (status.phase) {
-                            ScreenMirrorViewerClient.ConnectionPhase.STREAMING -> "يعرض الآن"
-                            ScreenMirrorViewerClient.ConnectionPhase.FRAME_RECEIVED_RENDERING -> "جارٍ العرض"
-                            ScreenMirrorViewerClient.ConnectionPhase.CONFIG_RECEIVED_WAITING_FRAME -> "تهيئة جاهزة"
-                            ScreenMirrorViewerClient.ConnectionPhase.CONNECTED_WAITING_CONFIG -> "متصل بالبث"
-                            ScreenMirrorViewerClient.ConnectionPhase.SCREEN_PROTECTED -> "شاشة مقفلة"
-                            ScreenMirrorViewerClient.ConnectionPhase.RECONNECTING -> "يعيد الاتصال"
-                            ScreenMirrorViewerClient.ConnectionPhase.ERROR -> "متوقف"
+                        val statusTag = when {
+                            status.isDisplayingStream -> "المشاهدة تعمل"
+                            status.phase == ScreenMirrorViewerClient.ConnectionPhase.FRAME_DECODED_WAITING_RENDER -> "جاري العرض على السطح"
+                            status.phase == ScreenMirrorViewerClient.ConnectionPhase.FRAME_RECEIVED_RENDERING -> "جاري فك الترميز"
+                            status.phase == ScreenMirrorViewerClient.ConnectionPhase.CONFIG_RECEIVED_WAITING_FRAME ||
+                                status.phase == ScreenMirrorViewerClient.ConnectionPhase.CONNECTED_WAITING_CONFIG -> "متصل، بانتظار الصورة"
+                            status.phase == ScreenMirrorViewerClient.ConnectionPhase.SCREEN_PROTECTED -> "شاشة مقفلة"
+                            status.phase == ScreenMirrorViewerClient.ConnectionPhase.RECONNECTING -> "يعيد الاتصال"
+                            status.phase == ScreenMirrorViewerClient.ConnectionPhase.ERROR -> "متوقف"
                             else -> "يتصل"
                         }
                         val qualityLabel = buildString {

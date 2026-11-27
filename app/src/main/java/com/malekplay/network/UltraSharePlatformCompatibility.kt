@@ -201,3 +201,151 @@ object UltraSharePlatformCompatibility {
     fun supportsWifiDirectApiLevel(sdkInt: Int): Boolean =
         sdkInt >= 23
 }
+
+/**
+ * Stateful, idempotent coordinator for resuming a paused QR / Wi-Fi Direct operation
+ * after the user returns from system Location Settings (`ACTION_LOCATION_SOURCE_SETTINGS`)
+ * or via `Lifecycle.Event.ON_RESUME` on Android 6.0–12L (API 23–32).
+ *
+ * Guarantees:
+ * 1. Never resets or regenerates `invitationId` or `pairingSecret` across Settings round-trips.
+ * 2. Deduplicates simultaneous `ActivityResult` + `ON_RESUME` callbacks so discovery,
+ *    advertisement, and connection jobs are never launched twice.
+ * 3. Surfaces an explicit Arabic diagnostic if the user returns with Location still off, while
+ *    keeping the pending operation armed for a subsequent Settings visit.
+ * 4. Never blocks Android 13+ (`sdkInt >= 33`) on Location services.
+ */
+class QrLocationResumeCoordinator {
+
+    enum class PendingKind {
+        QR_HOST_RECEIVE,
+        QR_JOIN_PEER,
+        WIFI_DIRECT_DISCOVERY
+    }
+
+    data class PendingOperation(
+        val id: Long,
+        val kind: PendingKind,
+        val invitationId: String? = null,
+        val pairingSecret: String? = null,
+        val qrPayload: String? = null
+    )
+
+    sealed class ResumeDecision {
+        data object NoPendingOperation : ResumeDecision()
+        data object AlreadyResumingOrCompleted : ResumeDecision()
+        data class StillDisabled(
+            val operation: PendingOperation,
+            val messageAr: String
+        ) : ResumeDecision()
+        data class MissingPermission(
+            val operation: PendingOperation,
+            val prerequisite: UltraSharePlatformCompatibility.WifiDirectPrerequisiteResult,
+            val messageAr: String
+        ) : ResumeDecision()
+        data class ResumeNow(val operation: PendingOperation) : ResumeDecision()
+    }
+
+    private val lock = Any()
+    private var nextOperationId = 1L
+    private var pendingOperation: PendingOperation? = null
+    private var resumingOperationId: Long? = null
+    private var completedOperationId: Long? = null
+
+    fun currentPendingOperation(): PendingOperation? = synchronized(lock) { pendingOperation }
+
+    /**
+     * Record that a QR / Wi-Fi Direct flow paused specifically because system Location
+     * services are disabled on API 23–32. If an identical operation with the same
+     * [invitationId] and [pairingSecret] is already pending, preserves it without resetting IDs.
+     */
+    fun recordPausedForLocationService(
+        kind: PendingKind,
+        invitationId: String? = null,
+        pairingSecret: String? = null,
+        qrPayload: String? = null
+    ): PendingOperation = synchronized(lock) {
+        val existing = pendingOperation
+        if (existing != null &&
+            existing.kind == kind &&
+            existing.invitationId == invitationId &&
+            existing.pairingSecret == pairingSecret &&
+            existing.qrPayload == qrPayload
+        ) {
+            resumingOperationId = null
+            return existing
+        }
+        val created = PendingOperation(
+            id = nextOperationId++,
+            kind = kind,
+            invitationId = invitationId,
+            pairingSecret = pairingSecret,
+            qrPayload = qrPayload
+        )
+        pendingOperation = created
+        resumingOperationId = null
+        created
+    }
+
+    /**
+     * Evaluate whether returning from system Settings (`ActivityResult` or `ON_RESUME`)
+     * should resume the paused operation now.
+     */
+    fun onReturnFromSettingsOrResume(
+        sdkInt: Int,
+        permissionGranted: Boolean,
+        locationServiceEnabled: Boolean
+    ): ResumeDecision = synchronized(lock) {
+        val pending = pendingOperation ?: return ResumeDecision.NoPendingOperation
+        if (completedOperationId == pending.id || resumingOperationId == pending.id) {
+            return ResumeDecision.AlreadyResumingOrCompleted
+        }
+        val prereq = UltraSharePlatformCompatibility.evaluateWifiDirectPrerequisite(
+            sdkInt = sdkInt,
+            permissionGranted = permissionGranted,
+            locationServiceEnabled = locationServiceEnabled
+        )
+        return when (prereq) {
+            UltraSharePlatformCompatibility.WifiDirectPrerequisiteResult.OK -> {
+                resumingOperationId = pending.id
+                ResumeDecision.ResumeNow(pending)
+            }
+            UltraSharePlatformCompatibility.WifiDirectPrerequisiteResult.LOCATION_SERVICE_DISABLED -> {
+                ResumeDecision.StillDisabled(
+                    operation = pending,
+                    messageAr = UltraSharePlatformCompatibility.messageFor(prereq)
+                )
+            }
+            UltraSharePlatformCompatibility.WifiDirectPrerequisiteResult.LOCATION_PERMISSION_MISSING,
+            UltraSharePlatformCompatibility.WifiDirectPrerequisiteResult.NEARBY_PERMISSION_MISSING -> {
+                ResumeDecision.MissingPermission(
+                    operation = pending,
+                    prerequisite = prereq,
+                    messageAr = UltraSharePlatformCompatibility.messageFor(prereq)
+                )
+            }
+        }
+    }
+
+    /** Mark that the resumed operation has been dispatched so it won't re-run on subsequent resumes. */
+    fun markResumeCompleted(operationId: Long) = synchronized(lock) {
+        if (pendingOperation?.id == operationId) {
+            completedOperationId = operationId
+            resumingOperationId = null
+            pendingOperation = null
+        }
+    }
+
+    /** If starting the resumed operation failed transiently, allow a future retry. */
+    fun markResumeFailed(operationId: Long) = synchronized(lock) {
+        if (resumingOperationId == operationId) {
+            resumingOperationId = null
+        }
+    }
+
+    /** Explicit user cancellation / session reset clears any pending paused operation. */
+    fun clear() = synchronized(lock) {
+        pendingOperation = null
+        resumingOperationId = null
+    }
+}

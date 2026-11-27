@@ -176,6 +176,176 @@ class UltraShareRoomStateTest {
     fun batchTransportSessionSocketAbortIsSafeWhenIdle() {
         // Calling session-abort helpers when no socket is open must never throw or touch disk:
         UltraShareBatchTransport.abortPeerReceiveSessions("192.168.49.2")
+        UltraShareBatchTransport.abortPeerSendSessions("192.168.49.2")
+        UltraShareBatchTransport.abortPeerTransferSockets("192.168.49.2")
         UltraShareBatchTransport.abortAllActiveReceiveSessions()
+        UltraShareBatchTransport.abortAllActiveSendSessions()
+        UltraShareBatchTransport.abortAllTransferSockets()
+    }
+
+    @Test
+    fun transferSessionTrackerIsolatesSinglePeerUnpairAndRotatesCleanlyOnRoomEnd() {
+        val tracker = UltraShareTransferSessionTracker(
+            initialSessionId = "room-session-alpha",
+            initialGeneration = 1L
+        )
+        val token = tracker.currentToken()
+        tracker.notePeerPaired("peer-A", listOf("192.168.49.2"))
+        tracker.notePeerPaired("peer-B", listOf("192.168.49.3"))
+
+        val peerASocketClosed = java.util.concurrent.atomic.AtomicBoolean(false)
+        val peerBSocketClosed = java.util.concurrent.atomic.AtomicBoolean(false)
+        val peerAJob = kotlinx.coroutines.Job()
+        val peerBJob = kotlinx.coroutines.Job()
+
+        tracker.registerTask(
+            token = token,
+            kind = TransferRoomTaskKind.MULTI_SEND_RECIPIENT,
+            peerId = "peer-A",
+            peerHosts = setOf("192.168.49.2"),
+            job = peerAJob,
+            initialCloseables = listOf(java.io.Closeable { peerASocketClosed.set(true) })
+        )
+        tracker.registerTask(
+            token = token,
+            kind = TransferRoomTaskKind.MULTI_SEND_RECIPIENT,
+            peerId = "peer-B",
+            peerHosts = setOf("192.168.49.3"),
+            job = peerBJob,
+            initialCloseables = listOf(java.io.Closeable { peerBSocketClosed.set(true) })
+        )
+
+        // Peer A unpairs mid-transfer: ONLY Peer A's job & socket are cancelled; Peer B continues!
+        val cancelledForPeerA = tracker.cancelPeerTasks(
+            peerId = "peer-A",
+            peerHost = "192.168.49.2",
+            reason = "Peer A unpaired"
+        )
+        assertEquals(1, cancelledForPeerA)
+        assertTrue(peerAJob.isCancelled)
+        assertTrue(peerASocketClosed.get())
+        org.junit.Assert.assertFalse(peerBJob.isCancelled)
+        org.junit.Assert.assertFalse(peerBSocketClosed.get())
+        org.junit.Assert.assertFalse(tracker.isCallbackAuthorized(token, peerId = "peer-A", peerHost = "192.168.49.2"))
+        assertTrue(tracker.isCallbackAuthorized(token, peerId = "peer-B", peerHost = "192.168.49.3"))
+
+        // Room ends completely: Peer B is cancelled, token rotates, and late callbacks from old token are rejected!
+        val rotation = tracker.endSessionAndRotate(
+            reason = "Leave transfer room",
+            nextSessionId = "room-session-beta"
+        )
+        assertEquals("room-session-alpha", rotation.endedToken.sessionId)
+        assertEquals("room-session-beta", rotation.newToken.sessionId)
+        assertEquals(2L, rotation.newToken.generation)
+        assertTrue(peerBJob.isCancelled)
+        assertTrue(peerBSocketClosed.get())
+        org.junit.Assert.assertFalse(tracker.isCallbackAuthorized(token))
+        assertTrue(tracker.isCallbackAuthorized(rotation.newToken))
+
+        val freshState = clearRoomTransferPresentationForSessionEnd(
+            UltraShareServiceState(
+                transferSessionId = token.sessionId,
+                transferSessionGeneration = token.generation,
+                peerTransfers = listOf(
+                    UltraSharePeerTransfer("192.168.49.3", "clip.mp4", 50L, 100L, 10L, "يرسل الآن")
+                )
+            ),
+            nextToken = rotation.newToken
+        )
+        assertEquals("room-session-beta", freshState.transferSessionId)
+        assertEquals(2L, freshState.transferSessionGeneration)
+        val afterLateOldCallback = applyIfTransferSessionMatches(freshState, token) { live ->
+            live.copy(status = "تحديث متأخر من جلسة منتهية")
+        }
+        assertNull(afterLateOldCallback.status)
+    }
+
+    @Test
+    fun interruptedPartialFileSanitizerTruncatesUnconfirmedTailAndPreservesCompletedFiles() {
+        val tempDir = kotlin.io.path.createTempDirectory("malekplay_part_test").toFile()
+        try {
+            val completedFile = File(tempDir, "completed_movie.mp4").apply {
+                writeBytes(ByteArray(4096) { 0x5A })
+            }
+            val zeroCheckpointPart = File(tempDir, "aborted_zero.mp4.part").apply {
+                writeBytes(ByteArray(512) { 0x11 })
+            }
+            val checkpointedPart = File(tempDir, "resumable_episode.mkv.part").apply {
+                writeBytes(ByteArray(4096) { (it and 0xFF).toByte() })
+            }
+
+            // Zero-checkpoint partial file is removed so no unverified orphan .part stays behind:
+            val zeroKept = UltraShareBatchTransport.sanitizeInterruptedPartialFile(
+                partFile = zeroCheckpointPart,
+                lastCheckpointOffset = 0L,
+                expectedTotalBytes = 10_000L
+            )
+            org.junit.Assert.assertFalse(zeroKept)
+            org.junit.Assert.assertFalse(zeroCheckpointPart.exists())
+
+            // Partial file with confirmed checkpoint 2048B has its unconfirmed tail truncated to 2048B:
+            val resumableKept = UltraShareBatchTransport.sanitizeInterruptedPartialFile(
+                partFile = checkpointedPart,
+                lastCheckpointOffset = 2048L,
+                expectedTotalBytes = 10_000L
+            )
+            assertTrue(resumableKept)
+            assertTrue(checkpointedPart.exists())
+            assertEquals(2048L, checkpointedPart.length())
+
+            // Completed file in destination folder remains 100% intact:
+            assertTrue(completedFile.exists())
+            assertEquals(4096L, completedFile.length())
+        } finally {
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun sessionRoomQueueFilterHidesEndedSessionEntriesWhileKeepingPermanentHistoryIntact() {
+        val endedCompleted = UltraShareQueueEntry(
+            uri = "content://media/external/video/media/1",
+            displayName = "completed_old.mp4",
+            status = UltraShareQueueStore.STATUS_COMPLETED,
+            error = null,
+            updatedAtMillis = 10_000L,
+            transferSessionId = "session-old"
+        )
+        val endedCancelled = UltraShareQueueEntry(
+            uri = "content://media/external/video/media/2",
+            displayName = "cancelled_old.mp4",
+            status = UltraShareQueueStore.STATUS_FAILED,
+            error = "انتهت جلسة غرفة النقل قبل اكتمال هذا الملف.",
+            updatedAtMillis = 10_500L,
+            transferSessionId = "session-old"
+        )
+        val activeSending = UltraShareQueueEntry(
+            uri = "content://media/external/video/media/3",
+            displayName = "live_new.mp4",
+            status = UltraShareQueueStore.STATUS_SENDING,
+            error = null,
+            updatedAtMillis = 20_000L,
+            transferSessionId = "session-live"
+        )
+        val durableStore = listOf(endedCompleted, endedCancelled, activeSending)
+
+        // When room is closed/unpaired, Transfer Room UI shows ZERO items while History keeps all 3:
+        val whenRoomClosed = com.malekplay.ui.network.filterSessionRoomQueueEntries(
+            entries = durableStore,
+            activeTransferSessionId = "session-idle",
+            roomStartedAtMillis = 0L,
+            hasActiveRoom = false
+        )
+        assertTrue(whenRoomClosed.isEmpty())
+        assertEquals(3, durableStore.size)
+
+        // When new room "session-live" is active, ONLY "live_new.mp4" appears in Transfer Room:
+        val whenNewRoomActive = com.malekplay.ui.network.filterSessionRoomQueueEntries(
+            entries = durableStore,
+            activeTransferSessionId = "session-live",
+            roomStartedAtMillis = 19_000L,
+            hasActiveRoom = true
+        )
+        assertEquals(listOf("live_new.mp4"), whenNewRoomActive.map { it.displayName })
     }
 }

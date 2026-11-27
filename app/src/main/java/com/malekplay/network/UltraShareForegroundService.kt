@@ -34,27 +34,35 @@ import java.io.IOException
 
 internal fun resetRoomTransferPresentation(
     state: UltraShareServiceState,
-    nowMillis: Long = System.currentTimeMillis()
-): UltraShareServiceState = state.copy(
-    progress = null,
-    sendProgress = null,
-    receiveProgress = null,
-    receivedFile = null,
-    queueCompleted = 0,
-    queueTotal = 0,
-    queueCurrentName = null,
-    queueTotalBytes = 0L,
-    queueTransferredBytes = 0L,
-    lastTransferMetrics = null,
-    lastReceiveMetrics = null,
-    peerTransfers = emptyList(),
-    incomingMirrorOffer = null,
-    roomStartedAtMillis = nowMillis,
-    roomResetGeneration = if (state.roomResetGeneration == Long.MAX_VALUE) 1L else state.roomResetGeneration + 1L,
-    transferSessionGeneration = if (state.transferSessionGeneration == Long.MAX_VALUE) 1L else state.transferSessionGeneration + 1L,
-    status = null,
-    error = null
-)
+    nowMillis: Long = System.currentTimeMillis(),
+    nextToken: TransferSessionToken? = null
+): UltraShareServiceState {
+    val nextGeneration = nextToken?.generation
+        ?: (if (state.transferSessionGeneration == Long.MAX_VALUE) 1L else state.transferSessionGeneration + 1L)
+    val nextSessionId = nextToken?.sessionId
+        ?: UltraShareTransferSessionTracker.newCanonicalSessionId()
+    return state.copy(
+        progress = null,
+        sendProgress = null,
+        receiveProgress = null,
+        receivedFile = null,
+        queueCompleted = 0,
+        queueTotal = 0,
+        queueCurrentName = null,
+        queueTotalBytes = 0L,
+        queueTransferredBytes = 0L,
+        lastTransferMetrics = null,
+        lastReceiveMetrics = null,
+        peerTransfers = emptyList(),
+        incomingMirrorOffer = null,
+        roomStartedAtMillis = nowMillis,
+        roomResetGeneration = if (state.roomResetGeneration == Long.MAX_VALUE) 1L else state.roomResetGeneration + 1L,
+        transferSessionId = nextSessionId,
+        transferSessionGeneration = nextGeneration,
+        status = null,
+        error = null
+    )
+}
 
 /**
  * Session-end variant of [resetRoomTransferPresentation]. Semantically identical for the
@@ -68,8 +76,9 @@ internal fun resetRoomTransferPresentation(
  */
 internal fun clearRoomTransferPresentationForSessionEnd(
     state: UltraShareServiceState,
-    nowMillis: Long = System.currentTimeMillis()
-): UltraShareServiceState = resetRoomTransferPresentation(state, nowMillis)
+    nowMillis: Long = System.currentTimeMillis(),
+    nextToken: TransferSessionToken? = null
+): UltraShareServiceState = resetRoomTransferPresentation(state, nowMillis, nextToken)
 
 /**
  * Blocks stale asynchronous callbacks belonging to an ended Transfer Room generation from
@@ -98,11 +107,14 @@ data class IncomingMirrorOffer(
     val height: Int,
     val fps: Int,
     val audioEnabled: Boolean,
-    val revision: Long
+    val revision: Long,
+    val transferSessionId: String = "",
+    val transferSessionGeneration: Long = 0L
 ) {
     override fun toString(): String =
         "IncomingMirrorOffer(sessionId=$sessionId, hostAddress=$hostAddress, port=$streamPort, " +
-            "size=${width}x$height, fps=$fps, audio=$audioEnabled, rev=$revision, key=[REDACTED])"
+            "size=${width}x$height, fps=$fps, audio=$audioEnabled, rev=$revision, " +
+            "transferGen=$transferSessionGeneration, key=[REDACTED])"
 }
 
 /**
@@ -119,7 +131,9 @@ internal fun applyIncomingMirrorControlMessage(
     authorityId: String,
     hostDisplayName: String,
     message: UltraShareScreenMirrorProtocol.ControlMessage,
-    terminatedSessionRevisions: MutableMap<String, Long>? = null
+    terminatedSessionRevisions: MutableMap<String, Long>? = null,
+    transferSessionId: String = "",
+    transferSessionGeneration: Long = 0L
 ): IncomingMirrorOffer? {
     val canonicalAuthority = UltraShareScreenMirrorProtocol.canonicalId(authorityId) ?: return currentOffer
     val canonicalSender = UltraShareScreenMirrorProtocol.canonicalId(message.senderPeerId) ?: return currentOffer
@@ -157,7 +171,9 @@ internal fun applyIncomingMirrorControlMessage(
                 height = cfg.height,
                 fps = cfg.fps,
                 audioEnabled = cfg.audioEnabled,
-                revision = message.revision
+                revision = message.revision,
+                transferSessionId = transferSessionId,
+                transferSessionGeneration = transferSessionGeneration
             )
         }
         UltraShareScreenMirrorProtocol.ControlType.MIRROR_STOP -> {
@@ -222,6 +238,8 @@ data class UltraShareServiceState(
     val roomStartedAtMillis: Long = 0L,
     /** Monotonic signal that room-only UI data must be discarded by observers. */
     val roomResetGeneration: Long = 0L,
+    /** Unique Transfer Room session ID paired with [transferSessionGeneration] for callback authorization. */
+    val transferSessionId: String = UltraShareTransferSessionTracker.INITIAL_PLACEHOLDER_SESSION_ID,
     /** Monotonic token scoped to transfer-room state; bumped on every session-end cleanup
      *  so stale callbacks/coroutines from a previous pairing can never re-insert items
      *  into the freshly started room. */
@@ -487,15 +505,19 @@ class UltraShareForegroundService : Service() {
             }
             ACTION_CANCEL_SEND -> {
                 sendJobsByPeer.values.toSet().forEach { it.cancel() }
+                UltraShareBatchTransport.abortAllActiveSendSessions()
                 return START_NOT_STICKY
             }
             ACTION_STOP_RECEIVING -> {
                 idleDisconnectJob?.cancel()
                 idleDisconnectJob = null
                 UltraShareScreenMirrorService.stopMirroring(this)
+                val rotatedSession = transferSessionTracker.endSessionAndRotate(
+                    reason = "Transfer session stopped via ACTION_STOP_RECEIVING"
+                )
                 sendJobsByPeer.values.toSet().forEach { it.cancel() }
                 sendJobsByPeer.clear()
-                UltraShareBatchTransport.abortAllActiveReceiveSessions()
+                UltraShareBatchTransport.abortAllTransferSockets()
                 receiveJob?.cancel()
                 batchReceiveJob?.cancel()
                 advertisementJob?.cancel()
@@ -503,7 +525,16 @@ class UltraShareForegroundService : Service() {
                 pendingConnectionDecision?.cancel()
                 val hostsToDisconnect = (currentState().activePeers.map { it.host } +
                     approvedSendTargets().map { it.host }).distinct()
+                synchronized(approvedSendTargetsByHost) {
+                    approvedSendTargetsByHost.clear()
+                }
                 serviceScope.launch(Dispatchers.IO) {
+                    runCatching {
+                        UltraShareQueueStore.cancelInFlightForSessionEnd(
+                            this@UltraShareForegroundService,
+                            rotatedSession.endedToken.sessionId
+                        )
+                    }
                     closeMeshRoom()
                     hostsToDisconnect.forEach(::disconnectApprovedPeer)
                     withContext(Dispatchers.Main.immediate) { finishService() }
@@ -520,8 +551,10 @@ class UltraShareForegroundService : Service() {
                             dataChannelReady = false,
                             controlChannelError = null,
                             pendingConnection = null,
-                            activePeers = emptyList()
-                        )
+                            activePeers = emptyList(),
+                            approvedSenderPeerHosts = emptyList()
+                        ),
+                        nextToken = rotatedSession.newToken
                     )
                 }
                 return START_NOT_STICKY
@@ -563,9 +596,12 @@ class UltraShareForegroundService : Service() {
                 idleDisconnectJob = null
                 UltraShareScreenMirrorService.stopMirroring(this)
                 if (sendJobsByPeer.isEmpty() && receiveJob == null && batchReceiveJob == null) startForegroundCompat()
+                val rotatedSession = transferSessionTracker.endSessionAndRotate(
+                    reason = "Transfer session stopped via ${intent?.action}"
+                )
                 sendJobsByPeer.values.toSet().forEach { it.cancel() }
                 sendJobsByPeer.clear()
-                UltraShareBatchTransport.abortAllActiveReceiveSessions()
+                UltraShareBatchTransport.abortAllTransferSockets()
                 receiveJob?.cancel()
                 batchReceiveJob?.cancel()
                 advertisementJob?.cancel()
@@ -573,7 +609,16 @@ class UltraShareForegroundService : Service() {
                 pendingConnectionDecision?.cancel()
                 val hostsToDisconnect = (currentState().activePeers.map { it.host } +
                     approvedSendTargets().map { it.host }).distinct()
+                synchronized(approvedSendTargetsByHost) {
+                    approvedSendTargetsByHost.clear()
+                }
                 serviceScope.launch(Dispatchers.IO) {
+                    runCatching {
+                        UltraShareQueueStore.cancelInFlightForSessionEnd(
+                            this@UltraShareForegroundService,
+                            rotatedSession.endedToken.sessionId
+                        )
+                    }
                     closeMeshRoom()
                     hostsToDisconnect.forEach(::disconnectApprovedPeer)
                     withContext(Dispatchers.Main.immediate) { finishService() }
@@ -590,8 +635,10 @@ class UltraShareForegroundService : Service() {
                             dataChannelReady = false,
                             controlChannelError = null,
                             pendingConnection = null,
-                            activePeers = emptyList()
-                        )
+                            activePeers = emptyList(),
+                            approvedSenderPeerHosts = emptyList()
+                        ),
+                        nextToken = rotatedSession.newToken
                     )
                 }
                 if (sendJobsByPeer.isEmpty() && receiveJob == null && batchReceiveJob == null) finishService()
@@ -724,8 +771,10 @@ class UltraShareForegroundService : Service() {
                 if (batchReceiveJob == null) {
                     batchReceiveJob = serviceScope.launch {
                         try {
-                            val activePeerReceiveGeneration =
-                                java.util.concurrent.ConcurrentHashMap<String, Long>()
+                            val activePeerReceiveTokens =
+                                java.util.concurrent.ConcurrentHashMap<String, TransferSessionToken>()
+                            val activePeerReceiveTasks =
+                                java.util.concurrent.ConcurrentHashMap<String, RegisteredTransferTask>()
                             UltraShareBatchTransport.serveMany(
                                 // QR does not carry a dynamic data port. Keep this endpoint stable
                                 // so the sender can verify it after authenticated pairing.
@@ -737,83 +786,114 @@ class UltraShareForegroundService : Service() {
                                         ?.memoryClass ?: UltraShareBatchTransport.DEFAULT_MAX_PEERS * 32
                                 ),
                                 onPeerStarted = { peer ->
-                                    val peerGen = currentState().transferSessionGeneration
-                                    activePeerReceiveGeneration[peer] = peerGen
+                                    val token = transferSessionTracker.currentToken()
+                                    val peerId = currentState().activePeers.firstOrNull { it.host == peer }?.sessionId
+                                    val receiveKind = if (activePeerReceiveTasks.isNotEmpty()) {
+                                        TransferRoomTaskKind.MULTI_RECEIVE_STREAM
+                                    } else {
+                                        TransferRoomTaskKind.ACTIVE_RECEIVE
+                                    }
+                                    val registered = transferSessionTracker.registerTask(
+                                        token = token,
+                                        kind = receiveKind,
+                                        peerId = peerId,
+                                        peerHosts = listOf(peer),
+                                        initialCloseables = listOf(
+                                            java.io.Closeable { UltraShareBatchTransport.abortPeerReceiveSessions(peer) }
+                                        )
+                                    )
+                                    if (registered == null) {
+                                        UltraShareBatchTransport.abortPeerReceiveSessions(peer)
+                                    } else {
+                                        activePeerReceiveTokens[peer] = token
+                                        activePeerReceiveTasks.put(peer, registered)?.close()
+                                    }
                                     UltraShareDiagnostics.event("DATA_CHANNEL", "V2_PEER_AUTHENTICATED", mapOf("peerHost" to peer))
                                     beginTransfer(isReceiving = true)
-                                    updateState { current ->
-                                        applyIfTransferGenerationMatches(current, peerGen) { live ->
-                                            val item = UltraSharePeerTransfer(
-                                                host = peer, fileName = "جارٍ تجهيز الدفعة",
-                                                transferredBytes = 0L, totalBytes = 0L, bytesPerSecond = 0L,
-                                                status = "جارٍ الاستقبال"
-                                            )
-                                            live.copy(peerTransfers = live.peerTransfers.filterNot { it.host == peer } + item)
+                                    if (registered != null && transferSessionTracker.isCallbackAuthorized(token, peerId = peerId, peerHost = peer)) {
+                                        updateState { current ->
+                                            applyIfTransferSessionMatches(current, token) { live ->
+                                                val item = UltraSharePeerTransfer(
+                                                    host = peer, fileName = "جارٍ تجهيز الدفعة",
+                                                    transferredBytes = 0L, totalBytes = 0L, bytesPerSecond = 0L,
+                                                    status = "جارٍ الاستقبال"
+                                                )
+                                                live.copy(peerTransfers = live.peerTransfers.filterNot { it.host == peer } + item)
+                                            }
                                         }
                                     }
                                 },
                                 onPeerFinished = { peer ->
-                                    val peerGen = activePeerReceiveGeneration[peer] ?: -1L
+                                    val peerToken = activePeerReceiveTokens.remove(peer)
+                                    activePeerReceiveTasks.remove(peer)?.close()
                                     UltraShareDiagnostics.event("DATA_CHANNEL", "V2_PEER_SESSION_CLOSED", mapOf("peerHost" to peer))
-                                    updateState { current ->
-                                        applyIfTransferGenerationMatches(current, peerGen) { live ->
-                                            val existing = live.peerTransfers.firstOrNull { it.host == peer }
-                                            val updatedTransfers = if (existing == null || existing.status == "جارٍ الاستقبال") {
-                                                val idle = (existing ?: UltraSharePeerTransfer(peer, "", 0L, 0L, 0L, "اكتملت الجلسة"))
-                                                    .copy(status = "اكتملت الجلسة", bytesPerSecond = 0L, updatedAtMillis = (System.nanoTime() / 1_000_000L))
-                                                live.peerTransfers.filterNot { it.host == peer } + idle
-                                            } else live.peerTransfers
-                                            val activeProgress = latestActivePeerReceiveProgress(updatedTransfers)
-                                            live.copy(
-                                                peerTransfers = updatedTransfers,
-                                                receiveProgress = activeProgress,
-                                                progress = if (live.sending) live.sendProgress else activeProgress
-                                            )
+                                    if (peerToken != null && transferSessionTracker.isCallbackAuthorized(peerToken, peerHost = peer)) {
+                                        updateState { current ->
+                                            applyIfTransferSessionMatches(current, peerToken) { live ->
+                                                val existing = live.peerTransfers.firstOrNull { it.host == peer }
+                                                val updatedTransfers = if (existing == null || existing.status == "جارٍ الاستقبال") {
+                                                    val idle = (existing ?: UltraSharePeerTransfer(peer, "", 0L, 0L, 0L, "اكتملت الجلسة"))
+                                                        .copy(status = "اكتملت الجلسة", bytesPerSecond = 0L, updatedAtMillis = (System.nanoTime() / 1_000_000L))
+                                                    live.peerTransfers.filterNot { it.host == peer } + idle
+                                                } else live.peerTransfers
+                                                val activeProgress = latestActivePeerReceiveProgress(updatedTransfers)
+                                                live.copy(
+                                                    peerTransfers = updatedTransfers,
+                                                    receiveProgress = activeProgress,
+                                                    progress = if (live.sending) live.sendProgress else activeProgress
+                                                )
+                                            }
                                         }
                                     }
                                     endTransfer(isReceiving = true)
                                 },
                                 onProgress = { peer, progress ->
-                                    val peerGen = activePeerReceiveGeneration[peer] ?: -1L
-                                    var shouldNotify = false
-                                    updateState { current ->
-                                        applyIfTransferGenerationMatches(current, peerGen) { live ->
-                                            shouldNotify = true
-                                            val item = UltraSharePeerTransfer(
-                                                host = peer,
-                                                fileName = progress.fileName,
-                                                transferredBytes = progress.transferredBytes,
-                                                totalBytes = progress.totalBytes,
-                                                bytesPerSecond = progress.bytesPerSecond,
-                                                status = "يستقبل الآن"
-                                            )
-                                            val updatedTransfers = live.peerTransfers.filterNot { it.host == peer } + item
-                                            val activeProgress = latestActivePeerReceiveProgress(updatedTransfers)
-                                            live.copy(
-                                                peerTransfers = updatedTransfers,
-                                                receiveProgress = activeProgress,
-                                                progress = if (live.sending) live.sendProgress else activeProgress,
-                                                status = "استقبال ملفات عبر جلسة V2 من $peer",
-                                                error = null
+                                    val peerToken = activePeerReceiveTokens[peer]
+                                    if (peerToken != null && transferSessionTracker.isCallbackAuthorized(peerToken, peerHost = peer)) {
+                                        var shouldNotify = false
+                                        updateState { current ->
+                                            applyIfTransferSessionMatches(current, peerToken) { live ->
+                                                shouldNotify = true
+                                                val item = UltraSharePeerTransfer(
+                                                    host = peer,
+                                                    fileName = progress.fileName,
+                                                    transferredBytes = progress.transferredBytes,
+                                                    totalBytes = progress.totalBytes,
+                                                    bytesPerSecond = progress.bytesPerSecond,
+                                                    status = "يستقبل الآن"
+                                                )
+                                                val updatedTransfers = live.peerTransfers.filterNot { it.host == peer } + item
+                                                val activeProgress = latestActivePeerReceiveProgress(updatedTransfers)
+                                                live.copy(
+                                                    peerTransfers = updatedTransfers,
+                                                    receiveProgress = activeProgress,
+                                                    progress = if (live.sending) live.sendProgress else activeProgress,
+                                                    status = "استقبال ملفات عبر جلسة V2 من $peer",
+                                                    error = null
+                                                )
+                                            }
+                                        }
+                                        if (shouldNotify) {
+                                            updateNotification(
+                                                currentState().receiveProgress ?: UltraShareCore.Progress(
+                                                    progress.fileName, progress.transferredBytes, progress.totalBytes,
+                                                    progress.bytesPerSecond, true
+                                                )
                                             )
                                         }
                                     }
-                                    if (shouldNotify) {
-                                        updateNotification(
-                                            currentState().receiveProgress ?: UltraShareCore.Progress(
-                                                progress.fileName, progress.transferredBytes, progress.totalBytes,
-                                                progress.bytesPerSecond, true
-                                            )
-                                        )
-                                    }
                                 },
                                 onBatchFinished = { peer, batch ->
-                                    val batchGen = activePeerReceiveGeneration[peer] ?: -1L
+                                    val batchToken = activePeerReceiveTokens[peer]
+                                    val callbackAuthorized = batchToken != null &&
+                                        transferSessionTracker.isCallbackAuthorized(batchToken, peerHost = peer)
                                     val receiverPublishStartedAtNanos = System.nanoTime()
-                                    batch.receiveMetrics?.let { metrics ->
-                                        updateState { current ->
-                                            applyIfTransferGenerationMatches(current, batchGen) { live ->
-                                                live.copy(lastReceiveMetrics = metrics)
+                                    if (callbackAuthorized && batchToken != null) {
+                                        batch.receiveMetrics?.let { metrics ->
+                                            updateState { current ->
+                                                applyIfTransferSessionMatches(current, batchToken) { live ->
+                                                    live.copy(lastReceiveMetrics = metrics)
+                                                }
                                             }
                                         }
                                     }
@@ -840,82 +920,90 @@ class UltraShareForegroundService : Service() {
                                                 sizeBytes = received.sizeBytes,
                                                 publishedUri = publishedUri?.toString()
                                             )
-                                            updateState { current ->
-                                                applyIfTransferGenerationMatches(current, batchGen) { live ->
-                                                    live.copy(
-                                                        receivedFile = received.copy(publishedUri = publishedUri),
-                                                        status = if (publishedUri != null) {
-                                                            "استُلم ${received.fileName} وحُفظ في التنزيلات/MalekPlayer"
-                                                        } else {
-                                                            "استُلم ${received.fileName} وحُفظ في مجلد MalekPlayer داخل ملفات التطبيق"
-                                                        },
-                                                        error = null
-                                                    )
+                                            if (batchToken != null && transferSessionTracker.isCallbackAuthorized(batchToken, peerHost = peer)) {
+                                                updateState { current ->
+                                                    applyIfTransferSessionMatches(current, batchToken) { live ->
+                                                        live.copy(
+                                                            receivedFile = received.copy(publishedUri = publishedUri),
+                                                            status = if (publishedUri != null) {
+                                                                "استُلم ${received.fileName} وحُفظ في التنزيلات/MalekPlayer"
+                                                            } else {
+                                                                "استُلم ${received.fileName} وحُفظ في مجلد MalekPlayer داخل ملفات التطبيق"
+                                                            },
+                                                            error = null
+                                                        )
+                                                    }
                                                 }
                                             }
                                         } catch (cancelled: CancellationException) {
                                             throw cancelled
                                         } catch (failure: Exception) {
                                             UltraShareDiagnostics.failure("RECEIVED_FILE_PUBLISH", failure, "peerHost=" + peer + ";file=" + received.fileName)
-                                            updateState { current ->
-                                                applyIfTransferGenerationMatches(current, batchGen) { live ->
-                                                    live.copy(error = failure.localizedMessage ?: "تعذر حفظ الملف المستلم.")
+                                            if (batchToken != null && transferSessionTracker.isCallbackAuthorized(batchToken, peerHost = peer)) {
+                                                updateState { current ->
+                                                    applyIfTransferSessionMatches(current, batchToken) { live ->
+                                                        live.copy(error = failure.localizedMessage ?: "تعذر حفظ الملف المستلم.")
+                                                    }
                                                 }
                                             }
                                         }
                                     }
                                     val receiverPublishElapsedMs =
                                         (System.nanoTime() - receiverPublishStartedAtNanos).coerceAtLeast(0L) / 1_000_000L
-                                    batch.receiveMetrics?.let { metrics ->
-                                        updateState { current ->
-                                            applyIfTransferGenerationMatches(current, batchGen) { live ->
-                                                live.copy(lastReceiveMetrics = metrics.copy(publishElapsedMs = receiverPublishElapsedMs))
+                                    if (batchToken != null && transferSessionTracker.isCallbackAuthorized(batchToken, peerHost = peer)) {
+                                        batch.receiveMetrics?.let { metrics ->
+                                            updateState { current ->
+                                                applyIfTransferSessionMatches(current, batchToken) { live ->
+                                                    live.copy(lastReceiveMetrics = metrics.copy(publishElapsedMs = receiverPublishElapsedMs))
+                                                }
                                             }
                                         }
-                                    }
-                                    updateState { current ->
-                                        applyIfTransferGenerationMatches(current, batchGen) { live ->
-                                            val completed = batch.files.count { it.status == UltraShareBatchProtocol.FileStatus.COMPLETED }
-                                            val failed = batch.files.size - completed
-                                            val previous = live.peerTransfers.firstOrNull { it.host == peer }
-                                            val receivedBytes = batch.files.sumOf { it.transferredBytes.coerceAtLeast(0L) }
-                                            val totalBytes = batch.files.sumOf { it.receivedFile?.sizeBytes ?: it.transferredBytes.coerceAtLeast(0L) }
-                                            val summary = (previous ?: UltraSharePeerTransfer(peer, "", 0L, 0L, 0L, "اكتملت الدفعة"))
-                                                .copy(
-                                                    fileName = if (failed == 0) "اكتملت الدفعة" else "اكتملت مع وجود ملفات فاشلة",
-                                                    transferredBytes = receivedBytes,
-                                                    totalBytes = totalBytes,
-                                                    bytesPerSecond = 0L,
-                                                    status = if (failed == 0) "اكتمل • $completed ملفات" else "اكتمل $completed • فشل $failed",
-                                                    updatedAtMillis = (System.nanoTime() / 1_000_000L)
+                                        updateState { current ->
+                                            applyIfTransferSessionMatches(current, batchToken) { live ->
+                                                val completed = batch.files.count { it.status == UltraShareBatchProtocol.FileStatus.COMPLETED }
+                                                val failed = batch.files.size - completed
+                                                val previous = live.peerTransfers.firstOrNull { it.host == peer }
+                                                val receivedBytes = batch.files.sumOf { it.transferredBytes.coerceAtLeast(0L) }
+                                                val totalBytes = batch.files.sumOf { it.receivedFile?.sizeBytes ?: it.transferredBytes.coerceAtLeast(0L) }
+                                                val summary = (previous ?: UltraSharePeerTransfer(peer, "", 0L, 0L, 0L, "اكتملت الدفعة"))
+                                                    .copy(
+                                                        fileName = if (failed == 0) "اكتملت الدفعة" else "اكتملت مع وجود ملفات فاشلة",
+                                                        transferredBytes = receivedBytes,
+                                                        totalBytes = totalBytes,
+                                                        bytesPerSecond = 0L,
+                                                        status = if (failed == 0) "اكتمل • $completed ملفات" else "اكتمل $completed • فشل $failed",
+                                                        updatedAtMillis = (System.nanoTime() / 1_000_000L)
+                                                    )
+                                                val updatedTransfers = live.peerTransfers.filterNot { it.host == peer } + summary
+                                                val activeProgress = latestActivePeerReceiveProgress(updatedTransfers)
+                                                live.copy(
+                                                    peerTransfers = updatedTransfers,
+                                                    receiveProgress = activeProgress,
+                                                    progress = if (live.sending) live.sendProgress else activeProgress,
+                                                    status = "اكتملت دفعة V2 من $peer: $completed ملف"
                                                 )
-                                            val updatedTransfers = live.peerTransfers.filterNot { it.host == peer } + summary
-                                            val activeProgress = latestActivePeerReceiveProgress(updatedTransfers)
-                                            live.copy(
-                                                peerTransfers = updatedTransfers,
-                                                receiveProgress = activeProgress,
-                                                progress = if (live.sending) live.sendProgress else activeProgress,
-                                                status = "اكتملت دفعة V2 من $peer: $completed ملف"
-                                            )
+                                            }
                                         }
                                     }
                                 },
                                 onPeerError = { peer, failure ->
-                                    val peerGen = activePeerReceiveGeneration[peer] ?: -1L
+                                    val peerToken = activePeerReceiveTokens[peer]
                                     UltraShareDiagnostics.failure("BATCH_RECEIVE_PEER", failure, "peerHost=" + peer)
-                                    updateState { current ->
-                                        applyIfTransferGenerationMatches(current, peerGen) { live ->
-                                            val previous = live.peerTransfers.firstOrNull { it.host == peer }
-                                            val failed = (previous ?: UltraSharePeerTransfer(peer, "", 0L, 0L, 0L, "فشل النقل"))
-                                                .copy(status = "فشل النقل", bytesPerSecond = 0L, updatedAtMillis = (System.nanoTime() / 1_000_000L))
-                                            val updatedTransfers = live.peerTransfers.filterNot { it.host == peer } + failed
-                                            val activeProgress = latestActivePeerReceiveProgress(updatedTransfers)
-                                            live.copy(
-                                                peerTransfers = updatedTransfers,
-                                                receiveProgress = activeProgress,
-                                                progress = if (live.sending) live.sendProgress else activeProgress,
-                                                error = "جلسة V2 من $peer: ${failure.localizedMessage ?: "فشل النقل"}"
-                                            )
+                                    if (peerToken != null && transferSessionTracker.isCallbackAuthorized(peerToken, peerHost = peer)) {
+                                        updateState { current ->
+                                            applyIfTransferSessionMatches(current, peerToken) { live ->
+                                                val previous = live.peerTransfers.firstOrNull { it.host == peer }
+                                                val failed = (previous ?: UltraSharePeerTransfer(peer, "", 0L, 0L, 0L, "فشل النقل"))
+                                                    .copy(status = "فشل النقل", bytesPerSecond = 0L, updatedAtMillis = (System.nanoTime() / 1_000_000L))
+                                                val updatedTransfers = live.peerTransfers.filterNot { it.host == peer } + failed
+                                                val activeProgress = latestActivePeerReceiveProgress(updatedTransfers)
+                                                live.copy(
+                                                    peerTransfers = updatedTransfers,
+                                                    receiveProgress = activeProgress,
+                                                    progress = if (live.sending) live.sendProgress else activeProgress,
+                                                    error = "جلسة V2 من $peer: ${failure.localizedMessage ?: "فشل النقل"}"
+                                                )
+                                            }
                                         }
                                     }
                                 },
@@ -1407,9 +1495,13 @@ class UltraShareForegroundService : Service() {
     private fun closeTemporarySessionAfterIdle() {
         idleDisconnectJob = null
         UltraShareDiagnostics.event("SESSION", "IDLE_TIMEOUT_DISCONNECT")
+        val rotated = transferSessionTracker.endSessionAndRotate(
+            reason = "Idle timeout disconnect"
+        )
         (currentState().activePeers.map { it.host } + approvedSendTargets().map { it.host })
             .distinct()
             .forEach(::disconnectApprovedPeer)
+        UltraShareBatchTransport.abortAllTransferSockets()
         pendingConnectionDecision?.cancel()
         pendingConnectionDecision = null
         advertisementJob?.cancel()
@@ -1420,23 +1512,40 @@ class UltraShareForegroundService : Service() {
         batchReceiveJob?.cancel()
         stopLocalHotspot()
         closeMeshRoom()
-        updateState { current -> current.copy(
-            receiving = false,
-            sending = false,
-            pairingSecret = "",
-            localAddresses = emptyList(),
-            wifiDirectLocalAddress = null,
-            controlChannelReady = false,
-            dataChannelReady = false,
-            controlChannelError = null,
-            pendingConnection = null,
-            activePeers = emptyList(),
-            reconnectablePeers = emptyList(),
-            approvedSenderPeerHosts = emptyList(),
-            reconnectableSenderPeerHosts = emptyList(),
-            peerTransfers = emptyList(),
-            status = "أُغلقت الغرفة تلقائياً بعد خمس دقائق من عدم النشاط."
-        ) }
+        serviceScope.launch(Dispatchers.IO) {
+            runCatching {
+                UltraShareQueueStore.cancelInFlightForSessionEnd(
+                    this@UltraShareForegroundService,
+                    rotated.endedToken.sessionId
+                )
+                UltraSharePeerDeliveryStore.cancelInFlightForSessionEnd(
+                    this@UltraShareForegroundService,
+                    rotated.endedToken.sessionId
+                )
+            }
+        }
+        updateState { current ->
+            clearRoomTransferPresentationForSessionEnd(
+                current.copy(
+                    receiving = false,
+                    sending = false,
+                    pairingSecret = "",
+                    localAddresses = emptyList(),
+                    wifiDirectLocalAddress = null,
+                    controlChannelReady = false,
+                    dataChannelReady = false,
+                    controlChannelError = null,
+                    pendingConnection = null,
+                    activePeers = emptyList(),
+                    reconnectablePeers = emptyList(),
+                    approvedSenderPeerHosts = emptyList(),
+                    reconnectableSenderPeerHosts = emptyList(),
+                    peerTransfers = emptyList(),
+                    incomingMirrorOffer = null
+                ),
+                nextToken = transferSessionTracker.currentToken()
+            ).copy(status = "أُغلقت الغرفة تلقائياً بعد خمس دقائق من عدم النشاط.")
+        }
         finishService()
     }
 
@@ -1756,7 +1865,9 @@ class UltraShareForegroundService : Service() {
                                         authorityId = authenticatedPeerId,
                                         hostDisplayName = hostDisplayName,
                                         message = mirrorMsg,
-                                        terminatedSessionRevisions = terminatedMirrorSessionRevisions
+                                        terminatedSessionRevisions = terminatedMirrorSessionRevisions,
+                                        transferSessionId = current.transferSessionId,
+                                        transferSessionGeneration = current.transferSessionGeneration
                                     )
                                     if (nextOffer === current.incomingMirrorOffer) current
                                     else current.copy(incomingMirrorOffer = nextOffer)
@@ -1982,7 +2093,9 @@ class UltraShareForegroundService : Service() {
                                         authorityId = authorityId,
                                         hostDisplayName = hostDisplayName,
                                         message = mirrorMsg,
-                                        terminatedSessionRevisions = terminatedMirrorSessionRevisions
+                                        terminatedSessionRevisions = terminatedMirrorSessionRevisions,
+                                        transferSessionId = current.transferSessionId,
+                                        transferSessionGeneration = current.transferSessionGeneration
                                     )
                                     if (nextOffer === current.incomingMirrorOffer) current
                                     else current.copy(incomingMirrorOffer = nextOffer)
@@ -2054,7 +2167,9 @@ class UltraShareForegroundService : Service() {
                             authorityId = expectedRemotePeerId,
                             hostDisplayName = hostDisplayName,
                             message = mirrorMsg,
-                            terminatedSessionRevisions = terminatedMirrorSessionRevisions
+                            terminatedSessionRevisions = terminatedMirrorSessionRevisions,
+                            transferSessionId = current.transferSessionId,
+                            transferSessionGeneration = current.transferSessionGeneration
                         )
                         if (nextOffer === current.incomingMirrorOffer) current
                         else current.copy(incomingMirrorOffer = nextOffer)
@@ -2097,7 +2212,9 @@ class UltraShareForegroundService : Service() {
                                 authorityId = remotePeerId,
                                 hostDisplayName = hostDisplayName,
                                 message = mirrorMsg,
-                                terminatedSessionRevisions = terminatedMirrorSessionRevisions
+                                terminatedSessionRevisions = terminatedMirrorSessionRevisions,
+                                transferSessionId = current.transferSessionId,
+                                transferSessionGeneration = current.transferSessionGeneration
                             )
                             if (nextOffer === current.incomingMirrorOffer) current
                             else current.copy(incomingMirrorOffer = nextOffer)
@@ -2522,10 +2639,13 @@ class UltraShareForegroundService : Service() {
         if (currentState().activePeers.isEmpty() &&
             approvedSendTargets().isEmpty() && sendJobsByPeer.isEmpty()
         ) {
+            val rotated = transferSessionTracker.endSessionAndRotate(
+                reason = "All peers left transfer room"
+            )
             updateState { current ->
                 if (current.activePeers.isEmpty() &&
                     approvedSendTargets().isEmpty() && sendJobsByPeer.isEmpty()
-                ) resetRoomTransferPresentation(current) else current
+                ) resetRoomTransferPresentation(current, nextToken = rotated.newToken) else current
             }
         }
     }
@@ -2537,24 +2657,30 @@ class UltraShareForegroundService : Service() {
      * already finished on its own), this cancels any *in-flight* send/receive jobs belonging
      * to the ended session and then clears the live room state. Completed files on disk and the
      * permanent transfer history are intentionally preserved; only the transient room state is
-     * dropped. The [UltraShareServiceState.transferSessionGeneration] bump guarantees that a
-     * late callback from a cancelled job can never re-insert an item into the freshly started room.
+     * dropped. Rotating [TransferSessionToken] guarantees that a late callback from a cancelled
+     * job can never re-insert an item into the freshly started room.
      */
     private fun clearTransferRoomForSessionEnd() {
-        val generationBefore = currentState().transferSessionGeneration
+        val rotated = transferSessionTracker.endSessionAndRotate(
+            reason = "Explicit transfer room session end"
+        )
         sendJobsByPeer.values.toSet().forEach { it.cancel() }
         sendJobsByPeer.clear()
-        UltraShareBatchTransport.abortAllActiveReceiveSessions()
+        UltraShareBatchTransport.abortAllTransferSockets()
         if (!currentState().receiving) {
             receiveJob?.cancel()
             batchReceiveJob?.cancel()
         }
-        updateState { current ->
-            if (current.transferSessionGeneration == generationBefore) {
-                clearRoomTransferPresentationForSessionEnd(current)
-            } else {
-                current
+        serviceScope.launch(Dispatchers.IO) {
+            runCatching {
+                UltraShareQueueStore.cancelInFlightForSessionEnd(
+                    this@UltraShareForegroundService,
+                    rotated.endedToken.sessionId
+                )
             }
+        }
+        updateState { current ->
+            clearRoomTransferPresentationForSessionEnd(current, nextToken = rotated.newToken)
         }
     }
 
@@ -2606,7 +2732,7 @@ class UltraShareForegroundService : Service() {
         }
         if (sendJobsByPeer.containsKey(sendKey)) return
         startForegroundCompat()
-        val sessionGeneration = currentState().transferSessionGeneration
+        val sessionToken = transferSessionTracker.currentToken()
         lateinit var sendJobForPeer: Job
         sendJobForPeer = serviceScope.launch(start = CoroutineStart.LAZY) {
             var sent = 0
@@ -2624,7 +2750,11 @@ class UltraShareForegroundService : Service() {
                 // stops the process during slow metadata lookup, the selected files remain
                 // visible as pending instead of disappearing from the durable queue.
                 if (replaceQueue) {
-                    UltraShareQueueStore.enqueue(this@UltraShareForegroundService, queue)
+                    UltraShareQueueStore.enqueue(
+                        this@UltraShareForegroundService,
+                        queue,
+                        transferSessionId = sessionToken.sessionId
+                    )
                 }
                 metadataByUri = queue.mapNotNull { item ->
                     runCatching { item to readDocumentMetadata(item) }.getOrNull()
@@ -2632,9 +2762,11 @@ class UltraShareForegroundService : Service() {
                 totalBytes = metadataByUri.values.fold(0L) { total, metadata ->
                     if (Long.MAX_VALUE - total < metadata.third) Long.MAX_VALUE else total + metadata.third
                 }
-                updateState { current ->
-                    applyIfTransferGenerationMatches(current, sessionGeneration) { live ->
-                        live.copy(queueTotalBytes = totalBytes, queueTransferredBytes = 0L)
+                if (transferSessionTracker.isCallbackAuthorized(sessionToken, peerId = sendKey, peerHost = host)) {
+                    updateState { current ->
+                        applyIfTransferSessionMatches(current, sessionToken) { live ->
+                            live.copy(queueTotalBytes = totalBytes, queueTransferredBytes = 0L)
+                        }
                     }
                 }
                 val v2Candidates = ArrayList<Pair<Uri, UltraShareBatchTransport.Source>>()
@@ -2645,14 +2777,22 @@ class UltraShareForegroundService : Service() {
                     val metadata = runCatching { metadataByUri[uri] ?: readDocumentMetadata(uri) }.getOrElse { failure ->
                         failed++
                         lastError = failure.localizedMessage ?: "تعذرت قراءة أحد الملفات."
-                        UltraShareQueueStore.update(this@UltraShareForegroundService, uri, status = UltraShareQueueStore.STATUS_FAILED, error = lastError)
+                        UltraShareQueueStore.update(
+                            this@UltraShareForegroundService,
+                            uri,
+                            status = UltraShareQueueStore.STATUS_FAILED,
+                            error = lastError,
+                            transferSessionId = sessionToken.sessionId
+                        )
                         return@forEach
                     }
-                    val claimed = UltraShareQueueStore.claimForSending(this@UltraShareForegroundService, uri, metadata.first)
+                    val claimed = UltraShareQueueStore.claimForSending(
+                        this@UltraShareForegroundService,
+                        uri,
+                        metadata.first,
+                        transferSessionId = sessionToken.sessionId
+                    )
                     if (!claimed) return@forEach
-                    // Stable per queue URI so a retry after interruption can address
-                    // the same per-file resume checkpoint, including duplicate-content
-                    // files selected from different document-provider locations.
                     val fileId = UltraShareBatchTransport.stableFileId(uri, metadata.first, metadata.third)
                     v2Candidates += uri to UltraShareBatchTransport.Source(
                         uri = uri,
@@ -2687,29 +2827,31 @@ class UltraShareForegroundService : Service() {
                                         progress.bytesPerSecond, false
                                     )
                                     var shouldNotify = false
-                                    updateState { current ->
-                                        applyIfTransferGenerationMatches(current, sessionGeneration) { live ->
-                                            shouldNotify = true
-                                            val peerTransfer = UltraSharePeerTransfer(
-                                                host = activeV2Host,
-                                                fileName = progress.fileName,
-                                                transferredBytes = progress.transferredBytes,
-                                                totalBytes = progress.totalBytes,
-                                                bytesPerSecond = progress.bytesPerSecond,
-                                                status = "يرسل الآن"
-                                            )
-                                            val updatedTransfers = live.peerTransfers.filterNot { it.host == activeV2Host } + peerTransfer
-                                            val aggregateSendProgress = sendProgress.copy(
-                                                bytesPerSecond = aggregateActivePeerBytesPerSecond(updatedTransfers, receiving = false)
-                                            )
-                                            live.copy(
-                                                peerTransfers = updatedTransfers,
-                                                progress = if (live.receiving) live.receiveProgress else aggregateSendProgress,
-                                                sendProgress = aggregateSendProgress,
-                                                queueCurrentName = progress.fileName,
-                                                queueTransferredBytes = minOf(totalBytes, v2ProgressCompletedBytes + progress.transferredBytes),
-                                                status = "إرسال دفعة V2 عبر اتصال بيانات واحد: ${progress.fileName}"
-                                            )
+                                    if (transferSessionTracker.isCallbackAuthorized(sessionToken, peerId = sendKey, peerHost = activeV2Host)) {
+                                        updateState { current ->
+                                            applyIfTransferSessionMatches(current, sessionToken) { live ->
+                                                shouldNotify = true
+                                                val peerTransfer = UltraSharePeerTransfer(
+                                                    host = activeV2Host,
+                                                    fileName = progress.fileName,
+                                                    transferredBytes = progress.transferredBytes,
+                                                    totalBytes = progress.totalBytes,
+                                                    bytesPerSecond = progress.bytesPerSecond,
+                                                    status = "يرسل الآن"
+                                                )
+                                                val updatedTransfers = live.peerTransfers.filterNot { it.host == activeV2Host } + peerTransfer
+                                                val aggregateSendProgress = sendProgress.copy(
+                                                    bytesPerSecond = aggregateActivePeerBytesPerSecond(updatedTransfers, receiving = false)
+                                                )
+                                                live.copy(
+                                                    peerTransfers = updatedTransfers,
+                                                    progress = if (live.receiving) live.receiveProgress else aggregateSendProgress,
+                                                    sendProgress = aggregateSendProgress,
+                                                    queueCurrentName = progress.fileName,
+                                                    queueTransferredBytes = minOf(totalBytes, v2ProgressCompletedBytes + progress.transferredBytes),
+                                                    status = "إرسال دفعة V2 عبر اتصال بيانات واحد: ${progress.fileName}"
+                                                )
+                                            }
                                         }
                                     }
                                     if (shouldNotify) {
@@ -2717,50 +2859,67 @@ class UltraShareForegroundService : Service() {
                                     }
                                 }
                                 val uriById = candidateChunk.associate { it.second.fileId to it.first }
-                                updateState { current ->
-                                    applyIfTransferGenerationMatches(current, sessionGeneration) { live ->
-                                        val completed = batch.files.count { it.status == UltraShareBatchProtocol.FileStatus.COMPLETED }
-                                        val failedInChunk = batch.files.size - completed
-                                        val previous = live.peerTransfers.firstOrNull { it.host == activeV2Host }
-                                        val summary = (previous ?: UltraSharePeerTransfer(activeV2Host, "", 0L, 0L, 0L, "اكتملت الدفعة"))
-                                            .copy(
-                                                fileName = "نتيجة الدفعة",
-                                                transferredBytes = batch.files.sumOf { it.transferredBytes.coerceAtLeast(0L) },
-                                                totalBytes = candidateChunk.sumOf { it.second.sizeBytes.coerceAtLeast(0L) },
-                                                bytesPerSecond = 0L,
-                                                status = if (failedInChunk == 0) "اكتمل • $completed ملفات" else "اكتمل $completed • فشل $failedInChunk",
-                                                updatedAtMillis = (System.nanoTime() / 1_000_000L)
+                                if (transferSessionTracker.isCallbackAuthorized(sessionToken, peerId = sendKey, peerHost = activeV2Host)) {
+                                    updateState { current ->
+                                        applyIfTransferSessionMatches(current, sessionToken) { live ->
+                                            val completed = batch.files.count { it.status == UltraShareBatchProtocol.FileStatus.COMPLETED }
+                                            val failedInChunk = batch.files.size - completed
+                                            val previous = live.peerTransfers.firstOrNull { it.host == activeV2Host }
+                                            val summary = (previous ?: UltraSharePeerTransfer(activeV2Host, "", 0L, 0L, 0L, "اكتملت الدفعة"))
+                                                .copy(
+                                                    fileName = "نتيجة الدفعة",
+                                                    transferredBytes = batch.files.sumOf { it.transferredBytes.coerceAtLeast(0L) },
+                                                    totalBytes = candidateChunk.sumOf { it.second.sizeBytes.coerceAtLeast(0L) },
+                                                    bytesPerSecond = 0L,
+                                                    status = if (failedInChunk == 0) "اكتمل • $completed ملفات" else "اكتمل $completed • فشل $failedInChunk",
+                                                    updatedAtMillis = (System.nanoTime() / 1_000_000L)
+                                                )
+                                            val updatedTransfers = live.peerTransfers.filterNot { it.host == activeV2Host } + summary
+                                            val aggregateSend = latestActivePeerSendProgress(updatedTransfers)
+                                                ?: live.sendProgress?.copy(bytesPerSecond = 0L)
+                                            live.copy(
+                                                peerTransfers = updatedTransfers,
+                                                sendProgress = aggregateSend,
+                                                progress = if (live.receiving) live.receiveProgress else aggregateSend
                                             )
-                                        val updatedTransfers = live.peerTransfers.filterNot { it.host == activeV2Host } + summary
-                                        val aggregateSend = latestActivePeerSendProgress(updatedTransfers)
-                                            ?: live.sendProgress?.copy(bytesPerSecond = 0L)
-                                        live.copy(
-                                            peerTransfers = updatedTransfers,
-                                            sendProgress = aggregateSend,
-                                            progress = if (live.receiving) live.receiveProgress else aggregateSend
-                                        )
+                                        }
                                     }
                                 }
-                                batch.files.forEachIndexed { index, outcome ->
+                                batch.files.forEachIndexed { _, outcome ->
                                     val uri = uriById[outcome.fileId] ?: return@forEachIndexed
                                     val metadata = metadataByUri[uri] ?: readDocumentMetadata(uri)
                                     if (outcome.status == UltraShareBatchProtocol.FileStatus.COMPLETED) {
                                         sent++
                                         completedBytes = if (Long.MAX_VALUE - completedBytes < metadata.third) Long.MAX_VALUE else completedBytes + metadata.third
-                                        UltraShareQueueStore.update(this@UltraShareForegroundService, uri, metadata.first, UltraShareQueueStore.STATUS_COMPLETED)
+                                        UltraShareQueueStore.update(
+                                            this@UltraShareForegroundService,
+                                            uri,
+                                            metadata.first,
+                                            UltraShareQueueStore.STATUS_COMPLETED,
+                                            transferSessionId = sessionToken.sessionId
+                                        )
                                     } else {
                                         failed++
                                         lastError = outcome.error ?: "فشل إرسال ${metadata.first}"
-                                        UltraShareQueueStore.update(this@UltraShareForegroundService, uri, metadata.first, UltraShareQueueStore.STATUS_FAILED, lastError)
+                                        UltraShareQueueStore.update(
+                                            this@UltraShareForegroundService,
+                                            uri,
+                                            metadata.first,
+                                            UltraShareQueueStore.STATUS_FAILED,
+                                            lastError,
+                                            transferSessionId = sessionToken.sessionId
+                                        )
                                     }
-                                    updateState { current ->
-                                        applyIfTransferGenerationMatches(current, sessionGeneration) { live ->
-                                            live.copy(
-                                                queueCompleted = sent + failed,
-                                                queueTotal = queue.size,
-                                                queueTotalBytes = totalBytes,
-                                                queueTransferredBytes = completedBytes
-                                            )
+                                    if (transferSessionTracker.isCallbackAuthorized(sessionToken, peerId = sendKey, peerHost = activeV2Host)) {
+                                        updateState { current ->
+                                            applyIfTransferSessionMatches(current, sessionToken) { live ->
+                                                live.copy(
+                                                    queueCompleted = sent + failed,
+                                                    queueTotal = queue.size,
+                                                    queueTotalBytes = totalBytes,
+                                                    queueTransferredBytes = completedBytes
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -2773,7 +2932,8 @@ class UltraShareForegroundService : Service() {
                                 candidateChunk.forEach { (uri, source) ->
                                     UltraShareQueueStore.update(
                                         this@UltraShareForegroundService, uri, source.name,
-                                        UltraShareQueueStore.STATUS_FAILED, lastError
+                                        UltraShareQueueStore.STATUS_FAILED, lastError,
+                                        transferSessionId = sessionToken.sessionId
                                     )
                                 }
                             }
@@ -2783,7 +2943,8 @@ class UltraShareForegroundService : Service() {
                             v2Candidates.forEach { (uri, source) ->
                                 UltraShareQueueStore.update(
                                     this@UltraShareForegroundService, uri, source.name,
-                                    UltraShareQueueStore.STATUS_PENDING, "انقطع النقل؛ يمكن استئناف الملف من موضعه."
+                                    UltraShareQueueStore.STATUS_PENDING, "انقطع النقل؛ يمكن استئناف الملف من موضعه.",
+                                    transferSessionId = sessionToken.sessionId
                                 )
                             }
                         }
@@ -2795,7 +2956,8 @@ class UltraShareForegroundService : Service() {
                         v2Candidates.forEach { (uri, source) ->
                             UltraShareQueueStore.update(
                                 this@UltraShareForegroundService, uri, source.name,
-                                UltraShareQueueStore.STATUS_FAILED, lastError
+                                UltraShareQueueStore.STATUS_FAILED, lastError,
+                                transferSessionId = sessionToken.sessionId
                             )
                         }
                     } catch (failure: Exception) {
@@ -2805,7 +2967,8 @@ class UltraShareForegroundService : Service() {
                         v2Candidates.forEach { (uri, source) ->
                             UltraShareQueueStore.update(
                                 this@UltraShareForegroundService, uri, source.name,
-                                UltraShareQueueStore.STATUS_FAILED, lastError
+                                UltraShareQueueStore.STATUS_FAILED, lastError,
+                                transferSessionId = sessionToken.sessionId
                             )
                         }
                     } finally {
@@ -2814,27 +2977,31 @@ class UltraShareForegroundService : Service() {
                 }
                 // V2 is the only supported file data plane. No per-file V1 fallback.
                 UltraShareDiagnostics.event("TRANSFER", "SEND_QUEUE_FINISHED", mapOf("sent" to sent, "failed" to failed, "total" to queue.size))
-                updateState { current ->
-                    applyIfTransferGenerationMatches(current, sessionGeneration) { live ->
-                        live.copy(
-                            sending = sendJobsByPeer.isNotEmpty(),
-                            status = "انتهى الطابور: أُرسل " + sent + " من " + queue.size + " ملفات",
-                            error = if (failed > 0) "تعذر إرسال " + failed + " ملفات. آخر خطأ: " + lastError else null
-                        )
+                if (transferSessionTracker.isCallbackAuthorized(sessionToken, peerId = sendKey, peerHost = host)) {
+                    updateState { current ->
+                        applyIfTransferSessionMatches(current, sessionToken) { live ->
+                            live.copy(
+                                sending = sendJobsByPeer.isNotEmpty(),
+                                status = "انتهى الطابور: أُرسل " + sent + " من " + queue.size + " ملفات",
+                                error = if (failed > 0) "تعذر إرسال " + failed + " ملفات. آخر خطأ: " + lastError else null
+                            )
+                        }
                     }
                 }
             } catch (cancelled: CancellationException) {
-                updateState { current ->
-                    applyIfTransferGenerationMatches(current, sessionGeneration) { live ->
-                        live.copy(
-                            sending = sendJobsByPeer.isNotEmpty(),
-                            progress = if (live.receiving) live.receiveProgress else null,
-                            sendProgress = null,
-                            queueTransferredBytes = completedBytes,
-                            status = if (pauseRequested)
-                                "أُوقف الطابور مؤقتاً بعد إكمال " + sent + " ملفات؛ يمكنك استئناف المتبقي."
-                            else "أُوقف طابور الإرسال بعد إكمال " + sent + " ملفات"
-                        )
+                if (transferSessionTracker.isCallbackAuthorized(sessionToken, peerId = sendKey, peerHost = host)) {
+                    updateState { current ->
+                        applyIfTransferSessionMatches(current, sessionToken) { live ->
+                            live.copy(
+                                sending = sendJobsByPeer.isNotEmpty(),
+                                progress = if (live.receiving) live.receiveProgress else null,
+                                sendProgress = null,
+                                queueTransferredBytes = completedBytes,
+                                status = if (pauseRequested)
+                                    "أُوقف الطابور مؤقتاً بعد إكمال " + sent + " ملفات؛ يمكنك استئناف المتبقي."
+                                else "أُوقف طابور الإرسال بعد إكمال " + sent + " ملفات"
+                            )
+                        }
                     }
                 }
                 throw cancelled
@@ -2842,21 +3009,45 @@ class UltraShareForegroundService : Service() {
                 sendJobsByPeer.remove(sendKey, sendJobForPeer)
                 clearRoomPresentationIfUnpaired()
                 pauseRequested = false
-                updateState { current ->
-                    applyIfTransferGenerationMatches(current, sessionGeneration) { live ->
-                        live.copy(
-                            sending = sendJobsByPeer.isNotEmpty(),
-                            progress = if (live.receiving) live.receiveProgress else null,
-                            sendProgress = null,
-                            queueCurrentName = null
-                        )
+                if (transferSessionTracker.isCallbackAuthorized(sessionToken)) {
+                    updateState { current ->
+                        applyIfTransferSessionMatches(current, sessionToken) { live ->
+                            live.copy(
+                                sending = sendJobsByPeer.isNotEmpty(),
+                                progress = if (live.receiving) live.receiveProgress else null,
+                                sendProgress = null,
+                                queueCurrentName = null
+                            )
+                        }
                     }
                 }
                 scheduleIdleDisconnect()
                 finishService()
             }
         }
-        if (!UltraShareSendJobRegistry.reserve(sendJobsByPeer, listOf(sendKey), sendJobForPeer)) return
+        val knownHosts = buildSet {
+            add(host)
+            candidates.forEach { add(it.host) }
+        }
+        val registeredTask = transferSessionTracker.registerTask(
+            token = sessionToken,
+            kind = TransferRoomTaskKind.ACTIVE_SEND,
+            peerId = sendKey,
+            peerHosts = knownHosts,
+            job = sendJobForPeer,
+            initialCloseables = knownHosts.map { peerHost ->
+                java.io.Closeable { UltraShareBatchTransport.abortPeerSendSessions(peerHost) }
+            }
+        )
+        if (registeredTask == null) {
+            finishService()
+            return
+        }
+        if (!UltraShareSendJobRegistry.reserve(sendJobsByPeer, listOf(sendKey), sendJobForPeer)) {
+            registeredTask.close()
+            sendJobForPeer.cancel()
+            return
+        }
         updateState { current -> current.copy(queueTotal = uris.size, status = "جارٍ تجهيز " + uris.size + " ملفات للإرسال", error = null) }
         sendJobForPeer.start()
     }
@@ -2902,15 +3093,21 @@ class UltraShareForegroundService : Service() {
             return
         }
         startForegroundCompat()
-        val sessionGeneration = currentState().transferSessionGeneration
+        val sessionToken = transferSessionTracker.currentToken()
         lateinit var multiPeerSendJob: Job
+        val peerGateJobs = LinkedHashMap<String, kotlinx.coroutines.CompletableJob>()
+        val peerRegisteredTasks = LinkedHashMap<String, RegisteredTransferTask>()
         multiPeerSendJob = serviceScope.launch(start = CoroutineStart.LAZY) {
             val queue = uris.distinctBy { it.toString() }
             val metadata = LinkedHashMap<Uri, Triple<String, String, Long>>()
             var totalBytes = 0L
             var transferLockStarted = false
             try {
-                UltraShareQueueStore.enqueue(this@UltraShareForegroundService, queue)
+                UltraShareQueueStore.enqueue(
+                    this@UltraShareForegroundService,
+                    queue,
+                    transferSessionId = sessionToken.sessionId
+                )
                 queue.forEach { uri ->
                     try {
                         metadata[uri] = readDocumentMetadata(uri)
@@ -2919,26 +3116,31 @@ class UltraShareForegroundService : Service() {
                             this@UltraShareForegroundService,
                             uri,
                             status = UltraShareQueueStore.STATUS_FAILED,
-                            error = failure.localizedMessage ?: "تعذرت قراءة الملف."
+                            error = failure.localizedMessage ?: "تعذرت قراءة الملف.",
+                            transferSessionId = sessionToken.sessionId
                         )
                     }
                 }
                 totalBytes = metadata.values.fold(0L) { total, item ->
                     if (Long.MAX_VALUE - total < item.third) Long.MAX_VALUE else total + item.third
                 }
-                updateState { current ->
-                    applyIfTransferGenerationMatches(current, sessionGeneration) { live ->
-                        live.copy(
-                            queueTotalBytes = totalBytes,
-                            queueTransferredBytes = 0L,
-                            status = "تم تجهيز " + metadata.size + " ملفات لـ " + targets.size + " أجهزة"
-                        )
+                if (transferSessionTracker.isCallbackAuthorized(sessionToken)) {
+                    updateState { current ->
+                        applyIfTransferSessionMatches(current, sessionToken) { live ->
+                            live.copy(
+                                queueTotalBytes = totalBytes,
+                                queueTransferredBytes = 0L,
+                                status = "تم تجهيز " + metadata.size + " ملفات لـ " + targets.size + " أجهزة"
+                            )
+                        }
                     }
                 }
                 if (metadata.isEmpty()) {
-                    updateState { current ->
-                        applyIfTransferGenerationMatches(current, sessionGeneration) { live ->
-                            live.copy(error = "لم يمكن تجهيز أي ملف للإرسال.")
+                    if (transferSessionTracker.isCallbackAuthorized(sessionToken)) {
+                        updateState { current ->
+                            applyIfTransferSessionMatches(current, sessionToken) { live ->
+                                live.copy(error = "لم يمكن تجهيز أي ملف للإرسال.")
+                            }
                         }
                     }
                     return@launch
@@ -2951,33 +3153,76 @@ class UltraShareForegroundService : Service() {
                     this@UltraShareForegroundService,
                     metadata.map { (uri, details) -> uri to details.first },
                     peerTargets,
-                    preserveCompleted = preserveCompleted
+                    preserveCompleted = preserveCompleted,
+                    transferSessionId = sessionToken.sessionId
                 )
 
                 beginTransfer(isReceiving = false)
                 transferLockStarted = true
                 UltraShareMultiRecipientCoordinator.execute(
                     targets = peerTargets,
+                    onPeerJobStarted = { peer, childJob ->
+                        val gateJob = peerGateJobs[peer.sessionId]
+                        if (gateJob == null || gateJob.isCancelled ||
+                            !transferSessionTracker.isCallbackAuthorized(
+                                sessionToken,
+                                peerId = peer.sessionId,
+                                peerHost = peer.host
+                            )
+                        ) {
+                            childJob.cancel(CancellationException("غادر الجهاز غرفة النقل."))
+                        } else {
+                            val cancelHandle = gateJob.invokeOnCompletion { cause ->
+                                if (cause != null) {
+                                    childJob.cancel(
+                                        (cause as? CancellationException)
+                                            ?: CancellationException(cause.message ?: "أُلغي الإرسال لهذا الجهاز.", cause)
+                                    )
+                                }
+                            }
+                            childJob.invokeOnCompletion {
+                                cancelHandle.dispose()
+                                gateJob.complete()
+                            }
+                        }
+                    },
                     onStatus = { delivery ->
-                        updateState { current ->
-                            applyIfTransferGenerationMatches(current, sessionGeneration) { live ->
-                                live.copy(
-                                    status = when (delivery.status) {
-                                        UltraShareMultiRecipientCoordinator.Status.PENDING ->
-                                            "بانتظار دور الجهاز " + delivery.target.host
-                                        UltraShareMultiRecipientCoordinator.Status.SENDING ->
-                                            "جارٍ الإرسال إلى الجهاز " + delivery.target.host
-                                        UltraShareMultiRecipientCoordinator.Status.COMPLETED ->
-                                            "اكتمل الإرسال إلى الجهاز " + delivery.target.host
-                                        UltraShareMultiRecipientCoordinator.Status.FAILED ->
-                                            "تعذر الإرسال إلى الجهاز " + delivery.target.host
-                                    }
-                                )
+                        if (transferSessionTracker.isCallbackAuthorized(
+                                sessionToken,
+                                peerId = delivery.target.sessionId,
+                                peerHost = delivery.target.host
+                            )
+                        ) {
+                            updateState { current ->
+                                applyIfTransferSessionMatches(current, sessionToken) { live ->
+                                    live.copy(
+                                        status = when (delivery.status) {
+                                            UltraShareMultiRecipientCoordinator.Status.PENDING ->
+                                                "بانتظار دور الجهاز " + delivery.target.host
+                                            UltraShareMultiRecipientCoordinator.Status.SENDING ->
+                                                "جارٍ الإرسال إلى الجهاز " + delivery.target.host
+                                            UltraShareMultiRecipientCoordinator.Status.COMPLETED ->
+                                                "اكتمل الإرسال إلى الجهاز " + delivery.target.host
+                                            UltraShareMultiRecipientCoordinator.Status.FAILED ->
+                                                "تعذر الإرسال إلى الجهاز " + delivery.target.host
+                                        }
+                                    )
+                                }
                             }
                         }
                     }
                 ) { peer ->
+                    val gateJob = peerGateJobs[peer.sessionId]
                     val auth = targets.first { it.sessionId == peer.sessionId }
+                    if (gateJob == null || !gateJob.isActive ||
+                        !transferSessionTracker.isCallbackAuthorized(
+                            sessionToken,
+                            peerId = peer.sessionId,
+                            peerHost = auth.host
+                        )
+                    ) {
+                        throw CancellationException("غادر الجهاز غرفة النقل قبل بدء الإرسال.")
+                    }
                     val allSources = metadata.map { (uri, details) ->
                         UltraShareBatchTransport.Source(
                             uri = uri,
@@ -3002,12 +3247,22 @@ class UltraShareForegroundService : Service() {
                             this@UltraShareForegroundService,
                             source.uri,
                             peer.sessionId,
-                            UltraSharePeerDeliveryStore.STATUS_SENDING
+                            UltraSharePeerDeliveryStore.STATUS_SENDING,
+                            transferSessionId = sessionToken.sessionId
                         )
                     }
                     try {
                         var activePeerHost = auth.host
                         sources.chunked(UltraShareBatchProtocol.MAX_FILES).forEach { chunk ->
+                            if (!gateJob.isActive ||
+                                !transferSessionTracker.isCallbackAuthorized(
+                                    sessionToken,
+                                    peerId = peer.sessionId,
+                                    peerHost = activePeerHost
+                                )
+                            ) {
+                                throw CancellationException("غادر الجهاز غرفة النقل أثناء الإرسال.")
+                            }
                             val outcome = sendBatchWithFileIsolation(
                                 sources = chunk,
                                 host = activePeerHost,
@@ -3017,13 +3272,23 @@ class UltraShareForegroundService : Service() {
                                 onHostChanged = { newHost ->
                                     val previousHost = activePeerHost
                                     activePeerHost = newHost
-                                    updateState { current ->
-                                        applyIfTransferGenerationMatches(current, sessionGeneration) { live ->
-                                            live.copy(
-                                                peerTransfers = live.peerTransfers.filterNot {
-                                                    it.host == previousHost || it.host == newHost
-                                                }
-                                            )
+                                    peerRegisteredTasks[peer.sessionId]?.attachCloseable(
+                                        java.io.Closeable { UltraShareBatchTransport.abortPeerSendSessions(newHost) }
+                                    )
+                                    if (transferSessionTracker.isCallbackAuthorized(
+                                            sessionToken,
+                                            peerId = peer.sessionId,
+                                            peerHost = newHost
+                                        )
+                                    ) {
+                                        updateState { current ->
+                                            applyIfTransferSessionMatches(current, sessionToken) { live ->
+                                                live.copy(
+                                                    peerTransfers = live.peerTransfers.filterNot {
+                                                        it.host == previousHost || it.host == newHost
+                                                    }
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -3033,38 +3298,53 @@ class UltraShareForegroundService : Service() {
                                     progress.bytesPerSecond, false
                                 )
                                 var shouldNotify = false
-                                updateState { current ->
-                                    applyIfTransferGenerationMatches(current, sessionGeneration) { live ->
-                                        shouldNotify = true
-                                        val transfer = UltraSharePeerTransfer(
-                                            host = activePeerHost,
-                                            fileName = progress.fileName,
-                                            transferredBytes = progress.transferredBytes,
-                                            totalBytes = progress.totalBytes,
-                                            bytesPerSecond = progress.bytesPerSecond,
-                                            status = "يرسل الآن • V2"
-                                        )
-                                        val updatedTransfers = live.peerTransfers.filterNot { it.host == activePeerHost } + transfer
-                                        val aggregateSendProgress = sendProgress.copy(
-                                            bytesPerSecond = aggregateActivePeerBytesPerSecond(updatedTransfers, receiving = false)
-                                        )
-                                        live.copy(
-                                            peerTransfers = updatedTransfers,
-                                            progress = if (live.receiving) live.receiveProgress else aggregateSendProgress,
-                                            sendProgress = aggregateSendProgress,
-                                            queueCurrentName = progress.fileName,
-                                            status = "إرسال دفعة V2 إلى $activePeerHost"
-                                        )
+                                if (gateJob.isActive &&
+                                    transferSessionTracker.isCallbackAuthorized(
+                                        sessionToken,
+                                        peerId = peer.sessionId,
+                                        peerHost = activePeerHost
+                                    )
+                                ) {
+                                    updateState { current ->
+                                        applyIfTransferSessionMatches(current, sessionToken) { live ->
+                                            shouldNotify = true
+                                            val transfer = UltraSharePeerTransfer(
+                                                host = activePeerHost,
+                                                fileName = progress.fileName,
+                                                transferredBytes = progress.transferredBytes,
+                                                totalBytes = progress.totalBytes,
+                                                bytesPerSecond = progress.bytesPerSecond,
+                                                status = "يرسل الآن • V2"
+                                            )
+                                            val updatedTransfers = live.peerTransfers.filterNot { it.host == activePeerHost } + transfer
+                                            val aggregateSendProgress = sendProgress.copy(
+                                                bytesPerSecond = aggregateActivePeerBytesPerSecond(updatedTransfers, receiving = false)
+                                            )
+                                            live.copy(
+                                                peerTransfers = updatedTransfers,
+                                                progress = if (live.receiving) live.receiveProgress else aggregateSendProgress,
+                                                sendProgress = aggregateSendProgress,
+                                                queueCurrentName = progress.fileName,
+                                                status = "إرسال دفعة V2 إلى $activePeerHost"
+                                            )
+                                        }
                                     }
                                 }
                                 if (shouldNotify) {
                                     updateNotification(currentState().sendProgress ?: sendProgress)
                                 }
                             }
-                            outcome.metrics?.let { metrics ->
-                                updateState { current ->
-                                    applyIfTransferGenerationMatches(current, sessionGeneration) { live ->
-                                        live.copy(lastTransferMetrics = metrics)
+                            if (transferSessionTracker.isCallbackAuthorized(
+                                    sessionToken,
+                                    peerId = peer.sessionId,
+                                    peerHost = activePeerHost
+                                )
+                            ) {
+                                outcome.metrics?.let { metrics ->
+                                    updateState { current ->
+                                        applyIfTransferSessionMatches(current, sessionToken) { live ->
+                                            live.copy(lastTransferMetrics = metrics)
+                                        }
                                     }
                                 }
                             }
@@ -3078,7 +3358,8 @@ class UltraShareForegroundService : Service() {
                                     peer.sessionId,
                                     if (completed) UltraSharePeerDeliveryStore.STATUS_COMPLETED
                                     else UltraSharePeerDeliveryStore.STATUS_FAILED,
-                                    if (completed) null else fileOutcome?.error ?: "لم يؤكد الجهاز استلام الملف عبر V2."
+                                    if (completed) null else fileOutcome?.error ?: "لم يؤكد الجهاز استلام الملف عبر V2.",
+                                    transferSessionId = sessionToken.sessionId
                                 )
                             }
                         }
@@ -3092,6 +3373,11 @@ class UltraShareForegroundService : Service() {
                         "اكتمل " + completedCount + " من " + sources.size + " ملفات"
                     } catch (cancelled: CancellationException) {
                         withContext(NonCancellable) {
+                            val peerStillPaired = transferSessionTracker.isCallbackAuthorized(
+                                sessionToken,
+                                peerId = peer.sessionId,
+                                peerHost = auth.host
+                            )
                             val delivered = UltraSharePeerDeliveryStore.observe(this@UltraShareForegroundService).first()
                                 .filter {
                                     it.peerSessionId == peer.sessionId &&
@@ -3104,8 +3390,11 @@ class UltraShareForegroundService : Service() {
                                     this@UltraShareForegroundService,
                                     source.uri,
                                     peer.sessionId,
-                                    UltraSharePeerDeliveryStore.STATUS_PENDING,
-                                    "أُوقف النقل؛ يمكن استئناف هذا الجهاز بعد إعادة الاتصال."
+                                    if (peerStillPaired) UltraSharePeerDeliveryStore.STATUS_PENDING
+                                    else UltraSharePeerDeliveryStore.STATUS_FAILED,
+                                    if (peerStillPaired) "أُوقف النقل؛ يمكن استئناف هذا الجهاز بعد إعادة الاتصال."
+                                    else "غادر الجهاز غرفة النقل قبل اكتمال الاستلام.",
+                                    transferSessionId = sessionToken.sessionId
                                 )
                             }
                         }
@@ -3125,11 +3414,17 @@ class UltraShareForegroundService : Service() {
                                     source.uri,
                                     peer.sessionId,
                                     UltraSharePeerDeliveryStore.STATUS_FAILED,
-                                    failure.localizedMessage ?: "فشل الإرسال إلى هذا الجهاز."
+                                    failure.localizedMessage ?: "فشل الإرسال إلى هذا الجهاز.",
+                                    transferSessionId = sessionToken.sessionId
                                 )
                             }
                         }
                         throw failure
+                    } finally {
+                        peerRegisteredTasks.remove(peer.sessionId)?.close()
+                        peerGateJobs[peer.sessionId]?.let { gate ->
+                            sendJobsByPeer.remove(peer.sessionId, gate)
+                        }
                     }
                 }
 
@@ -3137,12 +3432,26 @@ class UltraShareForegroundService : Service() {
                 var fullyDeliveredFiles = 0
                 var failedFiles = queue.size - metadata.size
                 var transferredBytes = 0L
-                val peerSessionIds = peerTargets.mapTo(HashSet()) { it.sessionId }
+                val remainingPeerIds = targets
+                    .filter {
+                        transferSessionTracker.isCallbackAuthorized(
+                            sessionToken,
+                            peerId = it.sessionId,
+                            peerHost = it.host
+                        )
+                    }
+                    .mapTo(HashSet()) { it.sessionId }
+                val evaluationPeerIds = if (remainingPeerIds.isNotEmpty()) {
+                    remainingPeerIds
+                } else {
+                    peerTargets.mapTo(HashSet()) { it.sessionId }
+                }
                 metadata.forEach { (uri, details) ->
                     val perPeer = deliveryEntries.filter {
-                        it.fileUri == uri.toString() && it.peerSessionId in peerSessionIds
+                        it.fileUri == uri.toString() && it.peerSessionId in evaluationPeerIds
                     }
-                    val completeForAll = perPeer.size == peerTargets.size &&
+                    val completeForAll = evaluationPeerIds.isNotEmpty() &&
+                        perPeer.size == evaluationPeerIds.size &&
                         perPeer.all { it.status == UltraSharePeerDeliveryStore.STATUS_COMPLETED }
                     if (completeForAll) {
                         fullyDeliveredFiles++
@@ -3153,7 +3462,8 @@ class UltraShareForegroundService : Service() {
                             this@UltraShareForegroundService,
                             uri,
                             details.first,
-                            UltraShareQueueStore.STATUS_COMPLETED
+                            UltraShareQueueStore.STATUS_COMPLETED,
+                            transferSessionId = sessionToken.sessionId
                         )
                     } else {
                         failedFiles++
@@ -3165,75 +3475,135 @@ class UltraShareForegroundService : Service() {
                             uri,
                             details.first,
                             UltraShareQueueStore.STATUS_FAILED,
-                            reason
+                            reason,
+                            transferSessionId = sessionToken.sessionId
                         )
                     }
                 }
-                updateState { current ->
-                    applyIfTransferGenerationMatches(current, sessionGeneration) { live ->
-                        live.copy(
-                            queueCompleted = queue.size,
-                            queueTotal = queue.size,
-                            queueTotalBytes = totalBytes,
-                            queueTransferredBytes = transferredBytes,
-                            status = "اكتمل الإرسال الجماعي: " + fullyDeliveredFiles + " ملفات وصلت إلى جميع الأجهزة",
-                            error = if (failedFiles > 0) {
-                                "هناك " + failedFiles + " ملفات لم تصل إلى كل الأجهزة. يمكنك إعادة المحاولة لكل جهاز."
-                            } else null
-                        )
+                if (transferSessionTracker.isCallbackAuthorized(sessionToken)) {
+                    updateState { current ->
+                        applyIfTransferSessionMatches(current, sessionToken) { live ->
+                            live.copy(
+                                queueCompleted = queue.size,
+                                queueTotal = queue.size,
+                                queueTotalBytes = totalBytes,
+                                queueTransferredBytes = transferredBytes,
+                                status = "اكتمل الإرسال الجماعي: " + fullyDeliveredFiles + " ملفات وصلت إلى جميع الأجهزة",
+                                error = if (failedFiles > 0) {
+                                    "هناك " + failedFiles + " ملفات لم تصل إلى كل الأجهزة. يمكنك إعادة المحاولة لكل جهاز."
+                                } else null
+                            )
+                        }
                     }
                 }
             } catch (cancelled: CancellationException) {
                 withContext(NonCancellable) {
-                    UltraSharePeerDeliveryStore.recoverInterrupted(
-                        this@UltraShareForegroundService,
-                        targets.mapTo(linkedSetOf()) { it.sessionId }
-                    )
-                }
-                updateState { current ->
-                    applyIfTransferGenerationMatches(current, sessionGeneration) { live ->
-                        live.copy(
-                            sending = sendJobsByPeer.isNotEmpty(),
-                            status = "أُوقف الإرسال الجماعي؛ احتُفظ بحالات كل جهاز للاستئناف."
+                    if (transferSessionTracker.isCallbackAuthorized(sessionToken)) {
+                        UltraSharePeerDeliveryStore.recoverInterrupted(
+                            this@UltraShareForegroundService,
+                            targets.mapTo(linkedSetOf()) { it.sessionId }
                         )
+                    } else {
+                        UltraSharePeerDeliveryStore.cancelInFlightForSessionEnd(
+                            this@UltraShareForegroundService,
+                            sessionToken.sessionId
+                        )
+                    }
+                }
+                if (transferSessionTracker.isCallbackAuthorized(sessionToken)) {
+                    updateState { current ->
+                        applyIfTransferSessionMatches(current, sessionToken) { live ->
+                            live.copy(
+                                sending = sendJobsByPeer.isNotEmpty(),
+                                status = "أُوقف الإرسال الجماعي؛ احتُفظ بحالات كل جهاز للاستئناف."
+                            )
+                        }
                     }
                 }
                 throw cancelled
             } catch (failure: Exception) {
                 UltraShareDiagnostics.failure("MULTI_PEER_SEND", failure)
-                updateState { current ->
-                    applyIfTransferGenerationMatches(current, sessionGeneration) { live ->
-                        live.copy(
-                            error = failure.localizedMessage ?: "فشل الإرسال الجماعي.",
-                            status = "توقف الإرسال الجماعي مع الاحتفاظ بسجل التسليم لكل جهاز."
-                        )
+                if (transferSessionTracker.isCallbackAuthorized(sessionToken)) {
+                    updateState { current ->
+                        applyIfTransferSessionMatches(current, sessionToken) { live ->
+                            live.copy(
+                                error = failure.localizedMessage ?: "فشل الإرسال الجماعي.",
+                                status = "توقف الإرسال الجماعي مع الاحتفاظ بسجل التسليم لكل جهاز."
+                            )
+                        }
                     }
                 }
             } finally {
                 if (transferLockStarted) endTransfer(isReceiving = false)
-                targets.forEach { target -> sendJobsByPeer.remove(target.sessionId, multiPeerSendJob) }
+                peerRegisteredTasks.values.forEach { it.close() }
+                peerRegisteredTasks.clear()
+                targets.forEach { target ->
+                    peerGateJobs[target.sessionId]?.let { gate ->
+                        gate.complete()
+                        sendJobsByPeer.remove(target.sessionId, gate)
+                    }
+                }
                 clearRoomPresentationIfUnpaired()
-                updateState { current ->
-                    applyIfTransferGenerationMatches(current, sessionGeneration) { live ->
-                        live.copy(
-                            sending = sendJobsByPeer.isNotEmpty(),
-                            progress = if (live.receiving) live.receiveProgress else null,
-                            sendProgress = null,
-                            queueCurrentName = null
-                        )
+                if (transferSessionTracker.isCallbackAuthorized(sessionToken)) {
+                    updateState { current ->
+                        applyIfTransferSessionMatches(current, sessionToken) { live ->
+                            live.copy(
+                                sending = sendJobsByPeer.isNotEmpty(),
+                                progress = if (live.receiving) live.receiveProgress else null,
+                                sendProgress = null,
+                                queueCurrentName = null
+                            )
+                        }
                     }
                 }
                 scheduleIdleDisconnect()
                 finishService()
             }
         }
-        // Reserve every target atomically with single-peer jobs as well.
-        if (!UltraShareSendJobRegistry.reserve(
-                sendJobsByPeer,
-                targets.map { it.sessionId },
-                multiPeerSendJob
+        val parentBatchTask = transferSessionTracker.registerTask(
+            token = sessionToken,
+            kind = TransferRoomTaskKind.ACTIVE_SEND,
+            job = multiPeerSendJob
+        )
+        if (parentBatchTask == null) {
+            finishService()
+            return
+        }
+        val reservedTargets = ArrayList<String>(targets.size)
+        for (target in targets) {
+            val gateJob = kotlinx.coroutines.Job(multiPeerSendJob)
+            if (!UltraShareSendJobRegistry.reserve(sendJobsByPeer, listOf(target.sessionId), gateJob)) {
+                gateJob.cancel()
+                reservedTargets.forEach { reservedId ->
+                    peerGateJobs[reservedId]?.let { sendJobsByPeer.remove(reservedId, it) }
+                    peerGateJobs[reservedId]?.cancel()
+                    peerRegisteredTasks.remove(reservedId)?.close()
+                }
+                parentBatchTask.close()
+                multiPeerSendJob.cancel()
+                return
+            }
+            reservedTargets += target.sessionId
+            peerGateJobs[target.sessionId] = gateJob
+            val knownHosts = buildSet {
+                add(target.host)
+                target.candidates.forEach { add(it.host) }
+            }
+            val peerTask = transferSessionTracker.registerTask(
+                token = sessionToken,
+                kind = TransferRoomTaskKind.MULTI_SEND_RECIPIENT,
+                peerId = target.sessionId,
+                peerHosts = knownHosts,
+                job = gateJob,
+                initialCloseables = knownHosts.map { peerHost ->
+                    java.io.Closeable { UltraShareBatchTransport.abortPeerSendSessions(peerHost) }
+                }
             )
-        ) return
+            if (peerTask != null) {
+                peerRegisteredTasks[target.sessionId] = peerTask
+            }
+        }
+        multiPeerSendJob.invokeOnCompletion { parentBatchTask.close() }
         updateState { current ->
             current.copy(
                 queueTotal = uris.distinctBy { it.toString() }.size,
@@ -3727,6 +4097,10 @@ class UltraShareForegroundService : Service() {
         const val ACTION_RETRY_FILE = "com.malekplay.ultrashare.RETRY_FILE"
 
         private val mutableState = MutableStateFlow(UltraShareServiceState())
+        internal val transferSessionTracker = UltraShareTransferSessionTracker(
+            initialSessionId = UltraShareTransferSessionTracker.INITIAL_PLACEHOLDER_SESSION_ID,
+            initialGeneration = 0L
+        )
         // One process-wide service instance owns these peer-scoped jobs. Keeping
         // the registry in the companion also lets the UI avoid duplicate sends
         // to a busy peer while still offering other peers concurrently.
@@ -3738,11 +4112,30 @@ class UltraShareForegroundService : Service() {
             require(UltraShareCore.isValidPairingSecret(target.secret))
             val startsFreshRoom = mutableState.value.activePeers.isEmpty() &&
                 approvedSendTargets().isEmpty() && sendJobsByPeer.isEmpty()
+            val freshToken = if (startsFreshRoom) {
+                transferSessionTracker.endSessionAndRotate(
+                    reason = "Fresh transfer room on first approved send target"
+                ).newToken
+            } else {
+                null
+            }
+            val knownHosts = buildSet {
+                add(target.host)
+                target.candidates.forEach { add(it.host) }
+            }
+            transferSessionTracker.notePeerPaired(
+                peerId = target.sessionId,
+                peerHosts = knownHosts
+            )
             synchronized(approvedSendTargetsByHost) {
                 approvedSendTargetsByHost[target.host] = target
             }
             mutableState.update { current ->
-                val roomState = if (startsFreshRoom) resetRoomTransferPresentation(current) else current
+                val roomState = if (startsFreshRoom) {
+                    resetRoomTransferPresentation(current, nextToken = freshToken)
+                } else {
+                    current
+                }
                 roomState.copy(
                     approvedSenderPeerHosts = approvedSendTargets().map { it.host },
                     reconnectableSenderPeerHosts = emptyList()
@@ -3784,8 +4177,27 @@ class UltraShareForegroundService : Service() {
         ) {
             val startsFreshRoom = mutableState.value.activePeers.isEmpty() &&
                 approvedSendTargets().isEmpty() && sendJobsByPeer.isEmpty()
+            val freshToken = if (startsFreshRoom) {
+                transferSessionTracker.endSessionAndRotate(
+                    reason = "Fresh transfer room on first approved peer"
+                ).newToken
+            } else {
+                null
+            }
+            val knownHosts = buildSet {
+                add(host)
+                routeCandidates.forEach { add(it.host) }
+            }
+            transferSessionTracker.notePeerPaired(
+                peerId = sessionId,
+                peerHosts = knownHosts
+            )
             mutableState.update { current ->
-                val roomState = if (startsFreshRoom) resetRoomTransferPresentation(current) else current
+                val roomState = if (startsFreshRoom) {
+                    resetRoomTransferPresentation(current, nextToken = freshToken)
+                } else {
+                    current
+                }
                 val session = UltraSharePeerSession(
                     sessionId = sessionId,
                     name = name.take(96),
@@ -3800,17 +4212,37 @@ class UltraShareForegroundService : Service() {
         }
 
         private fun cancelPeerTransferActivity(host: String) {
+            val target = approvedSendTarget(host)
+            val matchingPeers = mutableState.value.activePeers.filter { it.host == host }
             val sessionIds = buildSet {
                 add(host)
-                approvedSendTarget(host)?.sessionId?.let(::add)
-                mutableState.value.activePeers.filter { it.host == host }.forEach { add(it.sessionId) }
+                target?.sessionId?.let(::add)
+                matchingPeers.forEach { add(it.sessionId) }
+            }
+            val peerHosts = buildSet {
+                add(host)
+                target?.candidates?.forEach { add(it.host) }
+                matchingPeers.forEach { peer -> peer.routeCandidates.forEach { add(it.host) } }
+            }
+            sessionIds.forEach { peerId ->
+                transferSessionTracker.cancelPeerTasks(
+                    peerId = peerId,
+                    peerHost = host,
+                    reason = "Peer disconnected or unpaired"
+                )
+            }
+            peerHosts.forEach { peerHost ->
+                transferSessionTracker.cancelPeerTasks(
+                    peerHost = peerHost,
+                    reason = "Peer host disconnected or unpaired"
+                )
+                UltraShareBatchTransport.abortPeerTransferSockets(peerHost)
             }
             val jobsToCancel = LinkedHashSet<Job>()
             sessionIds.forEach { key ->
                 sendJobsByPeer.remove(key)?.let(jobsToCancel::add)
             }
             jobsToCancel.forEach { it.cancel() }
-            UltraShareBatchTransport.abortPeerReceiveSessions(host)
         }
 
         fun disconnectApprovedPeer(host: String) {
@@ -3821,6 +4253,15 @@ class UltraShareForegroundService : Service() {
             UltraShareScreenMirrorService.pruneUnauthorizedViewers()
             // A room is temporary. Once its final paired peer leaves, clear every
             // room-only result (completed, failed, pending and receive summaries).
+            val willEndRoom = mutableState.value.activePeers.none { it.host != host } &&
+                approvedSendTargets().isEmpty() && sendJobsByPeer.isEmpty()
+            val rotatedToken = if (willEndRoom) {
+                transferSessionTracker.endSessionAndRotate(
+                    reason = "Final approved peer disconnected"
+                ).newToken
+            } else {
+                null
+            }
             mutableState.update { current ->
                 val remainingPeers = current.activePeers.filterNot { it.host == host }
                 val roomEnded = remainingPeers.isEmpty() &&
@@ -3834,7 +4275,14 @@ class UltraShareForegroundService : Service() {
                     reconnectableSenderPeerHosts = emptyList(),
                     incomingMirrorOffer = clearedOffer
                 )
-                if (roomEnded) clearRoomTransferPresentationForSessionEnd(updated) else updated
+                if (roomEnded) {
+                    clearRoomTransferPresentationForSessionEnd(
+                        updated,
+                        nextToken = rotatedToken ?: transferSessionTracker.currentToken()
+                    )
+                } else {
+                    updated
+                }
             }
         }
 
@@ -3883,6 +4331,15 @@ class UltraShareForegroundService : Service() {
             UltraShareControlChannel.closeServerSession(host)
             removeApprovedSendTarget(host)
             UltraShareScreenMirrorService.pruneUnauthorizedViewers()
+            val willEndRoom = mutableState.value.activePeers.none { it.host != host } &&
+                approvedSendTargets().isEmpty() && sendJobsByPeer.isEmpty()
+            val rotatedToken = if (willEndRoom) {
+                transferSessionTracker.endSessionAndRotate(
+                    reason = "Final approved peer forgotten"
+                ).newToken
+            } else {
+                null
+            }
             mutableState.update { current ->
                 val remainingPeers = current.activePeers.filterNot { it.host == host }
                 val roomEnded = remainingPeers.isEmpty() &&
@@ -3896,7 +4353,14 @@ class UltraShareForegroundService : Service() {
                     reconnectableSenderPeerHosts = emptyList(),
                     incomingMirrorOffer = clearedOffer
                 )
-                if (roomEnded) clearRoomTransferPresentationForSessionEnd(updated) else updated
+                if (roomEnded) {
+                    clearRoomTransferPresentationForSessionEnd(
+                        updated,
+                        nextToken = rotatedToken ?: transferSessionTracker.currentToken()
+                    )
+                } else {
+                    updated
+                }
             }
         }
 
@@ -4087,6 +4551,28 @@ class UltraShareForegroundService : Service() {
          * and the permanent transfer log are preserved. Safe to call even when nothing is active.
          */
         fun clearRoomTransferPresentationForSessionEnd(context: Context) {
+            val rotated = transferSessionTracker.endSessionAndRotate(
+                reason = "Explicit clearRoomTransferPresentationForSessionEnd(context)"
+            )
+            sendJobsByPeer.values.toSet().forEach { it.cancel() }
+            sendJobsByPeer.clear()
+            UltraShareBatchTransport.abortAllTransferSockets()
+            mutableState.update { current ->
+                clearRoomTransferPresentationForSessionEnd(current, nextToken = rotated.newToken)
+            }
+            val appContext = context.applicationContext
+            mirrorViewerActionScope.launch {
+                runCatching {
+                    UltraShareQueueStore.cancelInFlightForSessionEnd(
+                        appContext,
+                        rotated.endedToken.sessionId
+                    )
+                    UltraSharePeerDeliveryStore.cancelInFlightForSessionEnd(
+                        appContext,
+                        rotated.endedToken.sessionId
+                    )
+                }
+            }
             runCatching {
                 context.startService(
                     Intent(context, UltraShareForegroundService::class.java).setAction(ACTION_CLEAR_TRANSFER_ROOM)

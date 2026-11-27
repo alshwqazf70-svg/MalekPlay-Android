@@ -58,8 +58,18 @@ object UltraShareBatchTransport {
             java.util.concurrent.atomic.AtomicBoolean(false)
     )
 
+    private data class ActiveSendSocketHandle(
+        val peerHost: String,
+        val socket: Socket,
+        val abortedBySessionReset: java.util.concurrent.atomic.AtomicBoolean =
+            java.util.concurrent.atomic.AtomicBoolean(false)
+    )
+
     private val activeReceiveSockets =
         java.util.concurrent.ConcurrentHashMap<Socket, ActiveReceiveSocketHandle>()
+
+    private val activeSendSockets =
+        java.util.concurrent.ConcurrentHashMap<Socket, ActiveSendSocketHandle>()
 
     /**
      * Closes any active incoming batch-receive sockets from [peerHost] without deleting completed
@@ -78,6 +88,24 @@ object UltraShareBatchTransport {
         return count
     }
 
+    /** Closes any active outbound batch-send sockets targeting [peerHost] without affecting other peers. */
+    fun abortPeerSendSessions(peerHost: String): Int {
+        if (peerHost.isBlank()) return 0
+        var count = 0
+        activeSendSockets.values.toList().forEach { handle ->
+            if (handle.peerHost == peerHost) {
+                handle.abortedBySessionReset.set(true)
+                runCatching { handle.socket.close() }
+                count++
+            }
+        }
+        return count
+    }
+
+    /** Closes both outbound and inbound transfer sockets belonging to [peerHost] only. */
+    fun abortPeerTransferSockets(peerHost: String): Int =
+        abortPeerSendSessions(peerHost) + abortPeerReceiveSessions(peerHost)
+
     /** Closes all active incoming batch-receive sockets when the Transfer Room session ends. */
     fun abortAllActiveReceiveSessions(): Int {
         var count = 0
@@ -88,6 +116,21 @@ object UltraShareBatchTransport {
         }
         return count
     }
+
+    /** Closes all active outbound batch-send sockets when the Transfer Room session ends. */
+    fun abortAllActiveSendSessions(): Int {
+        var count = 0
+        activeSendSockets.values.toList().forEach { handle ->
+            handle.abortedBySessionReset.set(true)
+            runCatching { handle.socket.close() }
+            count++
+        }
+        return count
+    }
+
+    /** Closes all active send and receive transfer sockets across the ended session. */
+    fun abortAllTransferSockets(): Int =
+        abortAllActiveSendSessions() + abortAllActiveReceiveSessions()
 
     /** Scale parallel receive workers to the Android app heap rather than risking OOM on old phones. */
     internal fun recommendedMaxPeers(memoryClassMb: Int): Int {
@@ -608,6 +651,8 @@ object UltraShareBatchTransport {
             throw failure
         }
         var readPhase = "HANDSHAKE"
+        val sendSocketHandle = ActiveSendSocketHandle(peerHost = host, socket = socket)
+        activeSendSockets[socket] = sendSocketHandle
         val socketCancellation = closeSocketOnJobCancellation(
             currentCoroutineContext()[Job] ?: error("جلسة الإرسال بلا Job نشط."),
             socket
@@ -835,6 +880,7 @@ object UltraShareBatchTransport {
             )
             throw failure
         } finally {
+            activeSendSockets.remove(socket)
             socketCancellation.dispose()
         }
     }
@@ -1052,6 +1098,8 @@ object UltraShareBatchTransport {
                         "partialPath" to partial.name
                     )
                 )
+                var interruptedCheckpointOffset: Long? = null
+                try {
                 FileOutputStream(partial, offset > 0L).use { file ->
                     var streamFailure: Throwable? = null
                     var lastCheckpointOffset = offset
@@ -1128,17 +1176,21 @@ object UltraShareBatchTransport {
                         }
                     } catch (failure: Throwable) {
                         streamFailure = failure
+                        interruptedCheckpointOffset = lastCheckpointOffset
                         throw failure
                     } finally {
                         // A resume offset is trusted only after the kernel confirms the
                         // partial file was synchronized. Never hide fsync failures or
                         // replace the original transfer/cancellation failure.
                         try {
-                            // A completed file has already been synced immediately before its
-                            // final checkpoint. Avoid issuing the same expensive sync twice.
-                            // On interruption, still sync any uncheckpointed tail, but the next
-                            // resume will discard it and continue from the last durable checkpoint.
-                            if (transferred > lastCheckpointOffset) {
+                            if (streamFailure != null) {
+                                if (lastCheckpointOffset > 0L && transferred > lastCheckpointOffset) {
+                                    runCatching {
+                                        file.channel.truncate(lastCheckpointOffset)
+                                        file.fd.sync()
+                                    }
+                                }
+                            } else if (transferred > lastCheckpointOffset) {
                                 val durabilityStartedAtNanos = System.nanoTime()
                                 try {
                                     file.fd.sync()
@@ -1157,6 +1209,11 @@ object UltraShareBatchTransport {
                             if (originalFailure != null) originalFailure.addSuppressed(syncFailure)
                             else throw syncFailure
                         }
+                    }
+                }
+                } finally {
+                    interruptedCheckpointOffset?.let { safeCheckpoint ->
+                        sanitizeInterruptedPartialFile(partial, checkpointTemp, safeCheckpoint)
                     }
                 }
                 UltraShareDiagnostics.event(
@@ -1769,4 +1826,34 @@ internal fun writeUltraShareReceiptAtomically(temp: File, marker: File, content:
         content.toByteArray(Charsets.UTF_8),
         "تعذر حفظ سجل اكتمال الملف دون فقدان السجل السابق."
     )
+}
+
+/**
+ * Cleans up uncommitted staging files after an incomplete `.part` receive is cancelled or aborted:
+ * - Deletes any uncommitted temporary checkpoint (`*.resume.tmp`).
+ * - If [lastDurableCheckpointOffset] is `0L`, deletes the uncheckpointed `.part` file cleanly.
+ * - If [lastDurableCheckpointOffset] > `0L`, ensures `.part` length never exceeds the verified
+ *   durable checkpoint offset so no corrupt tail bytes remain on disk.
+ * Never touches completed files in `destinationDirectory` (`Downloads/MalekPlayer`) or `.received` receipts.
+ */
+internal fun sanitizeInterruptedPartialFile(
+    partial: File,
+    checkpointTemp: File,
+    lastDurableCheckpointOffset: Long
+) {
+    runCatching {
+        if (checkpointTemp.exists()) {
+            checkpointTemp.delete()
+        }
+        if (lastDurableCheckpointOffset <= 0L) {
+            if (partial.exists()) {
+                partial.delete()
+            }
+        } else if (partial.isFile && partial.length() > lastDurableCheckpointOffset) {
+            java.io.RandomAccessFile(partial, "rw").use { raf ->
+                raf.setLength(lastDurableCheckpointOffset)
+                raf.fd.sync()
+            }
+        }
+    }
 }

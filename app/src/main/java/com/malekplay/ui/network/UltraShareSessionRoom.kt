@@ -64,7 +64,8 @@ internal fun filterSessionRoomPeerDeliveries(
     entries: List<com.malekplay.network.UltraSharePeerDeliveryEntry>,
     peer: com.malekplay.network.UltraSharePeerSession?,
     peerHost: String,
-    roomStartedAtMillis: Long
+    roomStartedAtMillis: Long,
+    activeTransferSessionId: String = ""
 ): List<com.malekplay.network.UltraSharePeerDeliveryEntry> {
     val cutoffMillis = if (roomStartedAtMillis > 0L) {
         roomStartedAtMillis
@@ -77,7 +78,35 @@ internal fun filterSessionRoomPeerDeliveries(
         } else {
             entry.peerHost == peerHost
         }
-        matchesPeer && (cutoffMillis <= 0L || entry.updatedAtMillis >= cutoffMillis)
+        val matchesSession = if (activeTransferSessionId.isNotBlank() && entry.transferSessionId.isNotBlank()) {
+            entry.transferSessionId == activeTransferSessionId
+        } else {
+            cutoffMillis <= 0L || entry.updatedAtMillis >= cutoffMillis
+        }
+        matchesPeer && matchesSession
+    }
+}
+
+/**
+ * Scopes durable [UltraShareQueueEntry] items to the currently active temporary Transfer Room.
+ *
+ * When [hasActiveRoom] is false (unpaired / room closed), returns an empty list so old session
+ * queue items never linger inside the live Transfer Room (`UltraSharePage.TRANSFERS`), while
+ * permanent history (`UltraSharePage.HISTORY`) continues to read the full durable queue.
+ */
+internal fun filterSessionRoomQueueEntries(
+    entries: List<com.malekplay.network.UltraShareQueueEntry>,
+    activeTransferSessionId: String,
+    roomStartedAtMillis: Long,
+    hasActiveRoom: Boolean
+): List<com.malekplay.network.UltraShareQueueEntry> {
+    if (!hasActiveRoom) return emptyList()
+    return entries.filter { entry ->
+        if (activeTransferSessionId.isNotBlank() && entry.transferSessionId.isNotBlank()) {
+            entry.transferSessionId == activeTransferSessionId
+        } else {
+            roomStartedAtMillis > 0L && entry.updatedAtMillis >= roomStartedAtMillis
+        }
     }
 }
 
@@ -127,11 +156,18 @@ fun UltraShareSessionRoom(
     val connected = activePeerCount > 0 || state.approvedPeerHost != null
     val pairingPending = state.requestingConnection || state.pendingConnection != null
     val transferring = state.sending || state.sendProgress != null || state.receiveProgress != null
+    val hasActiveRoom = connected || state.receiving || transferring
+    val roomQueueEntries = filterSessionRoomQueueEntries(
+        entries = state.queueEntries,
+        activeTransferSessionId = state.transferSessionId,
+        roomStartedAtMillis = state.roomStartedAtMillis,
+        hasActiveRoom = hasActiveRoom
+    )
     val sendingPaused = !state.sending && state.queueTotal > 0 && (
         state.status?.contains("أُوقف الطابور مؤقتاً") == true ||
             state.status?.contains("أُوقف الإرسال الجماعي") == true
         )
-    val currentBatchEntries = if (state.queueTotal > 0) state.queueEntries.takeLast(state.queueTotal) else emptyList()
+    val currentBatchEntries = if (state.queueTotal > 0) roomQueueEntries.takeLast(state.queueTotal) else emptyList()
     val sendCompleted = !state.sending && state.queueTotal > 0 &&
         state.queueCompleted >= state.queueTotal && currentBatchEntries.size == state.queueTotal &&
         currentBatchEntries.all { it.status == UltraShareQueueStore.STATUS_COMPLETED }
@@ -342,7 +378,8 @@ fun UltraShareSessionRoom(
                             entries = state.peerDeliveryEntries,
                             peer = peer,
                             peerHost = peerHost,
-                            roomStartedAtMillis = state.roomStartedAtMillis
+                            roomStartedAtMillis = state.roomStartedAtMillis,
+                            activeTransferSessionId = state.transferSessionId
                         )
                         Column(
                             modifier = Modifier.fillMaxWidth()
@@ -636,7 +673,7 @@ fun UltraShareSessionRoom(
                 }
             }
             if (isSendingRoom && state.queueTotal > 0 && currentBatchEntries.isNotEmpty()) {
-                val sessionItems = currentBatchEntries.ifEmpty { state.queueEntries.takeLast(5) }
+                val sessionItems = currentBatchEntries.ifEmpty { roomQueueEntries.takeLast(5) }
                 Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
                     Text("عناصر جلسة النقل", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
                     sessionItems.take(5).forEach { entry ->
@@ -1099,8 +1136,11 @@ private fun GroupScreenMirrorCard(
 ) {
     val hostMirror = state.mirrorHostState
     val incomingOffer = state.incomingMirrorOffer
-    val canStartLocalMirror = (connected || state.receiving) && incomingOffer == null
+    val watchingSession = state.watchingMirrorSession
+    val canStartLocalMirror = (connected || state.receiving) && incomingOffer == null && watchingSession == null
     val isWaitingHost = state.receiving && !connected && !hostMirror.active && !hostMirror.starting && incomingOffer == null
+    val isWaitingForHostShare = connected && !state.receiving && !hostMirror.active && !hostMirror.starting &&
+        incomingOffer == null && watchingSession == null
     val availableAudioModes = UltraShareScreenMirrorPolicy.availableAudioModes()
 
     Column(
@@ -1146,7 +1186,10 @@ private fun GroupScreenMirrorCard(
                         hostMirror.active && !hostMirror.firstFrameEncoded ->
                             "بدأ التقاط الشاشة؛ في انتظار أول إطار مشفّر…"
                         hostMirror.active -> "بث شاشة هذا الهاتف نشط الآن (${hostMirror.viewerCount} مشاهد)"
+                        watchingSession != null -> "عارض الشاشة الجماعية مفتوح الآن من ${watchingSession.hostName}"
                         incomingOffer != null -> "بث مباشر متاح من ${incomingOffer.hostName}"
+                        isWaitingForHostShare ->
+                            "بانتظار بدء مشاركة الشاشة من المضيف (تُفتح المشاهدة تلقائياً فور البدء)"
                         canStartLocalMirror -> "شارك شاشة هذا الهاتف مع أجهزة المجموعة المتصلة"
                         isWaitingHost -> "الغرفة جاهزة — شارك رمز QR أو ابدأ البث فوراً"
                         else -> "أنشئ مجموعة لمشاركة شاشتك أو امسح QR لمشاهدة شاشة المضيف"
