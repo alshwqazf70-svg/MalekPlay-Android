@@ -1,6 +1,9 @@
 package com.malekplay.vault
 
+import android.Manifest
+import android.app.Application
 import android.content.Context
+import android.content.pm.ProviderInfo
 import android.net.Uri
 import android.provider.DocumentsContract
 import androidx.test.core.app.ApplicationProvider
@@ -16,8 +19,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows
+import org.robolectric.shadows.ShadowContentResolver
 import java.io.File
 import java.nio.file.Files
 import java.security.MessageDigest
@@ -36,19 +40,21 @@ class PrivateVaultDeviceBrowserTest {
     @Before
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
+        Shadows.shadowOf(context as Application).grantPermissions(Manifest.permission.MANAGE_DOCUMENTS)
         tempDir = Files.createTempDirectory("vault-device-browser-test").toFile()
         File(context.filesDir, "private_vault").deleteRecursively()
 
         providerBackingDir = File(tempDir, "provider").apply { mkdirs() }
-        val info = android.content.pm.ProviderInfo().apply {
+        provider = InMemoryVaultDocumentsProvider(providerBackingDir)
+        val info = ProviderInfo().apply {
             authority = InMemoryVaultDocumentsProvider.AUTHORITY
-            grantUriPermissions = true
             exported = true
+            grantUriPermissions = true
+            readPermission = Manifest.permission.MANAGE_DOCUMENTS
+            writePermission = Manifest.permission.MANAGE_DOCUMENTS
         }
-        provider = Robolectric.buildContentProvider(InMemoryVaultDocumentsProvider::class.java)
-            .create(info)
-            .get()
-        provider.reset(providerBackingDir)
+        provider.attachInfo(context, info)
+        ShadowContentResolver.registerProviderInternal(InMemoryVaultDocumentsProvider.AUTHORITY, provider)
 
         vault = PrivateVaultRepository(context)
         treeSupport = PrivateVaultTreeSupport(context, vault)
