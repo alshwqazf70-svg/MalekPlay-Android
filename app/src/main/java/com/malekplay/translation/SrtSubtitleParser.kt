@@ -7,8 +7,8 @@ import java.nio.charset.StandardCharsets
 
 /** Small, deterministic SRT parser helpers kept independent from ML Kit for unit testing. */
 internal object SrtSubtitleParser {
-    private val timingPattern = Regex("""^\s*(?:\d{1,3}:)?\d{1,2}:\d{2}(?:[,.]\d{1,4}|:\d{2})?\s*-->\s*(?:\d{1,3}:)?\d{1,2}:\d{2}(?:[,.]\d{1,4}|:\d{2})?(?:\s+.*)?\s*$""")
-    private val invisibleDirectionMarks = Regex("""[\u200E\u200F\u202A-\u202E\u2066-\u2069\uFEFF\u00A0]""")
+    private val timingPattern = Regex("""^\s*(?:\d{1,3}:)?\d{1,2}:\d{1,2}(?:[,.]\d{1,4}|:\d{1,2})?\s*-->\s*(?:\d{1,3}:)?\d{1,2}:\d{1,2}(?:[,.]\d{1,4}|:\d{1,2})?(?:\s+.*)?\s*$""")
+    private val invisibleDirectionMarks = Regex("""[\u0000\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF\u00A0]""")
     private val vttTimestampPattern = Regex("""((?:\d{1,}:)?\d{2}:\d{2})\.(\d{3})""")
     private val markupPattern = Regex("""<[^>]+>""")
     private val assOverridePattern = Regex("""\{\\[^}]*}""")

@@ -282,6 +282,8 @@ class PlayerViewModel @Inject constructor(
     private var pendingExternalSubtitleId: String? = null
     private var onlineSubtitleSearchJob: Job? = null
     private var onlineSubtitleSearchGeneration: Long = 0L
+    private var onlineSubtitlePreviewJob: Job? = null
+    private var onlineSubtitlePreviewGeneration: Long = 0L
     private var playbackGeneration: Long = 0L
 
     private val _sleepTimerEndsAtMs = MutableStateFlow(0L)
@@ -1460,22 +1462,45 @@ class PlayerViewModel @Inject constructor(
         val updated = current.buildUpon()
             .setSubtitleConfigurations(existing + configuration)
             .build()
-        val queue = (0 until player.mediaItemCount).map { itemIndex ->
-            if (itemIndex == index) updated else player.getMediaItemAt(itemIndex)
-        }
         val position = player.currentPosition.coerceAtLeast(0L)
         val playWhenReady = player.playWhenReady
-        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
-            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
-            .clearOverridesOfType(C.TRACK_TYPE_TEXT)
-            .build()
-        _textTrackDisabled.value = false
-        player.setMediaItems(queue, index, position)
-        player.prepare()
-        player.playWhenReady = playWhenReady
-        _playerError.value = null
-        if (WebCastRegistry.state.value.running) syncWebCastQueue()
-        return true
+        return try {
+            player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+                .build()
+            _textTrackDisabled.value = false
+            val itemCount = player.mediaItemCount
+            if (itemCount > 25) {
+                // Avoid sending hundreds/thousands of MediaItems over Binder IPC (TransactionTooLargeException).
+                player.replaceMediaItem(index, updated)
+                player.seekTo(index, position)
+            } else {
+                val queue = (0 until itemCount).map { itemIndex ->
+                    if (itemIndex == index) updated else player.getMediaItemAt(itemIndex)
+                }
+                try {
+                    player.setMediaItems(queue, index, position)
+                } catch (ipcFailure: Throwable) {
+                    if (ipcFailure is CancellationException) throw ipcFailure
+                    Log.w("PlayerViewModel", "Falling back to replaceMediaItem for external subtitle", ipcFailure)
+                    player.replaceMediaItem(index, updated)
+                    player.seekTo(index, position)
+                }
+            }
+            player.prepare()
+            player.playWhenReady = playWhenReady
+            _playerError.value = null
+            if (WebCastRegistry.state.value.running) syncWebCastQueue()
+            true
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Throwable) {
+            Log.e("PlayerViewModel", "Failed to attach external subtitle", error)
+            _playerError.value = error.message
+                ?: app.getString(com.malekplay.R.string.subtitle_attach_failed)
+            false
+        }
     }
 
     /** Resolves provider URIs using display name, MIME type, then a bounded content sniff. */
@@ -1596,7 +1621,8 @@ class PlayerViewModel @Inject constructor(
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
-            } catch (error: Exception) {
+            } catch (error: Throwable) {
+                Log.e("PlayerViewModel", "translateCurrentSubtitleToArabic failed", error)
                 currentCoroutineContext().ensureActive()
                 _subtitleTranslationError.value = error.message
                     ?: app.getString(com.malekplay.R.string.subtitle_translate_failed)
@@ -2039,6 +2065,9 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun clearOnlineSubtitlePreview() {
+        onlineSubtitlePreviewGeneration++
+        onlineSubtitlePreviewJob?.cancel()
+        onlineSubtitlePreviewJob = null
         _onlineSubtitlePreviewKey.value = null
         _onlineSubtitlePreviewLines.value = emptyList()
         _onlineSubtitlePreviewLoading.value = false
@@ -2052,7 +2081,9 @@ class PlayerViewModel @Inject constructor(
             return
         }
         val targetMediaId = currentMediaId
-        viewModelScope.launch {
+        onlineSubtitlePreviewJob?.cancel()
+        val generation = ++onlineSubtitlePreviewGeneration
+        onlineSubtitlePreviewJob = viewModelScope.launch {
             _onlineSubtitlePreviewKey.value = key
             _onlineSubtitlePreviewLines.value = emptyList()
             _onlineSubtitlePreviewLoading.value = true
@@ -2061,7 +2092,10 @@ class PlayerViewModel @Inject constructor(
                 val lines = withContext(Dispatchers.IO) {
                     onlineSubtitleRepository.previewSubtitleLines(subtitle, maxCues = 6)
                 }
-                if (currentMediaId == targetMediaId && _onlineSubtitlePreviewKey.value == key) {
+                if (generation == onlineSubtitlePreviewGeneration &&
+                    currentMediaId == targetMediaId &&
+                    _onlineSubtitlePreviewKey.value == key
+                ) {
                     _onlineSubtitlePreviewLines.value = lines
                     if (lines.isEmpty()) {
                         _onlineSubtitlePreviewError.value =
@@ -2070,14 +2104,21 @@ class PlayerViewModel @Inject constructor(
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
-            } catch (error: Exception) {
-                if (currentMediaId == targetMediaId && _onlineSubtitlePreviewKey.value == key) {
+            } catch (error: Throwable) {
+                Log.e("PlayerViewModel", "previewOnlineSubtitle failed", error)
+                if (generation == onlineSubtitlePreviewGeneration &&
+                    currentMediaId == targetMediaId &&
+                    _onlineSubtitlePreviewKey.value == key
+                ) {
                     _onlineSubtitlePreviewError.value = error.message
                         ?: app.getString(com.malekplay.R.string.subtitle_preview_failed)
                 }
             } finally {
-                if (_onlineSubtitlePreviewKey.value == key) {
-                    _onlineSubtitlePreviewLoading.value = false
+                if (generation == onlineSubtitlePreviewGeneration) {
+                    if (_onlineSubtitlePreviewKey.value == key) {
+                        _onlineSubtitlePreviewLoading.value = false
+                    }
+                    onlineSubtitlePreviewJob = null
                 }
             }
         }
@@ -2110,7 +2151,8 @@ class PlayerViewModel @Inject constructor(
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
-            } catch (error: Exception) {
+            } catch (error: Throwable) {
+                Log.e("PlayerViewModel", "loadOnlineSubtitleEpisodeGuide failed", error)
                 if (requestId == onlineSubtitleGuideRequestId && currentMediaId == targetMediaId) {
                     _onlineSubtitleGuideError.value = if (
                         forceRefresh && _onlineSubtitleEpisodeGuide.value != null
@@ -2158,7 +2200,8 @@ class PlayerViewModel @Inject constructor(
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
-            } catch (error: Exception) {
+            } catch (error: Throwable) {
+                Log.e("PlayerViewModel", "searchOnlineSubtitles failed", error)
                 if (generation == onlineSubtitleSearchGeneration && currentMediaId == targetMediaId) {
                     _onlineSubtitleError.value = when (error) {
                         is com.malekplay.network.SubtitleHttpException ->
@@ -2217,7 +2260,8 @@ class PlayerViewModel @Inject constructor(
                 ).show()
             } catch (cancelled: CancellationException) {
                 throw cancelled
-            } catch (error: Exception) {
+            } catch (error: Throwable) {
+                Log.e("PlayerViewModel", "downloadOnlineSubtitle failed", error)
                 currentCoroutineContext().ensureActive()
                 _onlineSubtitleError.value = if (error is java.io.IOException) {
                     app.getString(com.malekplay.R.string.subtitle_download_network_error)
@@ -2297,7 +2341,8 @@ class PlayerViewModel @Inject constructor(
                 ).show()
             } catch (cancelled: CancellationException) {
                 throw cancelled
-            } catch (error: Exception) {
+            } catch (error: Throwable) {
+                Log.e("PlayerViewModel", "downloadAndTranslateOnlineSubtitleToArabic failed", error)
                 currentCoroutineContext().ensureActive()
                 _subtitleTranslationError.value = error.message
                     ?: app.getString(com.malekplay.R.string.subtitle_download_translate_failed)

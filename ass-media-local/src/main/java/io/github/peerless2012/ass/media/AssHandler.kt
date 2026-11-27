@@ -149,17 +149,21 @@ class AssHandler(
 
     @Synchronized
     override fun onTracksChanged(tracks: Tracks) {
-        Log.i("AssHandler", "onTracksChanged $tracks")
-        getSelectedVideoTrack(tracks)?.let { setVideoSize(it.width, it.height) }
-        format = getSelectedAssTrack(tracks)
-        if (format == null) {
-            Log.i("AssHandler", "subtitle track disabled")
-            track = null
-            render?.setTrack(null)
-            overlayManager?.disable()
-            return
+        runCatching {
+            Log.i("AssHandler", "onTracksChanged $tracks")
+            getSelectedVideoTrack(tracks)?.let { setVideoSize(it.width, it.height) }
+            format = getSelectedAssTrack(tracks)
+            if (format == null) {
+                Log.i("AssHandler", "subtitle track disabled")
+                track = null
+                render?.setTrack(null)
+                overlayManager?.disable()
+                return
+            }
+            updateTrack()
+        }.onFailure { error ->
+            Log.w("AssHandler", "Failed to update ASS track state", error)
         }
-        updateTrack()
     }
 
     @Synchronized
@@ -175,15 +179,19 @@ class AssHandler(
         }
         if (selectedTrack == null || this.track === selectedTrack) return
 
+        val currentRender = render ?: return
         Log.i("AssHandler", "subtitle track changed to $format")
-        this.track = selectedTrack
-        val currentRender = requireNotNull(render)
-        currentRender.setStorageSize(videoSize.width, videoSize.height)
+        if (videoSize.isValid) {
+            currentRender.setStorageSize(videoSize.width, videoSize.height)
+        }
         val overlayMode = renderType == AssRenderType.OVERLAY_CANVAS ||
             renderType == AssRenderType.OVERLAY_OPEN_GL
         val frameSize = if (overlayMode && surfaceSize.isValid) surfaceSize else videoSize
-        currentRender.setFrameSize(frameSize.width, frameSize.height)
+        if (frameSize.isValid) {
+            currentRender.setFrameSize(frameSize.width, frameSize.height)
+        }
         currentRender.setTrack(selectedTrack)
+        this.track = selectedTrack
 
         overlayManager?.let { manager ->
             if (::handler.isInitialized) handler.post { manager.enable(currentRender) }

@@ -216,11 +216,15 @@ fun OnlineSubtitleSearchSheet(
     var autoSearched by remember { mutableStateOf(false) }
     var resultFilter by remember { mutableStateOf(SubtitleResultFilter.ALL) }
     var resultSort by remember { mutableStateOf(SubtitleResultSort.BEST_MATCH) }
-    val availableSeasons = SubtitleResultPolicy.availableSeasons(results)
+    val availableSeasons = remember(results) {
+        SubtitleResultPolicy.availableSeasons(results)
+    }
     val selectedSeasonNumber = season.toIntOrNull()
-    val availableEpisodes = selectedSeasonNumber?.let {
-        SubtitleResultPolicy.availableEpisodes(results, it)
-    }.orEmpty()
+    val availableEpisodes = remember(results, selectedSeasonNumber) {
+        selectedSeasonNumber?.let {
+            SubtitleResultPolicy.availableEpisodes(results, it)
+        }.orEmpty()
+    }
 
     val filteredResults = remember(results, resultFilter, resultSort) {
         filterAndSortOnlineSubtitles(results, resultFilter, resultSort)
@@ -845,8 +849,10 @@ fun OnlineSubtitleSearchSheet(
                                 )
                             }
 
-                            val cleanRelease = SubtitleQueryCleaner.clean(subtitle.release).title
-                                .ifBlank { subtitle.release }
+                            val cleanRelease = remember(subtitle.release) {
+                                SubtitleQueryCleaner.clean(subtitle.release).title
+                                    .ifBlank { subtitle.release }
+                            }
                             Text(
                                 cleanRelease,
                                 maxLines = 2,

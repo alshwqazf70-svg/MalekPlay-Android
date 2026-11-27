@@ -159,4 +159,21 @@ class OnlineSubtitlePayloadValidationTest {
         }.exceptionOrNull()
         assertTrue(err?.message?.contains("RAR") == true)
     }
+
+    @Test
+    fun `accepts single-digit seconds, subviewer 3-digit millis, sbv, and plain srt served with application_zip mime`() {
+        val singleDigitSecSrt = "1\n00:01:5,200 --> 00:01:8,500\nمرحبا بكم\n".toByteArray(Charsets.UTF_8)
+        assertEquals("srt", detectSubtitleFormat(singleDigitSecSrt, preferArabicLegacy = true))
+        assertTrue(isValidSubtitlePayload(singleDigitSecSrt, "srt", preferArabicLegacy = true))
+        // Some CDNs mislabel raw SRT payloads as application/zip; validation must still pass.
+        validateSubtitleDownloadResponse("application/zip", singleDigitSecSrt, "subtitles.website")
+
+        val sbvText = "0:00:01.250,0:00:03.500\nFirst line\n\n0:00:04.000,0:00:06.100\nSecond line\n"
+            .toByteArray(Charsets.UTF_8)
+        assertEquals("srt", detectSubtitleFormat(sbvText))
+        val normalizedSbv = normalizeSubtitleForStorage(sbvText, "srt")
+        assertTrue(isValidSubtitlePayload(normalizedSbv, "srt"))
+        val decodedSbv = String(normalizedSbv, 3, normalizedSbv.size - 3, Charsets.UTF_8)
+        assertTrue(decodedSbv.contains("00:00:01,250 --> 00:00:03,500"))
+    }
 }

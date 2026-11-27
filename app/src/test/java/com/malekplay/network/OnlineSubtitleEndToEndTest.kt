@@ -330,6 +330,71 @@ class OnlineSubtitleEndToEndTest {
         )
     }
 
+    @Test
+    fun extractsZipWithNonUtf8Windows1256FilenameAndPreviewsArabicSubtitle() = runBlocking {
+        val win1256 = Charset.forName("windows-1256")
+        val srtBytes = (
+            "1\r\n" +
+                "00:00:02,000 --> 00:00:05,000\r\n" +
+                "سطر عربي داخل أرشيف بترميز قديم\r\n"
+            ).toByteArray(win1256)
+        val zipOut = ByteArrayOutputStream()
+        ZipOutputStream(zipOut, win1256).use { zip ->
+            zip.putNextEntry(ZipEntry("ترجمة الفيلم.srt"))
+            zip.write(srtBytes)
+            zip.closeEntry()
+        }
+        val legacyZipBytes = zipOut.toByteArray()
+
+        val repo = createMockedRepository { request ->
+            val url = request.url.toString()
+            when (url) {
+                "https://subtitles.website/strapi/api/search/download/sub-win1256" ->
+                    textResponse(request, """{"download_url":"//subtitles.website/strapi/uploads/legacy.zip"}""", "application/json")
+                "https://subtitles.website/strapi/uploads/legacy.zip" ->
+                    binaryResponse(request, legacyZipBytes, "application/zip")
+                else -> error("Unexpected public URL: $url")
+            }
+        }
+        val sub = OnlineSubtitle(
+            fileId = 0L,
+            language = "ar",
+            release = "Legacy.Zip.Movie",
+            downloads = 20,
+            format = "srt",
+            sourceId = "sub-win1256",
+            provider = "subtitleSearchEngine"
+        )
+        val lines = repo.previewSubtitleLines(sub, maxCues = 3)
+        assertEquals(listOf("[00:00:02,000] سطر عربي داخل أرشيف بترميز قديم"), lines)
+    }
+
+    @Test
+    fun publicProviderAcceptsRawSrtServedWithApplicationZipMime() = runBlocking {
+        val rawSrt = "1\n00:00:01,000 --> 00:00:03,000\nDirect SRT with zip header\n"
+        val repo = createMockedRepository { request ->
+            val url = request.url.toString()
+            when (url) {
+                "https://subtitles.website/strapi/api/search/download/sub-zipmime" ->
+                    textResponse(request, """{"download_url":"/uploads/direct.srt"}""", "application/json")
+                "https://subtitles.website/strapi/uploads/direct.srt" ->
+                    textResponse(request, rawSrt, "application/zip")
+                else -> error("Unexpected public URL: $url")
+            }
+        }
+        val sub = OnlineSubtitle(
+            fileId = 0L,
+            language = "en",
+            release = "Direct.ZipMime.Movie",
+            downloads = 15,
+            format = "srt",
+            sourceId = "sub-zipmime",
+            provider = "subtitleSearchEngine"
+        )
+        val preview = repo.previewSubtitleLines(sub, maxCues = 3)
+        assertEquals(listOf("[00:00:01,000] Direct SRT with zip header"), preview)
+    }
+
     private fun createMockedRepository(handler: (okhttp3.Request) -> Response): OnlineSubtitleRepository {
         val client = OkHttpClient.Builder()
             .followRedirects(false)

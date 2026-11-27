@@ -1,6 +1,7 @@
 package com.malekplay.network
 
 import android.net.Uri
+import android.os.Build
 import android.text.Html
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -89,9 +90,13 @@ internal class Subf2mSubtitleProvider(
     }
 
     internal fun resolveDownloadPageLink(page: String, detailUrl: String): String? {
-        // SubF2M exposes the final action as #downloadButton; retain a path fallback for older pages.
+        // SubF2M exposes the final action as #downloadButton; retain path/form/class fallbacks
+        // so minor page template adjustments do not break legitimate downloads.
         val raw = DOWNLOAD_BUTTON.find(page)?.groupValues?.get(1)?.let(::decodeHtml)
             ?: DOWNLOAD_HREF.find(page)?.groupValues?.get(1)?.let(::decodeHtml)
+            ?: DOWNLOAD_LINK.find(page)?.groupValues?.get(1)?.let(::decodeHtml)
+            ?: DOWNLOAD_FORM.find(page)?.groupValues?.get(1)?.let(::decodeHtml)
+            ?: DOWNLOAD_CDN_URL.find(page)?.groupValues?.get(1)?.let(::decodeHtml)
             ?: return null
         return resolveSiteUrl(raw, detailUrl)
     }
@@ -314,21 +319,37 @@ internal class Subf2mSubtitleProvider(
     }
 
     private fun stripTags(value: String): String = TAGS.replace(value, " ")
+
     @Suppress("DEPRECATION")
-    private fun decodeHtml(value: String): String =
-        Html.fromHtml(value).toString().replace(Regex("\\s+"), " ").trim()
+    private fun decodeHtml(value: String): String {
+        val decoded = runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                Html.fromHtml(value, Html.FROM_HTML_MODE_LEGACY).toString()
+            } else {
+                Html.fromHtml(value).toString()
+            }
+        }.getOrElse { value }
+        return decoded.replace(Regex("\\s+"), " ").trim()
+    }
 
     private fun looksLikeHtml(bytes: ByteArray): Boolean {
-        val head = bytes.take(2048).toByteArray().toString(Charsets.UTF_8)
+        val sampleLen = minOf(bytes.size, 4096)
+        val head = runCatching {
+            String(bytes, 0, sampleLen, Charsets.UTF_8)
+        }.getOrDefault("")
+            .replace("\u0000", "")
             .trimStart('\uFEFF', ' ', '\t', '\n', '\r')
             .lowercase(Locale.ROOT)
         if (head.startsWith("<!doctype") ||
             head.startsWith("<html") ||
             head.startsWith("<head") ||
-            head.startsWith("<body")
+            head.startsWith("<body") ||
+            head.startsWith("<script")
         ) return true
         val looksChallenge = head.contains("just a moment...") ||
-            head.contains("cf-browser-verification")
+            head.contains("cf-browser-verification") ||
+            head.contains("enable javascript and cookies") ||
+            head.contains("<title>")
         return looksChallenge && !head.contains("-->") && !head.contains("dialogue:")
     }
 
@@ -369,5 +390,7 @@ internal class Subf2mSubtitleProvider(
         private val DOWNLOAD_LINK = Regex("""(?is)<a\b(?=[^>]*class=['"][^'"]*\bdownload\b)(?=[^>]*href=['"]([^'"]+)['"])[^>]*>""")
         private val DOWNLOAD_BUTTON = Regex("""(?is)<a\b(?=[^>]*id=['"]downloadButton['"])(?=[^>]*href=['"]([^'"]+)['"])[^>]*>""")
         private val DOWNLOAD_HREF = Regex("""(?is)<a\b(?=[^>]*href=['"]([^'"]*/download[^'"]*)['"])[^>]*>""")
+        private val DOWNLOAD_FORM = Regex("""(?is)<form\b(?=[^>]*action=['"]([^'"]*/download[^'"]*)['"])[^>]*>""")
+        private val DOWNLOAD_CDN_URL = Regex("""(?is)(?:href|data-url|data-href)=['"](https://isubcdn\.com/[^'"]+)['"]""")
     }
 }
