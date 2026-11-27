@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    MalekPlay Network Security Policy:
+    1) Dynamic RFC1918 / link-local / ULA addresses for legacy DLNA, UPnP, Roku ECP, and
+       the phone-hosted Web Cast server cannot be enumerated via CIDR in Android XML, so
+       base-config keeps cleartext permitted to avoid breaking TVs that do not support HTTPS.
+       Runtime validation in LanNetworkSupport / DlnaRendererClient / DlnaContentDirectoryClient
+       restricts local HTTP endpoints to numeric private LAN hosts with redirects disabled.
+    2) Known public APIs used by MalekPlay (subtitle and metadata providers, GitHub releases)
+       strictly disallow cleartext HTTP to prevent downgrade attacks.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">opensubtitles.org</domain>
+        <domain includeSubdomains="true">opensubtitles.com</domain>
+        <domain includeSubdomains="true">subdl.com</domain>
+        <domain includeSubdomains="true">subtitles.website</domain>
+        <domain includeSubdomains="true">subf2m.co</domain>
+        <domain includeSubdomains="true">tvmaze.com</domain>
+        <domain includeSubdomains="true">googleapis.com</domain>
+        <domain includeSubdomains="true">gstatic.com</domain>
+        <domain includeSubdomains="true">github.com</domain>
+        <domain includeSubdomains="true">githubusercontent.com</domain>
+    </domain-config>
+</network-security-config>

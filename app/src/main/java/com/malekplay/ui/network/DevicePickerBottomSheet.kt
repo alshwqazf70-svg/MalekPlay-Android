@@ -63,16 +63,17 @@ fun DevicePickerBottomSheet(
     val visibleWifiDirect = wifiDirectPeers.filter {
         it.name.contains(search, ignoreCase = true) || it.deviceAddress.contains(search, ignoreCase = true)
     }
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = Color(0xFF17131F)) {
+    val colors = MaterialTheme.colorScheme
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = colors.surfaceContainerLow) {
         Column(
             Modifier.fillMaxWidth().padding(horizontal = 18.dp).padding(bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Filled.Devices, contentDescription = null, tint = MalekPlayColors.PurpleBright)
+                Icon(Icons.Filled.Devices, contentDescription = null, tint = colors.primary)
                 Column(Modifier.weight(1f).padding(start = 10.dp)) {
-                    Text("اختر جهاز الاستقبال", color = Color.White, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleLarge)
-                    Text("تظهر هنا أجهزة الشبكة المحلية وWi-Fi Direct؛ يلزم توثيق آمن قبل نقل الملفات.", color = Color.LightGray, style = MaterialTheme.typography.labelSmall)
+                    Text("اختر جهاز الاستقبال", color = colors.onSurface, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleLarge)
+                    Text("تظهر هنا أجهزة الشبكة المحلية وWi-Fi Direct.", color = colors.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
                 }
                 TextButton(onClick = onRefresh) {
                     if (isScanning) {

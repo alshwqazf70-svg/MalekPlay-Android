@@ -1,5 +1,12 @@
 package com.malekplay.network
 
+import android.content.Context
+import android.content.pm.PackageManager
+import android.location.LocationManager
+import android.os.Build
+import androidx.core.content.ContextCompat
+import androidx.core.location.LocationManagerCompat
+
 /**
  * Central Android-version policy for Wi-Fi Direct runtime prerequisites.
  *
@@ -8,6 +15,18 @@ package com.malekplay.network
  * permission and requires Location services enabled for peer discovery.
  */
 object UltraSharePlatformCompatibility {
+
+    enum class WifiDirectPrerequisiteStatus {
+        READY,
+        PERMISSION_DENIED,
+        LOCATION_SERVICES_DISABLED
+    }
+
+    enum class PendingQrLocationAction {
+        ADVERTISE_INVITATION,
+        DISCOVER_INVITATION
+    }
+
     fun wifiDirectRuntimePermissions(sdkInt: Int): List<String> =
         if (sdkInt >= 33) {
             listOf("android.permission.NEARBY_WIFI_DEVICES")
@@ -17,6 +36,46 @@ object UltraSharePlatformCompatibility {
 
     fun requiresLocationServicesForWifiDirect(sdkInt: Int): Boolean =
         sdkInt in 23..32
+
+    fun evaluateWifiDirectPrerequisites(
+        sdkInt: Int,
+        permissionGranted: Boolean,
+        locationServicesEnabled: Boolean
+    ): WifiDirectPrerequisiteStatus {
+        if (!permissionGranted) return WifiDirectPrerequisiteStatus.PERMISSION_DENIED
+        if (requiresLocationServicesForWifiDirect(sdkInt) && !locationServicesEnabled) {
+            return WifiDirectPrerequisiteStatus.LOCATION_SERVICES_DISABLED
+        }
+        return WifiDirectPrerequisiteStatus.READY
+    }
+
+    fun hasWifiDirectRuntimePermission(context: Context, sdkInt: Int = Build.VERSION.SDK_INT): Boolean =
+        wifiDirectRuntimePermissions(sdkInt).all { permission ->
+            ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
+        }
+
+    fun isLocationServicesEnabled(context: Context): Boolean {
+        val lm = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return false
+        return runCatching { LocationManagerCompat.isLocationEnabled(lm) }.getOrElse { false }
+    }
+
+    fun currentWifiDirectPrerequisites(
+        context: Context,
+        sdkInt: Int = Build.VERSION.SDK_INT
+    ): WifiDirectPrerequisiteStatus = evaluateWifiDirectPrerequisites(
+        sdkInt = sdkInt,
+        permissionGranted = hasWifiDirectRuntimePermission(context, sdkInt),
+        locationServicesEnabled = isLocationServicesEnabled(context)
+    )
+
+    fun shouldAutoResumeQrOperation(
+        prerequisiteStatus: WifiDirectPrerequisiteStatus,
+        pendingAction: PendingQrLocationAction?,
+        operationAlreadyActive: Boolean
+    ): Boolean =
+        prerequisiteStatus == WifiDirectPrerequisiteStatus.READY &&
+            pendingAction != null &&
+            !operationAlreadyActive
 
     /** Android 6–9 still permits the legacy WifiManager.addNetwork join flow. */
     fun supportsLegacyWifiManagerJoin(sdkInt: Int): Boolean = sdkInt in 23..28

@@ -32,9 +32,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import android.provider.OpenableColumns
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Movie
@@ -42,6 +44,7 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -96,6 +99,10 @@ import com.malekplay.network.SmbPathPolicy
 import com.malekplay.network.SftpClient
 import com.malekplay.network.WebDavClient
 import com.malekplay.player.NetworkPlaybackUriBuilder
+import com.malekplay.player.cast.CastMediaHttpServer
+import com.malekplay.player.cast.WebCastItem
+import com.malekplay.player.cast.WebCastRegistry
+import com.malekplay.ui.player.video.WebCastDialog
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
@@ -528,8 +535,40 @@ fun NetworkScreen(
     val discoveryMessage by viewModel.discoveryMessage.collectAsStateWithLifecycle()
     val dlnaBrowse by viewModel.dlnaBrowse.collectAsStateWithLifecycle()
 
+    val context = LocalContext.current
     var showAddDialog by remember { mutableStateOf(false) }
+    var showWebCastDialog by remember { mutableStateOf(false) }
     var selectedDevice by remember { mutableStateOf<DiscoveredNetworkDevice?>(null) }
+    val webCastState by WebCastRegistry.state.collectAsStateWithLifecycle()
+
+    val webCastPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { picked ->
+        if (picked.isEmpty()) return@rememberLauncherForActivityResult
+        val items = picked.mapIndexed { idx, uri ->
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            }
+            val name = context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                if (c.moveToFirst()) c.getString(0) else null
+            } ?: uri.lastPathSegment ?: "Media ${idx + 1}"
+            val mime = context.contentResolver.getType(uri)
+                ?: CastMediaHttpServer.inferMimeFromUriOrName(uri, name)
+            WebCastItem(
+                id = "net-$idx-${uri.toString().hashCode().toUInt()}",
+                title = name,
+                uri = uri,
+                mimeType = mime
+            )
+        }
+        WebCastRegistry.updateQueue(items, 0)
+        if (!WebCastRegistry.state.value.running) {
+            runCatching { WebCastRegistry.start(context, requirePin = true) }
+        }
+        showWebCastDialog = true
+    }
+
     LaunchedEffect(viewModel) { viewModel.discoverDevices() }
     val activeProfile = profiles.firstOrNull { it.id == browse.profileId }
 
@@ -552,6 +591,18 @@ fun NetworkScreen(
                 fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
                 modifier = Modifier.weight(1f)
             )
+            OutlinedButton(
+                onClick = { showWebCastDialog = true },
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                modifier = Modifier.padding(end = 6.dp)
+            ) {
+                Icon(Icons.Filled.Computer, contentDescription = null, modifier = Modifier.size(16.dp))
+                Text(
+                    text = if (webCastState.running) "بث الكمبيوتر نشط" else "بث للكمبيوتر",
+                    modifier = Modifier.padding(start = 5.dp),
+                    maxLines = 1
+                )
+            }
             OutlinedButton(
                 onClick = onOpenUltraShare,
                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
@@ -614,6 +665,13 @@ fun NetworkScreen(
         }
     }
 
+    if (showWebCastDialog) {
+        WebCastDialog(
+            onDismiss = { showWebCastDialog = false },
+            onPickFilesToShare = { webCastPicker.launch(arrayOf("video/*", "audio/*", "image/*")) }
+        )
+    }
+
     if (showAddDialog) {
         AddSourceDialog(
             initialHost = selectedDevice?.host,
@@ -670,9 +728,11 @@ private fun DiscoveryPanel(
         if (devices.isNotEmpty()) {
             androidx.compose.foundation.lazy.LazyColumn(Modifier.heightIn(max = 190.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 items(items = devices, key = { it.id }) { device ->
+                    val isMediaServer = device.kind == NetworkDeviceKind.MEDIA_SERVER ||
+                        device.services.any { it.contains("MediaServer", true) || it.contains("ContentDirectory", true) }
                     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
                         .background(Color.White.copy(alpha = 0.045f))
-                        .then(if (device.kind == NetworkDeviceKind.MEDIA_SERVER) Modifier.clickable { onOpenMediaServer(device) } else Modifier)
+                        .then(if (isMediaServer) Modifier.clickable { onOpenMediaServer(device.copy(kind = NetworkDeviceKind.MEDIA_SERVER)) } else Modifier)
                         .padding(horizontal = 10.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -693,11 +753,12 @@ private fun DiscoveryPanel(
                             TextButton(onClick = { onUseWindowsDevice(device) }) {
                                 Text(stringResource(R.string.net_discovery_configure_smb))
                             }
-                        } else when (device.kind) {
-                            NetworkDeviceKind.MEDIA_SERVER -> TextButton(onClick = { onOpenMediaServer(device) }) {
+                        } else if (isMediaServer) {
+                            TextButton(onClick = { onOpenMediaServer(device.copy(kind = NetworkDeviceKind.MEDIA_SERVER)) }) {
                                 Text(stringResource(R.string.net_discovery_open))
                             }
-                            else -> Text(stringResource(R.string.net_discovery_detected), style = MaterialTheme.typography.labelSmall, color = MalekPlayColors.PurpleSoft)
+                        } else {
+                            Text(stringResource(R.string.net_discovery_detected), style = MaterialTheme.typography.labelSmall, color = MalekPlayColors.PurpleSoft)
                         }
                     }
                 }
@@ -1372,7 +1433,7 @@ private fun NetworkHelpFooter() {
                 }
                 if (dlnaExpanded) {
                     Text("1. تأكد من تشغيل خادم DLNA أو مشاركة الوسائط على الكمبيوتر أو جهاز التخزين.\n2. ارجع إلى أعلى شاشة الشبكة وانتظر الاكتشاف التلقائي، أو اضغط «بحث» لتحديث الأجهزة.\n3. عند ظهور خادم الوسائط اضغط «فتح».\n4. افتح المجلدات بالضغط عليها، واستخدم زر الرجوع إلى المجلد الأب أو التحديث عند الحاجة.\n5. اضغط ملف الفيديو أو الصوت لتشغيله داخل MalekPlay.")
-                    Text("هذه الشاشة تتصفح محتوى خادم DLNA وتشغّله على الهاتف؛ لا تعني أن الهاتف يرسل الفيديو لاسلكياً إلى التلفاز. ميزة الإرسال إلى التلفاز (Cast) غير موجودة ضمن واجهات هذا الإصدار التي تم فحصها.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("هذه الشاشة تتصفح محتوى خوادم الشبكة (SMB/WebDAV/SFTP/DLNA) لتشغيلها على الهاتف، كما يمكنك الضغط على «بث للكمبيوتر» أعلى الشاشة لبث ملفات الهاتف إلى متصفح الكمبيوتر مباشرة، أو البث إلى التلفزيون عبر DLNA / Chromecast / Roku من داخل مشغل الفيديو.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }

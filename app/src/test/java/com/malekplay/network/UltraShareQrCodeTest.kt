@@ -336,4 +336,27 @@ class UltraShareQrCodeTest {
         )
     }
 
+    @Test
+    fun roomV6QrPermitsP2pInvitationWithoutKnownLanHostsAndPreservesWpa3Security() {
+        val secret = UltraShareCore.createPairingSecret()
+        val payload = UltraShareQrCode.createRoomPayload(
+            hosts = emptyList(),
+            pairingSecret = secret,
+            deviceName = "Offline Phone",
+            mode = "p2p",
+            ssid = "DIRECT-Offline",
+            psk = "share12345",
+            invitationId = "p2p-offline-1",
+            wifiSecurity = "wpa3"
+        )
+        val decoded = UltraShareQrCode.parsePayload(payload)
+        assertEquals("", decoded.host)
+        assertTrue(decoded.hosts.isEmpty())
+        assertEquals("p2p", decoded.mode)
+        assertEquals("p2p-offline-1", decoded.invitationId)
+        assertEquals("DIRECT-Offline", decoded.hotspotSsid)
+        assertEquals("share12345", decoded.hotspotPassword)
+        assertEquals("wpa3", decoded.hotspotSecurity)
+    }
+
 }

@@ -627,6 +627,8 @@ def main() -> int:
                          help="TCP port for the authenticated MPC2 approval channel")
     receive.add_argument("--discovery-port", type=int, default=DISCOVERY_PORT)
     receive.add_argument("--name", default=socket.gethostname())
+    receive.add_argument("--auto-approve", action="store_true",
+                         help="Automatically approve incoming phones authenticated with the pairing PIN")
 
     send_v2 = sub.add_parser("send-v2", help="Send a V2 batch after Android control-channel approval")
     send_v2.add_argument("--secret", help="9-digit pairing code; prompted if omitted")
@@ -685,6 +687,9 @@ def main() -> int:
             while True:
                 try:
                     def approve(peer_name: str, peer_host: str) -> bool:
+                        if getattr(args, "auto_approve", False):
+                            print(f"\nAuto-approved authenticated phone: {peer_name} ({peer_host})")
+                            return True
                         try:
                             answer = input(
                                 f"\n{peer_name} ({peer_host}) requests Ultra Share access. Accept? [y/N]: "

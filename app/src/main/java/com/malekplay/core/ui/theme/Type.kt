@@ -1,8 +1,8 @@
 package com.malekplay.core.ui.theme
 
 import androidx.compose.material3.Typography
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
@@ -28,17 +28,14 @@ val MalekPlayTypography = Typography(
 )
 
 /**
- * Applies the selected global text palette to every Material typography role.
- * The Aurora metallic brush remains the default only when no solid palette is selected.
+ * Applies the selected global text palette while leaving button labels
+ * (`labelLarge`) unspecified so filled buttons always pick a contrasting ink.
  */
 fun malekPlayTypography(isDark: Boolean, textColor: Color? = null): Typography {
-    // This project's pinned Compose UI version exposes solid TextStyle colors,
-    // but not the newer brush-based TextStyle.copy overload. Keep typography
-    // compatible with the pinned API and use the theme's accessible accent.
     val selectedTextColor = textColor ?: if (isDark) {
-        MalekPlayColors.PurpleBright
+        MalekPlayColors.TextPrimary
     } else {
-        MalekPlayColors.PurpleDeep
+        MalekPlayColors.LightTextPrimary
     }
     val applyTextPalette: (TextStyle) -> TextStyle = { style ->
         style.copy(color = selectedTextColor)
@@ -56,9 +53,6 @@ fun malekPlayTypography(isDark: Boolean, textColor: Color? = null): Typography {
         bodyLarge = applyTextPalette(MalekPlayTypography.bodyLarge),
         bodyMedium = applyTextPalette(MalekPlayTypography.bodyMedium),
         bodySmall = applyTextPalette(MalekPlayTypography.bodySmall),
-        // Material buttons provide their own semantic content color (onPrimary,
-        // onSecondary, etc.). Keep labelLarge unspecified so ButtonDefaults can
-        // select a readable foreground for the actual button container.
         labelLarge = MalekPlayTypography.labelLarge.copy(color = Color.Unspecified),
         labelMedium = applyTextPalette(MalekPlayTypography.labelMedium),
         labelSmall = applyTextPalette(MalekPlayTypography.labelSmall)

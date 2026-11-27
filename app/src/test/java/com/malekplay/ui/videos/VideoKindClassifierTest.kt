@@ -205,5 +205,15 @@ class VideoKindClassifierTest {
         assertEquals(VideoKind.UNCLASSIFIED, classified.getValue("unrelated").kind)
     }
 
+    @Test fun detectsCompactArabicSeasonAndEpisodeNotation() {
+        assertEquals(VideoKind.SERIES, VideoKindClassifier.classify("مسلسل الوعد ج2 ح05.mp4"))
+        assertEquals(VideoKind.SERIES, VideoKindClassifier.classify("الرحلة ح 12.mkv"))
+        val ep = VideoKindClassifier.episodeSortKey("الوعد ج٢ ح٠٥.mp4")
+        assertEquals("الوعد", ep?.seriesKey)
+        assertEquals(2, ep?.season)
+        assertEquals(5, ep?.episode)
+        assertEquals("Avatar The Last Airbender", VideoKindClassifier.formatSeriesDisplayName("avatar.the.last.airbender 1080p x265"))
+    }
+
 
 }

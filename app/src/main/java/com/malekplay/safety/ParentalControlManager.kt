@@ -12,6 +12,51 @@ class ParentalControlManager(context: Context) {
     val hasPin: Boolean get() = prefs.contains(KEY_HASH) && prefs.contains(KEY_SALT)
     /** Stable media IDs explicitly approved by the parent. Empty means nothing is approved. */
     val allowedMediaIds: Set<String> get() = prefs.getStringSet(KEY_ALLOWED_MEDIA, emptySet())?.toSet().orEmpty()
+    val sessionLimitMinutes: Int get() = prefs.getInt(KEY_SESSION_LIMIT_MIN, 0).coerceAtLeast(0)
+    val sessionStartedAtMs: Long get() = prefs.getLong(KEY_SESSION_STARTED_AT_MS, 0L)
+
+    fun remainingLockoutSeconds(): Int {
+        val until = prefs.getLong(KEY_LOCK_UNTIL, 0L)
+        val remaining = until - System.currentTimeMillis()
+        return if (remaining > 0L) ((remaining + 999L) / 1000L).toInt() else 0
+    }
+
+    fun remainingSessionSeconds(): Int {
+        val limitMin = sessionLimitMinutes
+        if (!isEnabled || limitMin <= 0) return Int.MAX_VALUE
+        val startedAt = sessionStartedAtMs
+        if (startedAt <= 0L) return limitMin * 60
+        val deadline = startedAt + limitMin * 60_000L
+        val remaining = deadline - System.currentTimeMillis()
+        return if (remaining <= 0L) 0 else ((remaining + 999L) / 1000L).toInt()
+    }
+
+    fun isSessionExpired(): Boolean =
+        isEnabled && sessionLimitMinutes > 0 && remainingSessionSeconds() <= 0
+
+    fun setSessionLimitMinutes(minutes: Int) = synchronized(PIN_LOCK) {
+        val clean = minutes.coerceIn(0, 240)
+        val editor = prefs.edit().putInt(KEY_SESSION_LIMIT_MIN, clean)
+        if (isEnabled && clean > 0) {
+            editor.putLong(KEY_SESSION_STARTED_AT_MS, System.currentTimeMillis())
+        }
+        check(editor.commit()) { "تعذر حفظ مؤقت وضع الأطفال" }
+    }
+
+    fun extendSessionAfterPin(pin: String, extraMinutes: Int = 15): Boolean = synchronized(PIN_LOCK) {
+        if (!verifyPin(pin)) return@synchronized false
+        val cleanMinutes = extraMinutes.coerceIn(5, 180)
+        prefs.edit()
+            .putInt(KEY_SESSION_LIMIT_MIN, cleanMinutes)
+            .putLong(KEY_SESSION_STARTED_AT_MS, System.currentTimeMillis())
+            .commit()
+    }
+
+    fun changePin(currentPin: String, newPin: String): Boolean = synchronized(PIN_LOCK) {
+        if (!verifyPin(currentPin)) return@synchronized false
+        setPin(newPin)
+        true
+    }
 
     fun isMediaAllowed(mediaId: String): Boolean = mediaId.isNotBlank() && mediaId in allowedMediaIds
 
@@ -77,12 +122,18 @@ class ParentalControlManager(context: Context) {
 
     fun enableAfterPin(pin: String): Boolean = synchronized(PIN_LOCK) {
         if (!verifyPin(pin)) return@synchronized false
-        prefs.edit().putBoolean(KEY_ENABLED, true).commit()
+        prefs.edit()
+            .putBoolean(KEY_ENABLED, true)
+            .putLong(KEY_SESSION_STARTED_AT_MS, System.currentTimeMillis())
+            .commit()
     }
 
     fun disableAfterPin(pin: String): Boolean = synchronized(PIN_LOCK) {
         if (!verifyPin(pin)) return@synchronized false
-        prefs.edit().putBoolean(KEY_ENABLED, false).commit()
+        prefs.edit()
+            .putBoolean(KEY_ENABLED, false)
+            .putLong(KEY_SESSION_STARTED_AT_MS, 0L)
+            .commit()
     }
 
     private fun normalizePin(pin: String): String = buildString(pin.length) {
@@ -117,6 +168,8 @@ class ParentalControlManager(context: Context) {
         const val KEY_FAILURES = "pin_failures"
         const val KEY_LOCK_UNTIL = "pin_lock_until"
         const val KEY_ALLOWED_MEDIA = "allowed_media_ids"
+        const val KEY_SESSION_LIMIT_MIN = "kids_session_limit_min"
+        const val KEY_SESSION_STARTED_AT_MS = "kids_session_started_at_ms"
         const val MAX_ALLOWED_MEDIA = 10_000
         const val MAX_MEDIA_ID_LENGTH = 512
         const val SALT_LENGTH = 16

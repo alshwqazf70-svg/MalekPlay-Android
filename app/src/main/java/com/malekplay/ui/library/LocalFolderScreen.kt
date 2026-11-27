@@ -1,11 +1,9 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 
 package com.malekplay.ui.library
 
+import android.net.Uri
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -14,46 +12,50 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Movie
-import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material.icons.filled.ViewList
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.malekplay.R
-import com.malekplay.core.ui.theme.MalekPlayColors
-import com.malekplay.core.ui.util.formatBytes
-import com.malekplay.core.ui.util.formatDuration
-import com.malekplay.core.ui.util.formatResolution
 import com.malekplay.domain.model.LibraryItem
 import com.malekplay.domain.model.MediaItem
+import com.malekplay.domain.model.SortMode
+import com.malekplay.domain.model.ViewMode
 import com.malekplay.ui.components.EmptyState
-import com.malekplay.ui.components.MediaThumbnail
-import com.malekplay.ui.components.MediaDeleteButton
 import com.malekplay.ui.components.MediaBulkDeleteBar
+import com.malekplay.ui.components.PlaylistPickerDialog
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Composable
 fun LocalFolderScreen(
@@ -64,37 +66,75 @@ fun LocalFolderScreen(
     onSendMedia: (List<MediaItem>) -> Unit = {}
 ) {
     val viewModel: LibraryViewModel = hiltViewModel()
+    val colors = MaterialTheme.colorScheme
 
     val items by remember(folderPath) { viewModel.folderContents(folderPath) }
         .collectAsStateWithLifecycle(initialValue = emptyList<LibraryItem>())
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     val lastPlayedMediaId by viewModel.lastPlayedMediaId.collectAsStateWithLifecycle(initialValue = null)
     val seenNewMediaIds by viewModel.seenNewMediaIds.collectAsStateWithLifecycle()
     val newMediaBaselineMs by viewModel.newMediaBaselineMs.collectAsStateWithLifecycle()
-    val selectedUris = remember { mutableStateListOf<android.net.Uri>() }
+    var playlistTarget by remember { mutableStateOf<MediaItem?>(null) }
+    val selectedUris = remember { mutableStateListOf<Uri>() }
     val selectionMode = selectedUris.isNotEmpty()
-    fun toggleSelection(uri: android.net.Uri) { if (uri in selectedUris) selectedUris.remove(uri) else selectedUris.add(uri) }
+    fun toggleSelection(uri: Uri) {
+        if (uri in selectedUris) selectedUris.remove(uri) else selectedUris.add(uri)
+    }
+
+    LaunchedEffect(settings.sortMode) {
+        if (settings.sortMode == SortMode.MANUAL) selectedUris.clear()
+    }
+
+    val sortedItems by produceState(
+        initialValue = emptyList<LibraryItem>(),
+        items,
+        settings.sortMode,
+        settings.sortAscending,
+        lastPlayedMediaId,
+        settings.manualSortOrder
+    ) {
+        value = withContext(Dispatchers.Default) {
+            viewModel.applySort(
+                items = items,
+                mode = settings.sortMode,
+                ascending = settings.sortAscending,
+                lastPlayedMediaId = lastPlayedMediaId,
+                manualOrder = settings.manualSortOrder
+            )
+        }
+    }
 
     val folderName = remember(folderPath) {
         folderPath.trimEnd('/').substringAfterLast('/').ifBlank { folderPath }
     }
 
     Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
+        containerColor = colors.background,
         topBar = {
             TopAppBar(
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color.Transparent
+                ),
                 title = {
                     Column {
                         Text(
                             text = folderName,
                             style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
+                        val newCount = items.count {
+                            newMediaBaselineMs > 0L &&
+                                it.media.addedAtMs >= newMediaBaselineMs &&
+                                it.media.id !in seenNewMediaIds
+                        }
                         Text(
-                            text = "${items.size} ملف  •  ${items.count { it.media.isVideo }} فيديو  •  ${items.count { it.media.isAudio }} موسيقى  •  ${items.count { newMediaBaselineMs > 0L && it.media.addedAtMs >= newMediaBaselineMs && it.media.id !in seenNewMediaIds }} جديد",
+                            text = "${items.size} ملف  •  ${items.count { it.media.isVideo }} فيديو  •  ${items.count { it.media.isAudio }} موسيقى" +
+                                if (newCount > 0) "  •  $newCount جديد" else "",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = colors.onSurfaceVariant,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -110,6 +150,22 @@ fun LocalFolderScreen(
                 },
                 actions = {
                     IconButton(
+                        onClick = {
+                            viewModel.setViewMode(
+                                if (settings.viewMode == ViewMode.LIST) ViewMode.GRID else ViewMode.LIST
+                            )
+                        }
+                    ) {
+                        Icon(
+                            imageVector = if (settings.viewMode == ViewMode.LIST) {
+                                Icons.Filled.GridView
+                            } else {
+                                Icons.Filled.ViewList
+                            },
+                            contentDescription = stringResource(R.string.lib_view_grid)
+                        )
+                    }
+                    IconButton(
                         onClick = { viewModel.refresh() },
                         enabled = !isRefreshing
                     ) {
@@ -123,21 +179,59 @@ fun LocalFolderScreen(
         }
     ) { padding ->
         Column(
-            modifier = Modifier.fillMaxSize().padding(padding).padding(contentPadding)
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            colors.primaryContainer.copy(alpha = 0.22f),
+                            colors.background,
+                            colors.surface
+                        )
+                    )
+                )
+                .padding(padding)
+                .padding(contentPadding)
         ) {
+            if (items.isNotEmpty()) {
+                LibrarySortBar(
+                    sortMode = settings.sortMode,
+                    sortAscending = settings.sortAscending,
+                    foldersFirst = settings.foldersFirst,
+                    showFoldersFirstOption = false,
+                    onSelectMode = viewModel::setSortMode,
+                    onToggleAscending = { viewModel.setSortAscending(!settings.sortAscending) },
+                    onToggleFoldersFirst = { viewModel.setFoldersFirst(!settings.foldersFirst) }
+                )
+                ManualSortBanner(
+                    visible = settings.sortMode == SortMode.MANUAL,
+                    hasCustomOrder = settings.manualSortOrder.isNotEmpty(),
+                    onReset = viewModel::resetManualSortOrder,
+                    onDone = { viewModel.setSortMode(SortMode.NEWEST) }
+                )
+                Spacer(Modifier.height(6.dp))
+            }
+
             if (selectionMode) {
-                androidx.compose.material3.Surface(
-                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.95f),
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
-                    shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp)
+                Surface(
+                    color = colors.primaryContainer.copy(alpha = 0.95f),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 6.dp),
+                    shape = RoundedCornerShape(14.dp)
                 ) {
                     Row(
                         Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("${selectedUris.size} ملف محدد", modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onPrimaryContainer)
-                        androidx.compose.material3.TextButton(onClick = { selectedUris.clear() }) { Text("إلغاء") }
-                        androidx.compose.material3.TextButton(onClick = {
+                        Text(
+                            "${selectedUris.size} ملف محدد",
+                            modifier = Modifier.weight(1f),
+                            color = colors.onPrimaryContainer,
+                            fontWeight = FontWeight.Bold
+                        )
+                        TextButton(onClick = { selectedUris.clear() }) { Text("إلغاء") }
+                        TextButton(onClick = {
                             onSendMedia(items.filter { it.media.uri in selectedUris }.map { it.media })
                         }) { Text("إرسال المحدد") }
                     }
@@ -148,6 +242,7 @@ fun LocalFolderScreen(
                     onClearSelection = { selectedUris.clear() }
                 )
             }
+
             if (items.isEmpty()) {
                 EmptyState(
                     title = stringResource(R.string.lib_empty_title),
@@ -158,154 +253,31 @@ fun LocalFolderScreen(
                 return@Column
             }
 
-            LazyColumn(
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                contentPadding = PaddingValues(bottom = 24.dp)
-            ) {
-                items(items = items.sortedByDescending { it.media.addedAtMs }, key = { it.media.id }) { item ->
-                    FolderItemRow(
-                        item = item,
-                        isNew = newMediaBaselineMs > 0L && item.media.addedAtMs >= newMediaBaselineMs && item.media.id !in seenNewMediaIds,
-                        isLastPlayed = item.media.id == lastPlayedMediaId,
-                        onClick = { onOpenMedia(item.media) },
-                        onSend = { toggleSelection(item.media.uri) },
-                        selectionMode = selectionMode,
-                        isSelected = item.media.uri in selectedUris,
-                        onSelect = { toggleSelection(item.media.uri) },
-                        onDelete = { viewModel.refresh() },
-                        onToggleFavourite = { viewModel.toggleFavourite(item.media.id) }
-                    )
-                }
-            }
+            ReorderableMediaCollection(
+                items = sortedItems,
+                viewMode = settings.viewMode,
+                emptyTitle = stringResource(R.string.lib_empty_title),
+                emptyBody = stringResource(R.string.lib_empty_body),
+                lastPlayedMediaId = lastPlayedMediaId,
+                onPlay = onOpenMedia,
+                onSend = { toggleSelection(it.uri) },
+                selectionMode = selectionMode,
+                selectedUris = selectedUris.toSet(),
+                onToggleSelection = ::toggleSelection,
+                onFavourite = { viewModel.toggleFavourite(it.media.id) },
+                onAddToPlaylist = { playlistTarget = it.media },
+                onDeleted = viewModel::refresh,
+                manualReorderEnabled = settings.sortMode == SortMode.MANUAL,
+                onMoveManualItem = viewModel::moveManualItem,
+                onStepManualItem = viewModel::stepManualItem
+            )
         }
     }
-}
 
-@Composable
-private fun FolderItemRow(
-    item: LibraryItem,
-    isNew: Boolean,
-    isLastPlayed: Boolean,
-    onClick: () -> Unit,
-    onSend: () -> Unit,
-    selectionMode: Boolean,
-    isSelected: Boolean,
-    onSelect: () -> Unit,
-    onDelete: () -> Unit,
-    onToggleFavourite: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .combinedClickable(onClick = { if (selectionMode) onSelect() else onClick() }, onLongClick = onSelect)
-            .background(if (isSelected) MaterialTheme.colorScheme.primaryContainer else androidx.compose.ui.graphics.Color.Transparent)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        // Show the real video frame or embedded album cover instead of a generic type icon.
-        // MediaThumbnail decodes off the main thread and falls back safely when artwork is unavailable.
-        MediaThumbnail(
-            media = item.media,
-            modifier = Modifier.size(76.dp, 56.dp),
-            targetSize = android.util.Size(304, 224),
-            cornerRadius = 9.dp
+    playlistTarget?.let { media ->
+        PlaylistPickerDialog(
+            mediaId = media.id,
+            onDismiss = { playlistTarget = null }
         )
-        Spacer(modifier = Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = item.media.displayTitle,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-                    color = if (isLastPlayed) androidx.compose.ui.graphics.Color(0xFF2196F3) else MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
-                Spacer(Modifier.width(7.dp))
-                if (isNew) {
-                    androidx.compose.material3.Surface(
-                        color = androidx.compose.ui.graphics.Color(0xFFE84D75),
-                        shape = androidx.compose.foundation.shape.RoundedCornerShape(6.dp)
-                    ) {
-                        Text(
-                            text = "جديد",
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = androidx.compose.ui.graphics.Color.White,
-                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
-                        )
-                    }
-                }
-                Spacer(Modifier.width(7.dp))
-                androidx.compose.material3.Surface(
-                    color = if (item.media.isVideo) MaterialTheme.colorScheme.primaryContainer
-                    else MaterialTheme.colorScheme.tertiaryContainer,
-                    shape = androidx.compose.foundation.shape.RoundedCornerShape(7.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = if (item.media.isVideo) Icons.Filled.Movie else Icons.Filled.MusicNote,
-                            contentDescription = null,
-                            modifier = Modifier.size(13.dp),
-                            tint = if (item.media.isVideo) MaterialTheme.colorScheme.onPrimaryContainer
-                            else MaterialTheme.colorScheme.onTertiaryContainer
-                        )
-                        Spacer(Modifier.width(3.dp))
-                        Text(
-                            text = if (item.media.isVideo) "فيديو" else "موسيقى",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (item.media.isVideo) MaterialTheme.colorScheme.onPrimaryContainer
-                            else MaterialTheme.colorScheme.onTertiaryContainer
-                        )
-                    }
-                }
-            }
-            val details = buildList {
-                if (item.media.isAudio) {
-                    item.media.artist?.takeIf { it.isNotBlank() && !it.equals("<unknown>", true) }?.let { add(it) }
-                    item.media.album?.takeIf { it.isNotBlank() && !it.equals("<unknown>", true) }?.let(::add)
-                } else {
-                    formatResolution(item.media.width, item.media.height)
-                        .takeIf { it.isNotBlank() }?.let(::add)
-                }
-                add(formatDuration(item.media.durationMs))
-                add(formatBytes(item.media.sizeBytes))
-            }.joinToString(" • ")
-            Text(
-                text = details,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            if (item.isInProgress) {
-                Spacer(modifier = Modifier.height(6.dp))
-                LinearProgressIndicator(
-                    progress = item.fraction.coerceIn(0f, 1f),
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        }
-        MediaDeleteButton(media = item.media, onDeleted = onDelete)
-        IconButton(onClick = onToggleFavourite) {
-            Icon(
-                imageVector = if (item.isFavourite) Icons.Filled.Star else Icons.Filled.StarBorder,
-                contentDescription = stringResource(
-                    if (item.isFavourite) R.string.lib_remove_favourite else R.string.lib_add_favourite
-                ),
-                tint = if (item.isFavourite) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                }
-            )
-        }
     }
 }

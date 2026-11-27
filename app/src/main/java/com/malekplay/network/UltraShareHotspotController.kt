@@ -65,14 +65,19 @@ internal class UltraShareHotspotController(
                         }
                     }.getOrDefault("" to "")
                     // OEMs may publish SoftAP credentials before its IPv4 interface is ready.
-                    // Wait up to four seconds rather than publishing an unreachable QR.
+                    // Wait briefly for the actual hotspot/SoftAP interface first (especially on
+                    // dual-STA+AP phones that remain attached to an external Wi-Fi/captive router),
+                    // then include any valid local IPv4 addresses ordered with SoftAP first.
                     var addresses = emptyList<String>()
                     for (attempt in 0 until 20) {
                         if (callback !== callbackInstance) return@launch
-                        addresses = UltraShareDeviceNetworkInfo.findLocalIpv4Addresses(appContext)
-                            .filter { UltraShareCore.isValidPrivateLanHost(it) }
-                            .distinct()
-                        if (addresses.isNotEmpty()) break
+                        val softApAddresses = UltraShareNetworkRouting.hotspotLocalIpv4Addresses()
+                        val discovered = UltraShareDeviceNetworkInfo.findLocalIpv4Addresses(appContext)
+                        addresses = UltraShareNetworkRouting.orderHotspotPreferredAddresses(
+                            appContext,
+                            softApAddresses + discovered
+                        )
+                        if (softApAddresses.isNotEmpty() || (attempt >= 10 && addresses.isNotEmpty())) break
                         if (attempt < 19) delay(200L)
                     }
                     if (callback !== callbackInstance) {

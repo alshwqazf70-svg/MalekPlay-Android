@@ -140,5 +140,18 @@ class MalekPlayBackupManagerTest {
         }
     }
 
-
+    @Test
+    fun settingsRoundTripPreservesTenBandEqualizerAndTextColorMode() {
+        val original = com.malekplay.domain.model.PlayerSettings(
+            textColorMode = "gold",
+            equalizerPresetIndex = com.malekplay.domain.model.EqualizerPreset.ROCK.ordinal,
+            equalizerBands = listOf(500, 300, -100, -300, -100, 200, 400, 500, 600, 500),
+            loudnessGainDb = 9
+        )
+        val restored = playerSettingsFromJson(playerSettingsToJson(original))
+        assertEquals("gold", restored.textColorMode)
+        assertEquals(com.malekplay.domain.model.EqualizerPreset.ROCK.ordinal, restored.equalizerPresetIndex)
+        assertEquals(original.equalizerBands, restored.equalizerBands)
+        assertEquals(9, restored.loudnessGainDb)
+    }
 }

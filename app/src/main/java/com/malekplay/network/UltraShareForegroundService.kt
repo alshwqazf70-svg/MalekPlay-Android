@@ -21,6 +21,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -32,7 +33,10 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.delay
 import java.io.IOException
 
-internal fun resetRoomTransferPresentation(state: UltraShareServiceState): UltraShareServiceState = state.copy(
+internal fun resetRoomTransferPresentation(
+    state: UltraShareServiceState,
+    newTransferSessionId: Long = state.transferSessionId
+): UltraShareServiceState = state.copy(
     progress = null,
     sendProgress = null,
     receiveProgress = null,
@@ -45,10 +49,113 @@ internal fun resetRoomTransferPresentation(state: UltraShareServiceState): Ultra
     lastTransferMetrics = null,
     lastReceiveMetrics = null,
     peerTransfers = emptyList(),
+    incomingMirrorOffer = null,
+    transferSessionId = newTransferSessionId,
     roomResetGeneration = if (state.roomResetGeneration == Long.MAX_VALUE) 1L else state.roomResetGeneration + 1L,
     status = null,
     error = null
 )
+
+data class IncomingMirrorOffer(
+    val sessionId: String,
+    val hostAddress: String,
+    val hostPeerId: String,
+    val hostName: String,
+    val streamPort: Int,
+    val streamKey: ByteArray,
+    val width: Int,
+    val height: Int,
+    val fps: Int,
+    val audioEnabled: Boolean,
+    val revision: Long,
+    val audioMode: UltraShareScreenMirrorPolicy.MirrorAudioMode =
+        if (audioEnabled) UltraShareScreenMirrorPolicy.MirrorAudioMode.INTERNAL_AUDIO
+        else UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE
+) {
+    override fun toString(): String =
+        "IncomingMirrorOffer(sessionId=$sessionId, hostAddress=$hostAddress, port=$streamPort, " +
+            "size=${width}x$height, fps=$fps, audio=$audioEnabled, rev=$revision, key=[REDACTED])"
+}
+
+/**
+ * Pure state-transition handler for incoming host-to-viewer MPSM control messages.
+ *
+ * Guarantees:
+ * - Never matches MIRROR_STOP by hostAddress alone.
+ * - Rejects stale MIRROR_STOP from an older sessionId or an older revision.
+ * - Rejects out-of-order MIRROR_START/MIRROR_UPDATE for already-stopped or newer-revision sessions.
+ */
+internal fun applyIncomingMirrorControlMessage(
+    currentOffer: IncomingMirrorOffer?,
+    hostAddress: String,
+    authorityId: String,
+    hostDisplayName: String,
+    message: UltraShareScreenMirrorProtocol.ControlMessage,
+    terminatedSessionRevisions: MutableMap<String, Long>? = null
+): IncomingMirrorOffer? {
+    val canonicalAuthority = UltraShareScreenMirrorProtocol.canonicalId(authorityId) ?: return currentOffer
+    val canonicalSender = UltraShareScreenMirrorProtocol.canonicalId(message.senderPeerId) ?: return currentOffer
+    if (canonicalSender != canonicalAuthority) return currentOffer
+    val canonicalSessionId = UltraShareScreenMirrorProtocol.canonicalId(message.sessionId) ?: return currentOffer
+
+    return when (message.type) {
+        UltraShareScreenMirrorProtocol.ControlType.MIRROR_START,
+        UltraShareScreenMirrorProtocol.ControlType.MIRROR_UPDATE -> {
+            val key = message.streamKey ?: return currentOffer
+            val cfg = message.config ?: return currentOffer
+            val port = message.streamPort
+            if (port !in 1024..65535) return currentOffer
+
+            val stoppedRev = terminatedSessionRevisions?.get(canonicalSessionId)
+            if (stoppedRev != null && message.revision <= stoppedRev) {
+                return currentOffer
+            }
+            if (currentOffer != null && currentOffer.sessionId == canonicalSessionId) {
+                val isStaleRevision = if (message.type == UltraShareScreenMirrorProtocol.ControlType.MIRROR_UPDATE) {
+                    message.revision <= currentOffer.revision
+                } else {
+                    message.revision < currentOffer.revision
+                }
+                if (isStaleRevision) return currentOffer
+            }
+            IncomingMirrorOffer(
+                sessionId = canonicalSessionId,
+                hostAddress = hostAddress,
+                hostPeerId = canonicalAuthority,
+                hostName = hostDisplayName,
+                streamPort = port,
+                streamKey = key.copyOf(),
+                width = cfg.width,
+                height = cfg.height,
+                fps = cfg.fps,
+                audioEnabled = cfg.audioEnabled,
+                revision = message.revision,
+                audioMode = cfg.audioMode
+            )
+        }
+        UltraShareScreenMirrorProtocol.ControlType.MIRROR_STOP -> {
+            terminatedSessionRevisions?.let { map ->
+                val prev = map[canonicalSessionId]
+                if (prev == null || message.revision > prev) {
+                    map[canonicalSessionId] = message.revision
+                }
+                while (map.size > 64) {
+                    val firstKey = map.keys.firstOrNull() ?: break
+                    map.remove(firstKey)
+                }
+            }
+            if (currentOffer != null &&
+                currentOffer.sessionId == canonicalSessionId &&
+                message.revision >= currentOffer.revision
+            ) {
+                null
+            } else {
+                currentOffer
+            }
+        }
+        UltraShareScreenMirrorProtocol.ControlType.MIRROR_VIEWER_STATE -> currentOffer
+    }
+}
 
 data class UltraShareServiceState(
     val pairingSecret: String = "",
@@ -66,6 +173,7 @@ data class UltraShareServiceState(
     val hotspotPassword: String? = null,
     val hotspotStarting: Boolean = false,
     val hotspotActive: Boolean = false,
+    val hotspotFailed: Boolean = false,
     val receivedFile: UltraShareCore.ReceivedFile? = null,
     val status: String? = null,
     val error: String? = null,
@@ -85,10 +193,13 @@ data class UltraShareServiceState(
     val peerTransfers: List<UltraSharePeerTransfer> = emptyList(),
     /** Monotonic signal that room-only UI data must be discarded by observers. */
     val roomResetGeneration: Long = 0L,
+    /** Explicit room/transfer session token binding tasks, sockets, and callbacks. */
+    val transferSessionId: Long = 1L,
     /** Authenticated outbound MPC2 peers; distinct from inbound activePeers. */
     val approvedSenderPeerHosts: List<String> = emptyList(),
     /** Legacy UI compatibility only; always empty because disconnected peers are not retained. */
-    val reconnectableSenderPeerHosts: List<String> = emptyList()
+    val reconnectableSenderPeerHosts: List<String> = emptyList(),
+    val incomingMirrorOffer: IncomingMirrorOffer? = null
 )
 
 internal data class UltraShareApprovedSendTarget(
@@ -242,6 +353,7 @@ class UltraShareForegroundService : Service() {
     private val meshAuthorityMemberHosts = java.util.Collections.newSetFromMap(
         java.util.concurrent.ConcurrentHashMap<String, Boolean>()
     )
+    private val terminatedMirrorSessionRevisions = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
 
     override fun onCreate() {
@@ -251,6 +363,21 @@ class UltraShareForegroundService : Service() {
         UltraShareDiagnostics.initialize(this)
         UltraShareDiagnostics.event("SERVICE", "CREATED")
         notificationHelper.ensureChannel()
+        UltraShareScreenMirrorService.authorizedViewersProvider = {
+            currentAuthorizedMirrorViewerIds()
+        }
+        UltraShareScreenMirrorService.onControlBroadcastRequired = { wireBytes ->
+            val targets = (meshServerJobs.keys + meshAuthorityMemberHosts).distinct()
+            serviceScope.launch {
+                targets.forEach { viewerHost ->
+                    if (UltraShareControlChannel.supportsServerApplicationFrames(viewerHost)) {
+                        runCatching {
+                            UltraShareControlChannel.sendServerApplicationMessage(viewerHost, wireBytes)
+                        }
+                    }
+                }
+            }
+        }
         // Refresh only stale speed values; no state emission occurs while rates are current.
         serviceScope.launch {
             while (true) {
@@ -316,6 +443,13 @@ class UltraShareForegroundService : Service() {
             ACTION_STOP_RECEIVING -> {
                 idleDisconnectJob?.cancel()
                 idleDisconnectJob = null
+                UltraShareScreenMirrorService.stopMirroring(this)
+                val endingSessionId = roomTaskRegistry.currentSessionId()
+                // End the current transfer room session: rotate token, invalidate stale callbacks,
+                // and cancel every receive/send/queue task belonging strictly to this ended session.
+                // Completed files, Downloads/MalekPlayer, DB, and UltraShareReceivedHistoryStore remain untouched.
+                roomTaskRegistry.endSession(endingSessionId)
+                sendJobsByPeer.values.toSet().forEach { it.cancel() }
                 receiveJob?.cancel()
                 batchReceiveJob?.cancel()
                 advertisementJob?.cancel()
@@ -329,17 +463,24 @@ class UltraShareForegroundService : Service() {
                     withContext(Dispatchers.Main.immediate) { finishService() }
                 }
                 stopLocalHotspot()
-                updateState { current -> current.copy(
-                    receiving = false,
-                    pairingSecret = "",
-                    localAddresses = emptyList(),
-                    wifiDirectLocalAddress = null,
-                    controlChannelReady = false,
-                    dataChannelReady = false,
-                    controlChannelError = null,
-                    pendingConnection = null,
-                    activePeers = emptyList()
-                ) }
+                updateState { current ->
+                    resetRoomTransferPresentation(
+                        current,
+                        newTransferSessionId = roomTaskRegistry.currentSessionId()
+                    ).copy(
+                        receiving = false,
+                        sending = sendJobsByPeer.isNotEmpty(),
+                        pairingSecret = "",
+                        localAddresses = emptyList(),
+                        wifiDirectLocalAddress = null,
+                        controlChannelReady = false,
+                        dataChannelReady = false,
+                        controlChannelError = null,
+                        pendingConnection = null,
+                        activePeers = emptyList(),
+                        approvedSenderPeerHosts = emptyList()
+                    )
+                }
                 return START_NOT_STICKY
             }
             ACTION_ACCEPT_CONNECTION -> {
@@ -371,7 +512,9 @@ class UltraShareForegroundService : Service() {
             ACTION_STOP, ACTION_CANCEL -> {
                 idleDisconnectJob?.cancel()
                 idleDisconnectJob = null
+                UltraShareScreenMirrorService.stopMirroring(this)
                 if (sendJobsByPeer.isEmpty() && receiveJob == null && batchReceiveJob == null) startForegroundCompat()
+                roomTaskRegistry.endSession(roomTaskRegistry.currentSessionId())
                 sendJobsByPeer.values.toSet().forEach { it.cancel() }
                 receiveJob?.cancel()
                 batchReceiveJob?.cancel()
@@ -432,10 +575,19 @@ class UltraShareForegroundService : Service() {
                 if (receiveJob != null) return START_NOT_STICKY
                 activeBatchTransferPort = 0
                 startForegroundCompat()
+                val startsFreshRoom = currentState().activePeers.isEmpty() &&
+                    approvedSendTargets().isEmpty() && sendJobsByPeer.isEmpty()
+                val receiveSessionId = if (startsFreshRoom) {
+                    roomTaskRegistry.beginNewSession()
+                } else {
+                    roomTaskRegistry.currentSessionId()
+                }
                 updateState { current ->
-                    val startsFreshRoom = current.activePeers.isEmpty() &&
-                        approvedSendTargets().isEmpty() && sendJobsByPeer.isEmpty()
-                    val roomState = if (startsFreshRoom) resetRoomTransferPresentation(current) else current
+                    val roomState = if (startsFreshRoom) {
+                        resetRoomTransferPresentation(current, newTransferSessionId = receiveSessionId)
+                    } else {
+                        current
+                    }
                     roomState.copy(
                         pairingSecret = secret,
                         localAddresses = emptyList(),
@@ -449,8 +601,14 @@ class UltraShareForegroundService : Service() {
                         } ?: getString(R.string.ultra_share_waiting)
                     ) }
                 val job = serviceScope.launch(start = CoroutineStart.LAZY) {
+                    var receiveTaskId: String? = null
+                    receiveTaskId = roomTaskRegistry.registerTask(
+                        transferSessionId = receiveSessionId,
+                        kind = UltraShareRoomTaskRegistry.TaskKind.RECEIVE_LOOP,
+                        job = coroutineContext[Job]
+                    )
                     var addresses = withContext(Dispatchers.IO) { findLocalIpv4Addresses() }
-                    updateState { current -> current.copy(localAddresses = addresses) }
+                    updateStateIfSessionValid(receiveSessionId) { current -> current.copy(localAddresses = addresses) }
                     // Network interfaces can appear after the receiver starts (SoftAP,
                     // WLAN association, or P2P formation). Refresh automatically so the
                     // ViewModel can republish the same room invitation with newly-ready routes.
@@ -462,7 +620,7 @@ class UltraShareForegroundService : Service() {
                             val latest = withContext(Dispatchers.IO) { findLocalIpv4Addresses() }
                             if (latest != addresses) {
                                 addresses = latest
-                                updateState { current -> current.copy(localAddresses = latest) }
+                                updateStateIfSessionValid(receiveSessionId) { current -> current.copy(localAddresses = latest) }
                                 UltraShareDiagnostics.event(
                                     "NETWORK_ROUTING",
                                     "RECEIVER_LOCAL_ADDRESSES_REFRESHED",
@@ -473,6 +631,11 @@ class UltraShareForegroundService : Service() {
                         }
                     }
                     advertisementJob = launch {
+                        val advTaskId = roomTaskRegistry.registerTask(
+                            transferSessionId = receiveSessionId,
+                            kind = UltraShareRoomTaskRegistry.TaskKind.ADVERTISEMENT,
+                            job = coroutineContext[Job]
+                        )
                         try {
                             UltraShareDiscovery.advertiseWhileReceiving(
                                 context = this@UltraShareForegroundService,
@@ -484,21 +647,24 @@ class UltraShareForegroundService : Service() {
                             UltraShareDiagnostics.failure("DISCOVERY_ADVERTISEMENT", failure)
                             // Receiving remains available through the displayed local IP
                             // even if another app/process already occupies the discovery port.
-                            updateState { current -> current.copy(
+                            updateStateIfSessionValid(receiveSessionId) { current -> current.copy(
                                 status = "الاستقبال يعمل، لكن الاكتشاف التلقائي غير متاح. استخدم عنوان IP الظاهر يدوياً.",
                                 error = failure.localizedMessage ?: "تعذر تشغيل الاكتشاف التلقائي للأجهزة."
                             ) }
+                        } finally {
+                            roomTaskRegistry.unregisterTask(advTaskId)
                         }
                     }
                     try {
                         kotlinx.coroutines.awaitCancellation()
                     } catch (cancelled: CancellationException) {
-                        updateState { current -> current.copy(receiving = false, pairingSecret = "", localAddresses = emptyList(), progress = if (current.sending) current.sendProgress else null, receiveProgress = null, status = getString(R.string.ultra_share_stopped)) }
+                        updateStateIfSessionValid(receiveSessionId) { current -> current.copy(receiving = false, pairingSecret = "", localAddresses = emptyList(), progress = if (current.sending) current.sendProgress else null, receiveProgress = null, status = getString(R.string.ultra_share_stopped)) }
                         throw cancelled
                     } catch (failure: Exception) {
                         UltraShareDiagnostics.failure("RECEIVER_LOOP", failure)
-                        updateState { current -> current.copy(receiving = false, error = failure.localizedMessage ?: getString(R.string.ultra_share_transfer_failed)) }
+                        updateStateIfSessionValid(receiveSessionId) { current -> current.copy(receiving = false, error = failure.localizedMessage ?: getString(R.string.ultra_share_transfer_failed)) }
                     } finally {
+                        roomTaskRegistry.unregisterTask(receiveTaskId)
                         addressMonitorJob?.cancel()
                         addressMonitorJob = null
                         advertisementJob?.cancel()
@@ -507,13 +673,18 @@ class UltraShareForegroundService : Service() {
                         controlJob = null
                         pendingConnectionDecision?.cancel()
                         receiveJob = null
-                        updateState { current -> current.copy(receiving = false, pairingSecret = "", localAddresses = emptyList(), progress = if (current.sending) current.sendProgress else null, receiveProgress = null) }
+                        updateStateIfSessionValid(receiveSessionId) { current -> current.copy(receiving = false, pairingSecret = "", localAddresses = emptyList(), progress = if (current.sending) current.sendProgress else null, receiveProgress = null) }
                         finishService()
                     }
                 }
                 receiveJob = job
                 if (batchReceiveJob == null) {
                     batchReceiveJob = serviceScope.launch {
+                        val batchTaskId = roomTaskRegistry.registerTask(
+                            transferSessionId = receiveSessionId,
+                            kind = UltraShareRoomTaskRegistry.TaskKind.BATCH_RECEIVE_SERVER,
+                            job = coroutineContext[Job]
+                        )
                         try {
                             UltraShareBatchTransport.serveMany(
                                 // QR does not carry a dynamic data port. Keep this endpoint stable
@@ -526,9 +697,10 @@ class UltraShareForegroundService : Service() {
                                         ?.memoryClass ?: UltraShareBatchTransport.DEFAULT_MAX_PEERS * 32
                                 ),
                                 onPeerStarted = { peer ->
+                                    if (!roomTaskRegistry.isSessionValid(receiveSessionId, peerHost = peer)) return@serveMany
                                     UltraShareDiagnostics.event("DATA_CHANNEL", "V2_PEER_AUTHENTICATED", mapOf("peerHost" to peer))
                                     beginTransfer(isReceiving = true)
-                                    updateState { current ->
+                                    updateStateIfSessionValid(receiveSessionId, peerHost = peer) { current ->
                                         val item = UltraSharePeerTransfer(
                                             host = peer, fileName = "جارٍ تجهيز الدفعة",
                                             transferredBytes = 0L, totalBytes = 0L, bytesPerSecond = 0L,
@@ -539,7 +711,7 @@ class UltraShareForegroundService : Service() {
                                 },
                                 onPeerFinished = { peer ->
                                     UltraShareDiagnostics.event("DATA_CHANNEL", "V2_PEER_SESSION_CLOSED", mapOf("peerHost" to peer))
-                                    updateState { current ->
+                                    updateStateIfSessionValid(receiveSessionId, peerHost = peer) { current ->
                                         val existing = current.peerTransfers.firstOrNull { it.host == peer }
                                         val updatedTransfers = if (existing == null || existing.status == "جارٍ الاستقبال") {
                                             val idle = (existing ?: UltraSharePeerTransfer(peer, "", 0L, 0L, 0L, "اكتملت الجلسة"))
@@ -556,7 +728,8 @@ class UltraShareForegroundService : Service() {
                                     endTransfer(isReceiving = true)
                                 },
                                 onProgress = { peer, progress ->
-                                    updateState { current ->
+                                    if (!roomTaskRegistry.isSessionValid(receiveSessionId, peerHost = peer)) return@serveMany
+                                    updateStateIfSessionValid(receiveSessionId, peerHost = peer) { current ->
                                         val item = UltraSharePeerTransfer(
                                             host = peer,
                                             fileName = progress.fileName,
@@ -575,17 +748,19 @@ class UltraShareForegroundService : Service() {
                                             error = null
                                         )
                                     }
-                                    updateNotification(
-                                        currentState().receiveProgress ?: UltraShareCore.Progress(
-                                            progress.fileName, progress.transferredBytes, progress.totalBytes,
-                                            progress.bytesPerSecond, true
+                                    if (roomTaskRegistry.isSessionValid(receiveSessionId, peerHost = peer)) {
+                                        updateNotification(
+                                            currentState().receiveProgress ?: UltraShareCore.Progress(
+                                                progress.fileName, progress.transferredBytes, progress.totalBytes,
+                                                progress.bytesPerSecond, true
+                                            )
                                         )
-                                    )
+                                    }
                                 },
                                 onBatchFinished = { peer, batch ->
                                     val receiverPublishStartedAtNanos = System.nanoTime()
                                     batch.receiveMetrics?.let { metrics ->
-                                        updateState { current -> current.copy(lastReceiveMetrics = metrics) }
+                                        updateStateIfSessionValid(receiveSessionId, peerHost = peer) { current -> current.copy(lastReceiveMetrics = metrics) }
                                     }
                                     UltraShareDiagnostics.event(
                                         "TRANSFER", "V2_BATCH_RECEIVED",
@@ -608,7 +783,7 @@ class UltraShareForegroundService : Service() {
                                                 sizeBytes = received.sizeBytes,
                                                 publishedUri = publishedUri?.toString()
                                             )
-                                            updateState { current -> current.copy(
+                                            updateStateIfSessionValid(receiveSessionId, peerHost = peer) { current -> current.copy(
                                                 receivedFile = received.copy(publishedUri = publishedUri),
                                                 status = if (publishedUri != null) {
                                                 "استُلم ${received.fileName} وحُفظ في التنزيلات/MalekPlayer"
@@ -621,17 +796,17 @@ class UltraShareForegroundService : Service() {
                                             throw cancelled
                                         } catch (failure: Exception) {
                                             UltraShareDiagnostics.failure("RECEIVED_FILE_PUBLISH", failure, "peerHost=" + peer + ";file=" + received.fileName)
-                                            updateState { current -> current.copy(error = failure.localizedMessage ?: "تعذر حفظ الملف المستلم.") }
+                                            updateStateIfSessionValid(receiveSessionId, peerHost = peer) { current -> current.copy(error = failure.localizedMessage ?: "تعذر حفظ الملف المستلم.") }
                                         }
                                     }
                                     val receiverPublishElapsedMs =
                                         (System.nanoTime() - receiverPublishStartedAtNanos).coerceAtLeast(0L) / 1_000_000L
                                     batch.receiveMetrics?.let { metrics ->
-                                        updateState { current ->
+                                        updateStateIfSessionValid(receiveSessionId, peerHost = peer) { current ->
                                             current.copy(lastReceiveMetrics = metrics.copy(publishElapsedMs = receiverPublishElapsedMs))
                                         }
                                     }
-                                    updateState { current ->
+                                    updateStateIfSessionValid(receiveSessionId, peerHost = peer) { current ->
                                         val completed = batch.files.count { it.status == UltraShareBatchProtocol.FileStatus.COMPLETED }
                                         val failed = batch.files.size - completed
                                         val previous = current.peerTransfers.firstOrNull { it.host == peer }
@@ -658,7 +833,7 @@ class UltraShareForegroundService : Service() {
                                 },
                                 onPeerError = { peer, failure ->
                                     UltraShareDiagnostics.failure("BATCH_RECEIVE_PEER", failure, "peerHost=" + peer)
-                                    updateState { current ->
+                                    updateStateIfSessionValid(receiveSessionId, peerHost = peer) { current ->
                                         val previous = current.peerTransfers.firstOrNull { it.host == peer }
                                         val failed = (previous ?: UltraSharePeerTransfer(peer, "", 0L, 0L, 0L, "فشل النقل"))
                                             .copy(status = "فشل النقل", bytesPerSecond = 0L, updatedAtMillis = (System.nanoTime() / 1_000_000L))
@@ -683,7 +858,7 @@ class UltraShareForegroundService : Service() {
                                         if (ready) "V2_LISTENER_READY" else "V2_LISTENER_WRONG_PORT",
                                         mapOf("actualPort" to actualPort, "expectedPort" to UltraShareBatchTransport.DEFAULT_PORT)
                                     )
-                                    updateState { current -> current.copy(
+                                    updateStateIfSessionValid(receiveSessionId) { current -> current.copy(
                                         dataChannelReady = ready,
                                         error = if (ready) current.error else
                                             "منفذ نقل الملفات V2 غير متوقع؛ سيظل الاقتران عبر QR متاحاً، لكن نقل الوسائط لن يبدأ حتى إصلاح المنفذ."
@@ -712,11 +887,12 @@ class UltraShareForegroundService : Service() {
                             throw cancelled
                         } catch (failure: Exception) {
                             UltraShareDiagnostics.failure("BATCH_RECEIVER_SERVER", failure, "port=" + UltraShareBatchTransport.DEFAULT_PORT)
-                            updateState { current -> current.copy(error = "تعذر تشغيل مستقبل V2: ${failure.localizedMessage}") }
+                            updateStateIfSessionValid(receiveSessionId) { current -> current.copy(error = "تعذر تشغيل مستقبل V2: ${failure.localizedMessage}") }
                         } finally {
+                            roomTaskRegistry.unregisterTask(batchTaskId)
                             activeBatchTransferPort = 0
                             batchReceiveJob = null
-                            updateState { current -> current.copy(dataChannelReady = false) }
+                            updateStateIfSessionValid(receiveSessionId) { current -> current.copy(dataChannelReady = false) }
                             finishService()
                         }
                     }
@@ -949,6 +1125,9 @@ class UltraShareForegroundService : Service() {
     override fun onDestroy() {
         idleDisconnectJob?.cancel()
         idleDisconnectJob = null
+        UltraShareScreenMirrorService.stopMirroring(this)
+        UltraShareScreenMirrorService.authorizedViewersProvider = { emptySet() }
+        UltraShareScreenMirrorService.onControlBroadcastRequired = null
         // Service destruction is a hard session boundary, regardless of whether this
         // device was the sender or receiver. Close both socket directions and wipe
         // session-scoped keys so no heartbeat or stale peer remains in process memory.
@@ -1002,13 +1181,14 @@ class UltraShareForegroundService : Service() {
     @SuppressLint("MissingPermission")
     private fun startLocalHotspot() {
         if (hotspotController.isActive || hotspotController.isStarting || currentState().hotspotStarting) return
-        updateState { it.copy(hotspotStarting = true, error = null, status = "جارٍ إنشاء شبكة MalekPlayer المحلية...") }
+        updateState { it.copy(hotspotStarting = true, hotspotFailed = false, error = null, status = "جارٍ إنشاء شبكة MalekPlayer المحلية...") }
         hotspotController.start(
             onStarted = { ssid, password, addresses ->
                 updateState { current ->
                     current.copy(
                         hotspotStarting = false,
                         hotspotActive = true,
+                        hotspotFailed = false,
                         hotspotSsid = ssid.takeIf { it.isNotBlank() },
                         hotspotPassword = password,
                         localAddresses = addresses,
@@ -1023,6 +1203,7 @@ class UltraShareForegroundService : Service() {
                     current.copy(
                         hotspotStarting = false,
                         hotspotActive = false,
+                        hotspotFailed = false,
                         hotspotSsid = null,
                         hotspotPassword = null,
                         status = "أوقِفت نقطة اتصال MalekPlayer."
@@ -1031,7 +1212,18 @@ class UltraShareForegroundService : Service() {
                 finishService()
             },
             onFailure = { message ->
-                updateState { it.copy(hotspotStarting = false, hotspotActive = false, hotspotSsid = null, hotspotPassword = null, error = message) }
+                val liveLan = UltraShareDeviceNetworkInfo.findLocalIpv4Addresses(this)
+                updateState {
+                    it.copy(
+                        hotspotStarting = false,
+                        hotspotActive = false,
+                        hotspotFailed = true,
+                        hotspotSsid = null,
+                        hotspotPassword = null,
+                        localAddresses = liveLan.ifEmpty { it.localAddresses },
+                        error = message
+                    )
+                }
                 finishService()
             }
         )
@@ -1039,7 +1231,7 @@ class UltraShareForegroundService : Service() {
 
     private fun stopLocalHotspot() {
         hotspotController.stop()
-        updateState { it.copy(hotspotStarting = false, hotspotActive = false, hotspotSsid = null, hotspotPassword = null) }
+        updateState { it.copy(hotspotStarting = false, hotspotActive = false, hotspotFailed = false, hotspotSsid = null, hotspotPassword = null) }
         finishService()
     }
 
@@ -1365,6 +1557,14 @@ class UltraShareForegroundService : Service() {
                 }
                 meshServerHandshakeJobs.remove(host)
                 startMeshServerMessagePump(host)
+                // If Host is already sharing their screen, invite the newly joined viewer immediately.
+                val localHostId = canonicalMeshPeerId(UltraShareDiscovery.localPeerId(this@UltraShareForegroundService))
+                val mirrorOffer = localHostId?.let { UltraShareScreenMirrorService.currentOfferPayloadForHost(it) }
+                if (mirrorOffer != null) {
+                    runCatching {
+                        UltraShareControlChannel.sendServerApplicationMessage(host, mirrorOffer)
+                    }
+                }
                 roomJoined = true
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -1422,15 +1622,46 @@ class UltraShareForegroundService : Service() {
         }
     }
 
+    private fun currentAuthorizedMirrorViewerIds(): Set<String> {
+        val result = linkedSetOf<String>()
+        meshAuthorityMemberHosts.forEach { memberHost ->
+            canonicalMeshPeerId(UltraShareControlChannel.serverSessionIdentity(memberHost))?.let(result::add)
+        }
+        currentState().activePeers.forEach { peer ->
+            canonicalMeshPeerId(UltraShareControlChannel.serverSessionIdentity(peer.host))?.let(result::add)
+        }
+        meshRoomCoordinator?.state()?.members?.forEach { member ->
+            canonicalMeshPeerId(member.peerId)?.let(result::add)
+        }
+        canonicalMeshPeerId(UltraShareDiscovery.localPeerId(this))?.let { result.remove(it) }
+        return result
+    }
+
     private fun startMeshServerMessagePump(host: String) {
         val pump = serviceScope.launch(start = CoroutineStart.LAZY) {
             try {
                 while (UltraShareControlChannel.supportsServerApplicationFrames(host)) {
                     val bytes = UltraShareControlChannel.receiveServerApplicationMessage(host) ?: break
-                    val message = UltraShareMeshControlProtocol.decode(bytes) ?: continue
                     val authenticatedPeerId = canonicalMeshPeerId(
                         UltraShareControlChannel.serverSessionIdentity(host)
                     ) ?: break
+                    if (UltraShareScreenMirrorProtocol.isMirrorControlPayload(bytes)) {
+                        val mirrorMsg = runCatching { UltraShareScreenMirrorProtocol.decodeControl(bytes) }.getOrNull()
+                        if (mirrorMsg != null &&
+                            canonicalMeshPeerId(mirrorMsg.senderPeerId) == authenticatedPeerId &&
+                            mirrorMsg.type == UltraShareScreenMirrorProtocol.ControlType.MIRROR_VIEWER_STATE
+                        ) {
+                            when (mirrorMsg.viewerAction) {
+                                UltraShareScreenMirrorProtocol.ViewerAction.REQUEST_IDR ->
+                                    UltraShareScreenMirrorService.requestKeyframeFromViewer(authenticatedPeerId)
+                                UltraShareScreenMirrorProtocol.ViewerAction.LEFT ->
+                                    UltraShareScreenMirrorService.disconnectViewer(authenticatedPeerId)
+                                UltraShareScreenMirrorProtocol.ViewerAction.JOINED, null -> Unit
+                            }
+                        }
+                        continue
+                    }
+                    val message = UltraShareMeshControlProtocol.decode(bytes) ?: continue
                     if (canonicalMeshPeerId(message.senderPeerId) != authenticatedPeerId) {
                         UltraShareDiagnostics.event(
                             "MESH_ROOM", "IGNORED_UNBOUND_SERVER_MESSAGE",
@@ -1605,12 +1836,44 @@ class UltraShareForegroundService : Service() {
         authorityId: String,
         coordinator: UltraShareMeshRoomCoordinator
     ) {
+        val pumpSessionId = roomTaskRegistry.currentSessionId()
         val pump = serviceScope.launch(start = CoroutineStart.LAZY) {
+            val pumpTaskId = roomTaskRegistry.registerTask(
+                transferSessionId = pumpSessionId,
+                kind = UltraShareRoomTaskRegistry.TaskKind.MESH_SESSION,
+                peerHost = host,
+                peerSessionId = authorityId,
+                job = coroutineContext[Job]
+            ) ?: return@launch
             try {
-                while (UltraShareControlChannel.supportsClientApplicationFrames(host)) {
+                while (UltraShareControlChannel.supportsClientApplicationFrames(host) &&
+                    roomTaskRegistry.isSessionValid(pumpSessionId, peerHost = host)
+                ) {
                     val bytes = UltraShareControlChannel.receiveClientApplicationMessage(host) ?: break
+                    if (UltraShareScreenMirrorProtocol.isMirrorControlPayload(bytes)) {
+                        val mirrorMsg = runCatching { UltraShareScreenMirrorProtocol.decodeControl(bytes) }.getOrNull()
+                        if (mirrorMsg != null) {
+                            val hostDisplayName = currentState().activePeers
+                                .firstOrNull { it.host == host }?.name ?: "منشئ الغرفة"
+                            updateStateIfSessionValid(pumpSessionId, peerHost = host) { current ->
+                                val nextOffer = applyIncomingMirrorControlMessage(
+                                    currentOffer = current.incomingMirrorOffer,
+                                    hostAddress = host,
+                                    authorityId = authorityId,
+                                    hostDisplayName = hostDisplayName,
+                                    message = mirrorMsg,
+                                    terminatedSessionRevisions = terminatedMirrorSessionRevisions
+                                )
+                                if (nextOffer === current.incomingMirrorOffer) current
+                                else current.copy(incomingMirrorOffer = nextOffer)
+                            }
+                        }
+                        continue
+                    }
                     val message = UltraShareMeshControlProtocol.decode(bytes) ?: continue
-                    if (message.type == UltraShareMeshControlProtocol.Type.ROSTER_UPDATE) {
+                    if (message.type == UltraShareMeshControlProtocol.Type.ROSTER_UPDATE &&
+                        roomTaskRegistry.isSessionValid(pumpSessionId, peerHost = host)
+                    ) {
                         val ack = coordinator.acceptRosterUpdate(authorityId, message)
                         UltraShareControlChannel.sendClientApplicationMessage(
                             host, UltraShareMeshControlProtocol.encode(ack)
@@ -1627,6 +1890,7 @@ class UltraShareForegroundService : Service() {
             } catch (failure: Exception) {
                 UltraShareDiagnostics.failure("MESH_CLIENT_MESSAGE_PUMP", failure, "peerHost=" + host)
             } finally {
+                roomTaskRegistry.unregisterTask(pumpTaskId)
                 meshClientJoinedHosts.remove(host)
                 meshClientJobs.remove(host)
             }
@@ -1676,6 +1940,7 @@ class UltraShareForegroundService : Service() {
                     val update = coordinator.removeMember(remoteId)
                     if (update != null) broadcastMeshRosterUpdate(update)
                     reconcileMeshDirectLinks()
+                    UltraShareScreenMirrorService.pruneUnauthorizedViewers()
                     UltraShareDiagnostics.event(
                         "MESH_ROOM", "MEMBER_REMOVED",
                         mapOf("peerId" to remoteId, "revision" to coordinator.state().revision)
@@ -1689,9 +1954,18 @@ class UltraShareForegroundService : Service() {
                 }
             }
         }
+        updateState { current ->
+            if (current.incomingMirrorOffer?.hostAddress == host) {
+                current.copy(incomingMirrorOffer = null)
+            } else current
+        }
+        UltraShareScreenMirrorService.pruneUnauthorizedViewers()
     }
 
     private fun closeMeshRoom() {
+        UltraShareScreenMirrorService.stopMirroring(this)
+        terminatedMirrorSessionRevisions.clear()
+        updateState { current -> current.copy(incomingMirrorOffer = null) }
         synchronized(meshDirectServerGuard) {
             meshDirectServerJob?.cancel()
             meshDirectServerJob = null
@@ -2064,9 +2338,17 @@ class UltraShareForegroundService : Service() {
             return
         }
         if (sendJobsByPeer.containsKey(sendKey)) return
+        val sendSessionId = roomTaskRegistry.currentSessionId()
         startForegroundCompat()
         lateinit var sendJobForPeer: Job
         sendJobForPeer = serviceScope.launch(start = CoroutineStart.LAZY) {
+            val sendTaskId = roomTaskRegistry.registerTask(
+                transferSessionId = sendSessionId,
+                kind = UltraShareRoomTaskRegistry.TaskKind.SEND_SINGLE,
+                peerHost = host,
+                peerSessionId = sendKey,
+                job = coroutineContext[Job]
+            )
             var sent = 0
             var failed = 0
             var completedBytes = 0L
@@ -2078,6 +2360,9 @@ class UltraShareForegroundService : Service() {
             var v2ProgressCompletedBytes = 0L
             var v2ProgressFileSize = 0L
             try {
+                if (!roomTaskRegistry.isSessionValid(sendSessionId, peerHost = host, peerSessionId = sendKey)) {
+                    throw CancellationException("Transfer room session ended or peer departed before send start.")
+                }
                 // Persist the complete batch before querying document providers. If Android
                 // stops the process during slow metadata lookup, the selected files remain
                 // visible as pending instead of disappearing from the durable queue.
@@ -2090,7 +2375,9 @@ class UltraShareForegroundService : Service() {
                 totalBytes = metadataByUri.values.fold(0L) { total, metadata ->
                     if (Long.MAX_VALUE - total < metadata.third) Long.MAX_VALUE else total + metadata.third
                 }
-                updateState { current -> current.copy(queueTotalBytes = totalBytes, queueTransferredBytes = 0L) }
+                updateStateIfSessionValid(sendSessionId, peerHost = host, peerSessionId = sendKey) { current ->
+                    current.copy(queueTotalBytes = totalBytes, queueTransferredBytes = 0L)
+                }
                 val v2Candidates = ArrayList<Pair<Uri, UltraShareBatchTransport.Source>>()
                 queue.forEach { uri ->
                     val status = UltraShareQueueStore.observe(this@UltraShareForegroundService)
@@ -2140,7 +2427,7 @@ class UltraShareForegroundService : Service() {
                                         progress.fileName, progress.transferredBytes, progress.totalBytes,
                                         progress.bytesPerSecond, false
                                     )
-                                    updateState { current ->
+                                    updateStateIfSessionValid(sendSessionId, peerHost = activeV2Host, peerSessionId = sendKey) { current ->
                                         val peerTransfer = UltraSharePeerTransfer(
                                             host = activeV2Host,
                                             fileName = progress.fileName,
@@ -2162,10 +2449,12 @@ class UltraShareForegroundService : Service() {
                                             status = "إرسال دفعة V2 عبر اتصال بيانات واحد: ${progress.fileName}"
                                         )
                                     }
-                                    updateNotification(currentState().sendProgress ?: sendProgress)
+                                    if (roomTaskRegistry.isSessionValid(sendSessionId, peerHost = activeV2Host, peerSessionId = sendKey)) {
+                                        updateNotification(currentState().sendProgress ?: sendProgress)
+                                    }
                                 }
                                 val uriById = candidateChunk.associate { it.second.fileId to it.first }
-                                updateState { current ->
+                                updateStateIfSessionValid(sendSessionId, peerHost = activeV2Host, peerSessionId = sendKey) { current ->
                                     val completed = batch.files.count { it.status == UltraShareBatchProtocol.FileStatus.COMPLETED }
                                     val failedInChunk = batch.files.size - completed
                                     val previous = current.peerTransfers.firstOrNull { it.host == activeV2Host }
@@ -2256,9 +2545,11 @@ class UltraShareForegroundService : Service() {
                 }
                 // V2 is the only supported file data plane. No per-file V1 fallback.
                 UltraShareDiagnostics.event("TRANSFER", "SEND_QUEUE_FINISHED", mapOf("sent" to sent, "failed" to failed, "total" to queue.size))
-                updateState { current -> current.copy(sending = sendJobsByPeer.isNotEmpty(), status = "انتهى الطابور: أُرسل " + sent + " من " + queue.size + " ملفات", error = if (failed > 0) "تعذر إرسال " + failed + " ملفات. آخر خطأ: " + lastError else null) }
+                updateStateIfSessionValid(sendSessionId, peerHost = host, peerSessionId = sendKey) { current ->
+                    current.copy(sending = sendJobsByPeer.isNotEmpty(), status = "انتهى الطابور: أُرسل " + sent + " من " + queue.size + " ملفات", error = if (failed > 0) "تعذر إرسال " + failed + " ملفات. آخر خطأ: " + lastError else null)
+                }
             } catch (cancelled: CancellationException) {
-                updateState { current -> current.copy(
+                updateStateIfSessionValid(sendSessionId, peerHost = host, peerSessionId = sendKey) { current -> current.copy(
                     sending = sendJobsByPeer.isNotEmpty(),
                     progress = if (current.receiving) current.receiveProgress else null,
                     sendProgress = null,
@@ -2269,10 +2560,11 @@ class UltraShareForegroundService : Service() {
                 ) }
                 throw cancelled
             } finally {
+                roomTaskRegistry.unregisterTask(sendTaskId)
                 sendJobsByPeer.remove(sendKey, sendJobForPeer)
                 clearRoomPresentationIfUnpaired()
                 pauseRequested = false
-                updateState { current -> current.copy(sending = sendJobsByPeer.isNotEmpty(), progress = if (current.receiving) current.receiveProgress else null, sendProgress = null, queueCurrentName = null) }
+                updateStateIfSessionValid(sendSessionId) { current -> current.copy(sending = sendJobsByPeer.isNotEmpty(), progress = if (current.receiving) current.receiveProgress else null, sendProgress = null, queueCurrentName = null) }
                 scheduleIdleDisconnect()
                 finishService()
             }
@@ -2323,13 +2615,22 @@ class UltraShareForegroundService : Service() {
             return
         }
         startForegroundCompat()
+        val sendSessionId = roomTaskRegistry.currentSessionId()
         lateinit var multiPeerSendJob: Job
         multiPeerSendJob = serviceScope.launch(start = CoroutineStart.LAZY) {
+            val parentTaskId = roomTaskRegistry.registerTask(
+                transferSessionId = sendSessionId,
+                kind = UltraShareRoomTaskRegistry.TaskKind.SEND_MULTI_PARENT,
+                job = coroutineContext[Job]
+            )
             val queue = uris.distinctBy { it.toString() }
             val metadata = LinkedHashMap<Uri, Triple<String, String, Long>>()
             var totalBytes = 0L
             var transferLockStarted = false
             try {
+                if (!roomTaskRegistry.isSessionValid(sendSessionId)) {
+                    throw CancellationException("Transfer room session ended before multi-send.")
+                }
                 UltraShareQueueStore.enqueue(this@UltraShareForegroundService, queue)
                 queue.forEach { uri ->
                     try {
@@ -2346,7 +2647,7 @@ class UltraShareForegroundService : Service() {
                 totalBytes = metadata.values.fold(0L) { total, item ->
                     if (Long.MAX_VALUE - total < item.third) Long.MAX_VALUE else total + item.third
                 }
-                updateState { current ->
+                updateStateIfSessionValid(sendSessionId) { current ->
                     current.copy(
                         queueTotalBytes = totalBytes,
                         queueTransferredBytes = 0L,
@@ -2354,7 +2655,7 @@ class UltraShareForegroundService : Service() {
                     )
                 }
                 if (metadata.isEmpty()) {
-                    updateState { current -> current.copy(error = "لم يمكن تجهيز أي ملف للإرسال.") }
+                    updateStateIfSessionValid(sendSessionId) { current -> current.copy(error = "لم يمكن تجهيز أي ملف للإرسال.") }
                     return@launch
                 }
 
@@ -2373,7 +2674,11 @@ class UltraShareForegroundService : Service() {
                 UltraShareMultiRecipientCoordinator.execute(
                     targets = peerTargets,
                     onStatus = { delivery ->
-                        updateState { current ->
+                        updateStateIfSessionValid(
+                            sendSessionId,
+                            peerHost = delivery.target.host,
+                            peerSessionId = delivery.target.sessionId
+                        ) { current ->
                             current.copy(
                                 status = when (delivery.status) {
                                     UltraShareMultiRecipientCoordinator.Status.PENDING ->
@@ -2390,6 +2695,13 @@ class UltraShareForegroundService : Service() {
                     }
                 ) { peer ->
                     val auth = targets.first { it.sessionId == peer.sessionId }
+                    val peerTaskId = roomTaskRegistry.registerTask(
+                        transferSessionId = sendSessionId,
+                        kind = UltraShareRoomTaskRegistry.TaskKind.SEND_MULTI_RECIPIENT,
+                        peerHost = auth.host,
+                        peerSessionId = auth.sessionId,
+                        job = currentCoroutineContext()[Job]
+                    ) ?: throw CancellationException("Peer departed or session ended.")
                     val allSources = metadata.map { (uri, details) ->
                         UltraShareBatchTransport.Source(
                             uri = uri,
@@ -2408,7 +2720,10 @@ class UltraShareForegroundService : Service() {
                         .map { it.fileUri }
                         .toSet()
                     val sources = allSources.filterNot { it.uri.toString() in completedUris }
-                    if (sources.isEmpty()) return@execute "كل الملفات مستلمة مسبقاً على هذا الجهاز"
+                    if (sources.isEmpty()) {
+                        roomTaskRegistry.unregisterTask(peerTaskId)
+                        return@execute "كل الملفات مستلمة مسبقاً على هذا الجهاز"
+                    }
                     sources.forEach { source ->
                         UltraSharePeerDeliveryStore.update(
                             this@UltraShareForegroundService,
@@ -2429,7 +2744,7 @@ class UltraShareForegroundService : Service() {
                                 onHostChanged = { newHost ->
                                     val previousHost = activePeerHost
                                     activePeerHost = newHost
-                                    updateState { current ->
+                                    updateStateIfSessionValid(sendSessionId, peerHost = newHost, peerSessionId = auth.sessionId) { current ->
                                         current.copy(
                                             peerTransfers = current.peerTransfers.filterNot {
                                                 it.host == previousHost || it.host == newHost
@@ -2442,7 +2757,7 @@ class UltraShareForegroundService : Service() {
                                     progress.fileName, progress.transferredBytes, progress.totalBytes,
                                     progress.bytesPerSecond, false
                                 )
-                                updateState { current ->
+                                updateStateIfSessionValid(sendSessionId, peerHost = activePeerHost, peerSessionId = auth.sessionId) { current ->
                                     val transfer = UltraSharePeerTransfer(
                                         host = activePeerHost,
                                         fileName = progress.fileName,
@@ -2463,10 +2778,12 @@ class UltraShareForegroundService : Service() {
                                         status = "إرسال دفعة V2 إلى $activePeerHost"
                                     )
                                 }
-                                updateNotification(currentState().sendProgress ?: sendProgress)
+                                if (roomTaskRegistry.isSessionValid(sendSessionId, peerHost = activePeerHost, peerSessionId = auth.sessionId)) {
+                                    updateNotification(currentState().sendProgress ?: sendProgress)
+                                }
                             }
                             outcome.metrics?.let { metrics ->
-                                updateState { current -> current.copy(lastTransferMetrics = metrics) }
+                                updateStateIfSessionValid(sendSessionId, peerHost = activePeerHost, peerSessionId = auth.sessionId) { current -> current.copy(lastTransferMetrics = metrics) }
                             }
                             val outcomes = outcome.files.associateBy { it.fileId }
                             chunk.forEach { source ->
@@ -2530,6 +2847,8 @@ class UltraShareForegroundService : Service() {
                             }
                         }
                         throw failure
+                    } finally {
+                        roomTaskRegistry.unregisterTask(peerTaskId)
                     }
                 }
 
@@ -2569,7 +2888,7 @@ class UltraShareForegroundService : Service() {
                         )
                     }
                 }
-                updateState { current ->
+                updateStateIfSessionValid(sendSessionId) { current ->
                     current.copy(
                         queueCompleted = queue.size,
                         queueTotal = queue.size,
@@ -2588,7 +2907,7 @@ class UltraShareForegroundService : Service() {
                         targets.mapTo(linkedSetOf()) { it.sessionId }
                     )
                 }
-                updateState { current ->
+                updateStateIfSessionValid(sendSessionId) { current ->
                     current.copy(
                         sending = sendJobsByPeer.isNotEmpty(),
                         status = "أُوقف الإرسال الجماعي؛ احتُفظ بحالات كل جهاز للاستئناف."
@@ -2597,17 +2916,18 @@ class UltraShareForegroundService : Service() {
                 throw cancelled
             } catch (failure: Exception) {
                 UltraShareDiagnostics.failure("MULTI_PEER_SEND", failure)
-                updateState { current ->
+                updateStateIfSessionValid(sendSessionId) { current ->
                     current.copy(
                         error = failure.localizedMessage ?: "فشل الإرسال الجماعي.",
                         status = "توقف الإرسال الجماعي مع الاحتفاظ بسجل التسليم لكل جهاز."
                     )
                 }
             } finally {
+                roomTaskRegistry.unregisterTask(parentTaskId)
                 if (transferLockStarted) endTransfer(isReceiving = false)
                 targets.forEach { target -> sendJobsByPeer.remove(target.sessionId, multiPeerSendJob) }
                 clearRoomPresentationIfUnpaired()
-                updateState { current ->
+                updateStateIfSessionValid(sendSessionId) { current ->
                     current.copy(
                         sending = sendJobsByPeer.isNotEmpty(),
                         progress = if (current.receiving) current.receiveProgress else null,
@@ -3123,17 +3443,40 @@ class UltraShareForegroundService : Service() {
         // to a busy peer while still offering other peers concurrently.
         private val sendJobsByPeer = java.util.concurrent.ConcurrentHashMap<String, Job>()
         private val approvedSendTargetsByHost = LinkedHashMap<String, UltraShareApprovedSendTarget>()
+        internal val roomTaskRegistry = UltraShareRoomTaskRegistry()
+
+        private fun updateStateIfSessionValid(
+            transferSessionId: Long,
+            peerHost: String? = null,
+            peerSessionId: String? = null,
+            transform: (UltraShareServiceState) -> UltraShareServiceState
+        ) {
+            if (!roomTaskRegistry.isSessionValid(transferSessionId, peerHost, peerSessionId)) return
+            mutableState.update { current ->
+                if (!roomTaskRegistry.isSessionValid(transferSessionId, peerHost, peerSessionId)) {
+                    current
+                } else {
+                    transform(current)
+                }
+            }
+        }
 
         internal fun registerApprovedSendTarget(target: UltraShareApprovedSendTarget) {
             require(UltraShareCore.isValidPrivateLanHost(target.host))
             require(UltraShareCore.isValidPairingSecret(target.secret))
             val startsFreshRoom = mutableState.value.activePeers.isEmpty() &&
                 approvedSendTargets().isEmpty() && sendJobsByPeer.isEmpty()
+            val sessionToken = if (startsFreshRoom) {
+                roomTaskRegistry.beginNewSession()
+            } else {
+                roomTaskRegistry.currentSessionId()
+            }
+            roomTaskRegistry.markPeerRejoined(sessionToken, target.host, target.sessionId)
             synchronized(approvedSendTargetsByHost) {
                 approvedSendTargetsByHost[target.host] = target
             }
             mutableState.update { current ->
-                val roomState = if (startsFreshRoom) resetRoomTransferPresentation(current) else current
+                val roomState = if (startsFreshRoom) resetRoomTransferPresentation(current, sessionToken) else current
                 roomState.copy(
                     approvedSenderPeerHosts = approvedSendTargets().map { it.host },
                     reconnectableSenderPeerHosts = emptyList()
@@ -3175,8 +3518,14 @@ class UltraShareForegroundService : Service() {
         ) {
             val startsFreshRoom = mutableState.value.activePeers.isEmpty() &&
                 approvedSendTargets().isEmpty() && sendJobsByPeer.isEmpty()
+            val sessionToken = if (startsFreshRoom) {
+                roomTaskRegistry.beginNewSession()
+            } else {
+                roomTaskRegistry.currentSessionId()
+            }
+            roomTaskRegistry.markPeerRejoined(sessionToken, host, sessionId)
             mutableState.update { current ->
-                val roomState = if (startsFreshRoom) resetRoomTransferPresentation(current) else current
+                val roomState = if (startsFreshRoom) resetRoomTransferPresentation(current, sessionToken) else current
                 val session = UltraSharePeerSession(
                     sessionId = sessionId,
                     name = name.take(96),
@@ -3191,38 +3540,116 @@ class UltraShareForegroundService : Service() {
         }
 
         fun disconnectApprovedPeer(host: String) {
+            val activeSessionToken = roomTaskRegistry.currentSessionId()
+            val leavingTarget = approvedSendTarget(host)
+            val leavingPeerSession = mutableState.value.activePeers.firstOrNull { it.host == host }?.sessionId
+            // Cancel only tasks/sockets owned by this leaving peer; other paired peers continue unaffected.
+            roomTaskRegistry.cancelPeerTasks(
+                peerHost = host,
+                peerSessionId = leavingTarget?.sessionId ?: leavingPeerSession,
+                transferSessionId = activeSessionToken
+            )
+            leavingTarget?.sessionId?.let { targetKey ->
+                sendJobsByPeer[targetKey]?.let { job ->
+                    // If this was a single-peer send job, cancelPeerTasks already cancelled it; remove slot.
+                    // If multi-peer parent job, removing this peer's slot lets roomEnded detect full departure.
+                    sendJobsByPeer.remove(targetKey, job)
+                }
+            }
+            sendJobsByPeer.remove(host)?.cancel()
+
             UltraShareControlChannel.closeSession(host)
             UltraShareControlChannel.closeServerSession(host)
             removeApprovedSendTarget(host)
+            UltraShareScreenMirrorService.pruneUnauthorizedViewers()
             // A room is temporary. Once its final paired peer leaves, clear every
             // room-only result (completed, failed, pending and receive summaries).
             mutableState.update { current ->
                 val remainingPeers = current.activePeers.filterNot { it.host == host }
                 val roomEnded = remainingPeers.isEmpty() &&
                     approvedSendTargets().isEmpty() && sendJobsByPeer.isEmpty()
+                val nextSessionToken = if (roomEnded) {
+                    roomTaskRegistry.endSession(activeSessionToken)
+                    roomTaskRegistry.currentSessionId()
+                } else {
+                    current.transferSessionId
+                }
+                val clearedOffer = if (current.incomingMirrorOffer?.hostAddress == host) null else current.incomingMirrorOffer
                 val updated = current.copy(
                     activePeers = remainingPeers,
                     peerTransfers = if (roomEnded) emptyList() else current.peerTransfers.filterNot { it.host == host },
                     reconnectablePeers = emptyList(),
-                    reconnectableSenderPeerHosts = emptyList()
+                    reconnectableSenderPeerHosts = emptyList(),
+                    incomingMirrorOffer = clearedOffer,
+                    sending = sendJobsByPeer.isNotEmpty()
                 )
-                if (roomEnded) resetRoomTransferPresentation(updated) else updated
+                if (roomEnded) resetRoomTransferPresentation(updated, nextSessionToken) else updated
+            }
+        }
+
+        private val mirrorViewerActionScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+        internal fun sendMirrorViewerAction(
+            context: Context,
+            hostAddress: String,
+            sessionId: String,
+            action: UltraShareScreenMirrorProtocol.ViewerAction
+        ) {
+            val localId = UltraShareScreenMirrorProtocol.canonicalId(
+                UltraShareDiscovery.localPeerId(context)
+            ) ?: return
+            val canonicalSession = UltraShareScreenMirrorProtocol.canonicalId(sessionId) ?: return
+            if (!UltraShareControlChannel.supportsClientApplicationFrames(hostAddress)) return
+            val wire = runCatching {
+                UltraShareScreenMirrorProtocol.encodeControl(
+                    UltraShareScreenMirrorProtocol.ControlMessage(
+                        type = UltraShareScreenMirrorProtocol.ControlType.MIRROR_VIEWER_STATE,
+                        sessionId = canonicalSession,
+                        senderPeerId = localId,
+                        revision = 1L,
+                        viewerAction = action
+                    )
+                )
+            }.getOrNull() ?: return
+            mirrorViewerActionScope.launch {
+                runCatching {
+                    UltraShareControlChannel.sendClientApplicationMessage(hostAddress, wire)
+                }
             }
         }
 
         fun forgetApprovedPeer(host: String) {
+            val activeSessionToken = roomTaskRegistry.currentSessionId()
+            val leavingTarget = approvedSendTarget(host)
+            val leavingPeerSession = mutableState.value.activePeers.firstOrNull { it.host == host }?.sessionId
+            roomTaskRegistry.cancelPeerTasks(
+                peerHost = host,
+                peerSessionId = leavingTarget?.sessionId ?: leavingPeerSession,
+                transferSessionId = activeSessionToken
+            )
+            leavingTarget?.sessionId?.let { targetKey ->
+                sendJobsByPeer[targetKey]?.let { job -> sendJobsByPeer.remove(targetKey, job) }
+            }
+            sendJobsByPeer.remove(host)?.cancel()
             removeApprovedSendTarget(host)
             mutableState.update { current ->
                 val remainingPeers = current.activePeers.filterNot { it.host == host }
                 val roomEnded = remainingPeers.isEmpty() &&
                     approvedSendTargets().isEmpty() && sendJobsByPeer.isEmpty()
+                val nextSessionToken = if (roomEnded) {
+                    roomTaskRegistry.endSession(activeSessionToken)
+                    roomTaskRegistry.currentSessionId()
+                } else {
+                    current.transferSessionId
+                }
                 val updated = current.copy(
                     activePeers = remainingPeers,
-                    peerTransfers = if (roomEnded) emptyList() else current.peerTransfers,
+                    peerTransfers = if (roomEnded) emptyList() else current.peerTransfers.filterNot { it.host == host },
                     reconnectablePeers = emptyList(),
-                    reconnectableSenderPeerHosts = emptyList()
+                    reconnectableSenderPeerHosts = emptyList(),
+                    sending = sendJobsByPeer.isNotEmpty()
                 )
-                if (roomEnded) resetRoomTransferPresentation(updated) else updated
+                if (roomEnded) resetRoomTransferPresentation(updated, nextSessionToken) else updated
             }
         }
 

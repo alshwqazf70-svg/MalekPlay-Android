@@ -44,6 +44,15 @@ interface MediaDao {
     @Query("DELETE FROM media_items WHERE mediaId IN (:mediaIds)")
     suspend fun deleteMediaByIds(mediaIds: List<String>): Int
 
+    @Query("DELETE FROM playlist_items WHERE mediaId IN (:mediaIds)")
+    suspend fun deletePlaylistItemsByMediaIds(mediaIds: List<String>): Int
+
+    @Query("DELETE FROM history WHERE mediaId IN (:mediaIds)")
+    suspend fun deleteHistoryByMediaIds(mediaIds: List<String>): Int
+
+    @Query("DELETE FROM favourites WHERE mediaId IN (:mediaIds)")
+    suspend fun deleteFavouritesByMediaIds(mediaIds: List<String>): Int
+
     @Transaction
     suspend fun reconcileVideos(keepIds: Set<Long>) {
         var afterId = ""

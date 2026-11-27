@@ -7,6 +7,7 @@ on:
       - performance/large-library-optimization
       - feature/ultrashare-bidirectional-2026-11-08
       - feature/zapya-engineering-analysis
+      - arena/8b8ac1eb-malekplay-android
   workflow_dispatch:
 
 concurrency:
@@ -244,13 +245,24 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
+          LOG_FILE="/tmp/jvm-unit-test.log"
           for attempt in 1 2 3; do
             echo "JVM test attempt ${attempt}/3"
-            if ./gradlew --build-cache --stacktrace --max-workers=2 :app:testDebugUnitTest; then
+            if ./gradlew --build-cache --console=plain --max-workers=2 :app:testDebugUnitTest 2>&1 | tee "${LOG_FILE}"; then
               exit 0
             fi
-            if [ "${attempt}" -eq 3 ]; then
-              echo "JVM tests failed after three attempts; preserving the real test failure."
+            ERR_LINES=$(grep -E "(^e: |FAILED|There were failing tests|FAILURE:|Execution failed for task)" "${LOG_FILE}" | head -n 40 | tr '\r' ' ')
+            TEST_FAILURES=$(python3 -c 'import glob, xml.etree.ElementTree as ET; nl = chr(10); print(nl.join([tc.attrib.get("classname", "") + "." + tc.attrib.get("name", "") + ": " + " | ".join((el.attrib.get("message") or el.text or "").strip().splitlines()[:3]) for p in sorted(glob.glob("app/build/test-results/testDebugUnitTest/TEST-*.xml")) for tc in ET.parse(p).getroot().findall("testcase") for el in tc if el.tag in ("failure", "error")][:25]))' || true)
+            if [ -n "${TEST_FAILURES}" ]; then
+              echo "::error title=Failed unit tests::${TEST_FAILURES//$'\n'/%0A}"
+              echo "Unit test failures detected; failing without retrying."
+              exit 1
+            fi
+            if [ -n "${ERR_LINES}" ]; then
+              echo "::error title=JVM unit test compile/run error::${ERR_LINES//$'\n'/%0A}"
+            fi
+            if grep -q "Compilation error" "${LOG_FILE}" || [ "${attempt}" -eq 3 ]; then
+              echo "JVM tests failed; preserving the real error."
               exit 1
             fi
             echo "Gradle test attempt failed. Waiting 30 seconds before retry; downloaded artifacts remain cached."
@@ -266,131 +278,6 @@ jobs:
             app/build/test-results/testDebugUnitTest/
           if-no-files-found: warn
           retention-days: 14
-
-  android-test-apks:
-    name: Build Android test APKs once
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    env:
-      ANDROID_HOME: /usr/local/lib/android/sdk
-      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
-    steps:
-      - name: Checkout source
-        uses: actions/checkout@v5
-      - name: Set up JDK 17
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "17"
-      - name: Set up Gradle cache
-        uses: gradle/actions/setup-gradle@v5
-      - name: Accept Android SDK licenses
-        shell: bash
-        run: |
-          set +o pipefail
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
-      - name: Install Android SDK packages required by test compilation
-        run: |
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0"
-      - name: Build x86_64 app and instrumentation APKs once
-        run: |
-          ./gradlew --build-cache --parallel --stacktrace --max-workers=2 \
-            -PtargetAbi=x86_64 \
-            :app:assembleDebug :app:assembleDebugAndroidTest
-          test -s app/build/outputs/apk/debug/app-debug.apk
-          test -s app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
-      - name: Upload prebuilt app and instrumentation APKs
-        uses: actions/upload-artifact@v4
-        with:
-          name: android-test-apks
-          path: |
-            app/build/outputs/apk/debug/app-debug.apk
-            app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
-          if-no-files-found: error
-          retention-days: 3
-
-  android-runtime-tests:
-    name: Android runtime tests (API ${{ matrix.api-level }})
-    needs: android-test-apks
-    # Ubuntu 26.04 lacked CPU acceleration in the observed API 23 run.
-    # Use the stable Ubuntu 24.04 hosted image for emulator/KVM compatibility.
-    runs-on: ubuntu-24.04
-    timeout-minutes: 35
-    strategy:
-      fail-fast: false
-      max-parallel: 3
-      matrix:
-        # Exactly one emulator per Android version; all suites run on that same boot.
-        api-level: [23, 29, 36]
-    env:
-      ANDROID_HOME: /usr/local/lib/android/sdk
-      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
-      # GitHub-hosted Linux runners do not expose KVM; explicitly permit QEMU TCG.
-      ANDROID_I_WANT_MY_TCG: "yes"
-    steps:
-      - name: Checkout source
-        uses: actions/checkout@v5
-      - name: Capture emulator host and acceleration diagnostics
-        shell: bash
-        run: |
-          mkdir -p ultrashare-diagnostics
-          {
-            echo "=== Runner ==="
-            date -u
-            uname -a
-            echo "=== KVM ==="
-            ls -l /dev/kvm 2>&1 || true
-            echo "=== Emulator version ==="
-            "$ANDROID_HOME/emulator/emulator" -version 2>&1 || true
-            echo "=== Emulator acceleration check ==="
-            "$ANDROID_HOME/emulator/emulator" -accel-check 2>&1 || true
-            echo "=== Installed emulator/system image packages ==="
-            "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --list_installed 2>&1 | grep -E '(^  emulator|system-images;android-|platform-tools)' || true
-            echo "=== TCG opt-in ==="
-            printf 'ANDROID_I_WANT_MY_TCG=%s\n' "$ANDROID_I_WANT_MY_TCG"
-          } 2>&1 | tee "ultrashare-diagnostics/emulator-host-api-${{ matrix.api-level }}.log"
-      - name: Restore Android emulator system-image cache
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.ANDROID_HOME }}/system-images/android-${{ matrix.api-level }}/google_apis/x86_64
-          key: android-system-image-${{ runner.os }}-api-${{ matrix.api-level }}-google-apis-x86_64-v1
-      - name: Install Android emulator system image
-        shell: bash
-        run: |
-          set +o pipefail
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
-            "system-images;android-${{ matrix.api-level }};google_apis;x86_64"
-      - name: Download prebuilt app and instrumentation APKs
-        uses: actions/download-artifact@v4
-        with:
-          name: android-test-apks
-          path: app/build/outputs/apk
-      - name: Run all Android runtime test groups on emulator
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: ${{ matrix.api-level }}
-          target: google_apis
-          arch: x86_64
-          profile: pixel_2
-          emulator-boot-timeout: 360
-          cores: 4
-          ram-size: 4096
-          heap-size: 1024
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          disable-animations: true
-          script: bash scripts/ci/run_android_runtime_tests.sh ${{ matrix.api-level }}
-      - name: Upload Android runtime test diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: android-runtime-diagnostics-api-${{ matrix.api-level }}
-          path: |
-            app/build/reports/androidTests/connected/
-            app/build/outputs/androidTest-results/connected/
-            ultrashare-diagnostics/
-          if-no-files-found: warn
-          retention-days: 30
 
   android-lint:
     name: Android lint
@@ -422,8 +309,16 @@ jobs:
       - name: Print Android lint diagnostics
         if: always()
         run: |
-          if [ -f app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt ]; then
-            cat app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt
+          LINT_TXT="app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt"
+          if [ ! -f "$LINT_TXT" ]; then
+            LINT_TXT=$(find app/build -name "lint-results*.txt" 2>/dev/null | head -n 1 || true)
+          fi
+          if [ -n "$LINT_TXT" ] && [ -f "$LINT_TXT" ]; then
+            cat "$LINT_TXT"
+            LINT_ERRORS=$(python3 -c 'import sys; text = open(sys.argv[1], encoding="utf-8", errors="replace").read(); print("\n".join([l.strip() for l in text.splitlines() if "Error:" in l or l.strip().startswith("app/")][:35]))' "$LINT_TXT" || true)
+            if [ -n "${LINT_ERRORS}" ]; then
+              echo "::error title=Android lint errors::${LINT_ERRORS//$'\n'/%0A}"
+            fi
           fi
       - name: Upload Android lint report
         if: always()

@@ -1,6 +1,7 @@
 package com.malekplay.network
 
 import android.net.Uri
+import android.os.Build
 import android.text.Html
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -12,14 +13,9 @@ import java.util.concurrent.TimeUnit
  * Direct SubF2M HTML provider. The site has no public JSON API, so parsing is deliberately
  * bounded and accepts only the site's known page paths and supported subtitle rows.
  */
-internal class Subf2mSubtitleProvider {
-    private val client = OkHttpClient.Builder()
-        .followRedirects(false)
-        .followSslRedirects(false)
-        .connectTimeout(12, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
-        .callTimeout(35, TimeUnit.SECONDS)
-        .build()
+internal class Subf2mSubtitleProvider(
+    private val client: OkHttpClient = defaultClient()
+) {
 
     fun search(
         title: String,
@@ -94,9 +90,13 @@ internal class Subf2mSubtitleProvider {
     }
 
     internal fun resolveDownloadPageLink(page: String, detailUrl: String): String? {
-        // SubF2M exposes the final action as #downloadButton; retain a path fallback for older pages.
+        // SubF2M exposes the final action as #downloadButton; retain path/form/class fallbacks
+        // so minor page template adjustments do not break legitimate downloads.
         val raw = DOWNLOAD_BUTTON.find(page)?.groupValues?.get(1)?.let(::decodeHtml)
             ?: DOWNLOAD_HREF.find(page)?.groupValues?.get(1)?.let(::decodeHtml)
+            ?: DOWNLOAD_LINK.find(page)?.groupValues?.get(1)?.let(::decodeHtml)
+            ?: DOWNLOAD_FORM.find(page)?.groupValues?.get(1)?.let(::decodeHtml)
+            ?: DOWNLOAD_CDN_URL.find(page)?.groupValues?.get(1)?.let(::decodeHtml)
             ?: return null
         return resolveSiteUrl(raw, detailUrl)
     }
@@ -310,26 +310,58 @@ internal class Subf2mSubtitleProvider {
 
     internal fun isExactEpisode(release: String, season: Int, episode: Int): Boolean {
         val patterns = listOf(
-            Regex("(?i)\\bs0*\\$season\\s*e0*\\$episode\\b"),
-            Regex("(?i)\\b0*\\$season\\s*x\\s*0*\\$episode\\b"),
-            Regex("(?i)\\bseason\\s*0*\\$season\\s*[- ]\\s*0*\\$episode\\b")
+            Regex("(?i)\\bs0*$season\\s*e0*$episode\\b"),
+            Regex("(?i)\\b0*$season\\s*x\\s*0*$episode\\b"),
+            Regex("(?i)\\bseason\\s*0*$season\\s*[- ]\\s*0*$episode\\b")
         )
         return patterns.any { it.containsMatchIn(release) } &&
             !SubtitleResultPolicy.isMultiEpisodeRange(release, season)
     }
 
     private fun stripTags(value: String): String = TAGS.replace(value, " ")
+
     @Suppress("DEPRECATION")
-    private fun decodeHtml(value: String): String =
-        Html.fromHtml(value).toString().replace(Regex("\\s+"), " ").trim()
+    private fun decodeHtml(value: String): String {
+        val decoded = runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                Html.fromHtml(value, Html.FROM_HTML_MODE_LEGACY).toString()
+            } else {
+                Html.fromHtml(value).toString()
+            }
+        }.getOrElse { value }
+        return decoded.replace(Regex("\\s+"), " ").trim()
+    }
 
     private fun looksLikeHtml(bytes: ByteArray): Boolean {
-        val head = bytes.take(256).toByteArray().toString(Charsets.UTF_8).trimStart()
-        return head.startsWith("<!DOCTYPE", true) || head.startsWith("<html", true)
+        val sampleLen = minOf(bytes.size, 4096)
+        val head = runCatching {
+            String(bytes, 0, sampleLen, Charsets.UTF_8)
+        }.getOrDefault("")
+            .replace("\u0000", "")
+            .trimStart('\uFEFF', ' ', '\t', '\n', '\r')
+            .lowercase(Locale.ROOT)
+        if (head.startsWith("<!doctype") ||
+            head.startsWith("<html") ||
+            head.startsWith("<head") ||
+            head.startsWith("<body") ||
+            head.startsWith("<script")
+        ) return true
+        val looksChallenge = head.contains("just a moment...") ||
+            head.contains("cf-browser-verification") ||
+            head.contains("enable javascript and cookies") ||
+            head.contains("<title>")
+        return looksChallenge && !head.contains("-->") && !head.contains("dialogue:")
     }
 
     companion object {
         const val PROVIDER = "subf2m"
+        private fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
+            .followRedirects(false)
+            .followSslRedirects(false)
+            .connectTimeout(12, TimeUnit.SECONDS)
+            .readTimeout(20, TimeUnit.SECONDS)
+            .callTimeout(35, TimeUnit.SECONDS)
+            .build()
         private const val HOST = "subf2m.co"
         private const val CDN_HOST = "isubcdn.com"
         private const val BASE = "https://subf2m.co"
@@ -358,5 +390,7 @@ internal class Subf2mSubtitleProvider {
         private val DOWNLOAD_LINK = Regex("""(?is)<a\b(?=[^>]*class=['"][^'"]*\bdownload\b)(?=[^>]*href=['"]([^'"]+)['"])[^>]*>""")
         private val DOWNLOAD_BUTTON = Regex("""(?is)<a\b(?=[^>]*id=['"]downloadButton['"])(?=[^>]*href=['"]([^'"]+)['"])[^>]*>""")
         private val DOWNLOAD_HREF = Regex("""(?is)<a\b(?=[^>]*href=['"]([^'"]*/download[^'"]*)['"])[^>]*>""")
+        private val DOWNLOAD_FORM = Regex("""(?is)<form\b(?=[^>]*action=['"]([^'"]*/download[^'"]*)['"])[^>]*>""")
+        private val DOWNLOAD_CDN_URL = Regex("""(?is)(?:href|data-url|data-href)=['"](https://isubcdn\.com/[^'"]+)['"]""")
     }
 }

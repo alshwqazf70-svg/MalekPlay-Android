@@ -59,11 +59,7 @@ object UltraShareDiagnostics {
                 writer.execute {
                     if (session.uri == null && session.privateFile == null) {
                         runCatching {
-                            val uri = runCatching {
-                                createPublicLog(applicationContext, session.role, session.id)
-                            }.getOrNull()
-                            if (uri != null) session.uri = uri
-                            else session.privateFile = createPrivateLog(applicationContext, session.role, session.id)
+                            session.privateFile = createPrivateLog(applicationContext, session.role, session.id)
                             val initial = jsonObject(linkedMapOf(
                                 "timestamp" to timestamp(),
                                 "sessionId" to session.id,
@@ -126,12 +122,7 @@ object UltraShareDiagnostics {
             writer.execute {
                 runCatching {
                     val context = appContext ?: return@runCatching
-                    val uri = runCatching { createPublicLog(context, safeRole, session.id) }.getOrNull()
-                    if (uri != null) {
-                        session.uri = uri
-                    } else {
-                        session.privateFile = createPrivateLog(context, safeRole, session.id)
-                    }
+                    session.privateFile = createPrivateLog(context, safeRole, session.id)
                     val initial = jsonObject(linkedMapOf(
                             "timestamp" to timestamp(),
                             "sessionId" to session.id,
@@ -145,7 +136,8 @@ object UltraShareDiagnostics {
                             "manufacturer" to Build.MANUFACTURER,
                             "deviceModel" to Build.MODEL
                         ))
-                    if (uri != null) writeLine(context, uri, initial)
+                    val target = session.uri
+                    if (target != null) writeLine(context, target, initial)
                     else writePrivateLine(session.privateFile!!, initial)
                     Log.i(TAG, "Diagnostic session started: " + session.id + " (" + safeRole + ")")
                 }.onFailure { Log.e(TAG, "Unable to create public diagnostic log", it) }
@@ -274,69 +266,6 @@ object UltraShareDiagnostics {
         val digest = java.security.MessageDigest.getInstance("SHA-256")
             .digest(value.toByteArray(StandardCharsets.UTF_8))
         return "key:" + digest.take(12).joinToString("") { "%02x".format(it) }
-    }
-
-    /**
-     * Exports all retained structured diagnostic sessions through a user-selected
-     * document URI. The Storage Access Framework works on Android 6–9 without
-     * broad storage permissions; Android 10+ may still use the Downloads MediaStore.
-     */
-    fun exportLogs(destination: Uri, onComplete: (Result<Int>) -> Unit) {
-        val context = appContext
-        if (context == null) {
-            onComplete(Result.failure(IllegalStateException("لم يتم تهيئة سجل التشخيص بعد.")))
-            return
-        }
-        writer.execute {
-            val result = runCatching {
-                val resolver = context.contentResolver
-                val sources = mutableListOf<() -> java.io.InputStream?>()
-                val privateDirectory = java.io.File(context.filesDir, "ultrashare-diagnostics")
-                privateDirectory.listFiles()
-                    ?.filter { it.isFile && it.name.startsWith(FILE_PREFIX) && it.name.endsWith(".jsonl") }
-                    ?.sortedBy { it.lastModified() }
-                    ?.forEach { file -> sources += { file.inputStream() } }
-
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    val collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-                    resolver.query(
-                        collection,
-                        arrayOf(MediaStore.MediaColumns._ID),
-                        MediaStore.MediaColumns.RELATIVE_PATH + "=? AND " +
-                            MediaStore.MediaColumns.DISPLAY_NAME + " LIKE ?",
-                        arrayOf(DIRECTORY, FILE_PREFIX + "%"),
-                        MediaStore.MediaColumns.DATE_ADDED + " ASC, " + MediaStore.MediaColumns._ID + " ASC"
-                    )?.use { cursor ->
-                        val idColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
-                        while (cursor.moveToNext()) {
-                            val uri = Uri.withAppendedPath(
-                                collection,
-                                cursor.getLong(idColumn).toString()
-                            )
-                            sources += { resolver.openInputStream(uri) }
-                        }
-                    }
-                }
-
-                val output = resolver.openOutputStream(destination, "w")
-                    ?: error("تعذر فتح ملف التصدير الذي اخترته.")
-                var exported = 0
-                output.use { target ->
-                    sources.forEach { openSource ->
-                        openSource()?.use { source ->
-                            source.copyTo(target)
-                            exported++
-                        }
-                    }
-                    if (exported == 0) {
-                        target.write("No UltraShare diagnostic sessions are available.\n".toByteArray(StandardCharsets.UTF_8))
-                    }
-                    target.flush()
-                }
-                exported
-            }
-            onComplete(result)
-        }
     }
 
     private fun append(session: SessionLog, payload: Map<String, Any?>) {

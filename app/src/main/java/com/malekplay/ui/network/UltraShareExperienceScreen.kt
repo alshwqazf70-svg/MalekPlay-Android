@@ -14,11 +14,17 @@ import android.net.Uri
 import android.os.Build
 import android.os.SystemClock
 import android.provider.OpenableColumns
+import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -39,20 +45,29 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.QrCode
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Computer
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -75,9 +90,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import com.malekplay.core.ui.theme.MalekPlayColors
+import com.malekplay.core.ui.theme.contrastingOnColor
 import com.malekplay.network.UltraShareForegroundService
 import com.malekplay.network.UltraSharePeerDeliveryStore
 import com.malekplay.network.UltraShareQueueStore
@@ -85,7 +104,11 @@ import com.malekplay.network.UltraShareQrCode
 import com.malekplay.network.UltraSharePlatformCompatibility
 import com.malekplay.network.UltraShareNetworkRouting
 import com.malekplay.network.UltraShareCore
-import com.malekplay.network.UltraShareDiagnostics
+import com.malekplay.network.UltraShareScreenMirrorPolicy
+import com.malekplay.player.cast.CastMediaHttpServer
+import com.malekplay.player.cast.WebCastItem
+import com.malekplay.player.cast.WebCastRegistry
+import com.malekplay.ui.player.video.WebCastDialog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -99,7 +122,9 @@ fun UltraShareExperienceScreen(
     contentPadding: PaddingValues,
     onBack: () -> Unit,
     initialUris: List<Uri> = emptyList(),
-    onInitialUrisConsumed: () -> Unit = {}
+    onInitialUrisConsumed: () -> Unit = {},
+    initialOpenScreenMirror: Boolean = false,
+    onScreenMirrorEntryConsumed: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val sensorManager = remember(context) { context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager }
@@ -112,10 +137,19 @@ fun UltraShareExperienceScreen(
     var pendingMediaType by remember { mutableStateOf(MediaType.VIDEO) }
     val state by viewModel.state.collectAsState()
     val scope = rememberCoroutineScope()
-    var page by remember { mutableStateOf(UltraSharePage.HOME) }
+    var page by remember {
+        mutableStateOf(if (initialOpenScreenMirror) UltraSharePage.TRANSFERS else UltraSharePage.HOME)
+    }
+    LaunchedEffect(initialOpenScreenMirror) {
+        if (initialOpenScreenMirror) {
+            page = UltraSharePage.TRANSFERS
+            onScreenMirrorEntryConsumed()
+        }
+    }
     var shakeToConnectArmed by remember { mutableStateOf(false) }
     var triggerShakeScan by remember { mutableStateOf(false) }
     var showDevicePicker by remember { mutableStateOf(false) }
+    var showWebCastDialog by remember { mutableStateOf(false) }
     var host by remember { mutableStateOf("") }
     var secret by remember { mutableStateOf("") }
     var pendingQrPairing by remember { mutableStateOf<UltraShareQrCode.PairingDetails?>(null) }
@@ -128,15 +162,20 @@ fun UltraShareExperienceScreen(
         mutableStateOf(initialUris.distinct().filter { isUltraShareAllowedFile(context, it) })
     }
     var autoSentInitialUriKey by remember { mutableStateOf<String?>(null) }
+    var qrAutoSendArmed by remember { mutableStateOf(false) }
 
     fun handleQr(raw: String) {
         runCatching { UltraShareQrCode.parsePayload(raw) }
             .onSuccess { pairing ->
+                if (state.requestingConnection || pendingQrPairing != null) {
+                    viewModel.cancelPendingPairingAttempt()
+                }
                 host = pairing.host
                 secret = pairing.pairingSecret
+                qrAutoSendArmed = selectedUris.isNotEmpty()
                 pendingQrPairing = pairing
                 page = UltraSharePage.SEND
-                Toast.makeText(context, "تمت قراءة الدعوة؛ جارٍ العثور على الجهاز والاتصال به تلقائياً.", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "تمت قراءة الدعوة؛ جارٍ الاقتران التلقائي الفوري...", Toast.LENGTH_SHORT).show()
             }
             .onFailure {
                 Toast.makeText(context, "رمز QR غير صالح أو لا يخص MalekPlayer.", Toast.LENGTH_LONG).show()
@@ -172,24 +211,37 @@ fun UltraShareExperienceScreen(
         }
         pendingReceivedExport = null
     }
-    val diagnosticsExportLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("text/plain")
-    ) { uri ->
-        if (uri != null) {
-            UltraShareDiagnostics.exportLogs(uri) { result ->
-                scope.launch(Dispatchers.Main) {
-                    result.onSuccess { count ->
-                        Toast.makeText(context, "تم تصدير سجل التشخيص ($count ملفات).", Toast.LENGTH_LONG).show()
-                    }.onFailure { failure ->
-                        Toast.makeText(
-                            context,
-                            failure.localizedMessage ?: "تعذر تصدير سجل التشخيص.",
-                            Toast.LENGTH_LONG
-                        ).show()
-                    }
-                }
-            }
+    val screenMirrorCaptureLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val data = result.data
+        if (result.resultCode == android.app.Activity.RESULT_OK && data != null) {
+            viewModel.startHostScreenMirroring(result.resultCode, data)
+        } else {
+            Toast.makeText(context, "تم إلغاء إذن مشاركة الشاشة.", Toast.LENGTH_SHORT).show()
         }
+    }
+    fun launchMediaProjectionConsent() {
+        val mgr = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE)
+            as? android.media.projection.MediaProjectionManager
+        if (mgr == null) {
+            Toast.makeText(context, "ميزة مشاركة الشاشة غير مدعومة على هذا الجهاز.", Toast.LENGTH_LONG).show()
+            return
+        }
+        screenMirrorCaptureLauncher.launch(mgr.createScreenCaptureIntent())
+    }
+    val mirrorAudioPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (!granted) {
+            viewModel.setMirrorAudioMode(UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE)
+            Toast.makeText(
+                context,
+                "لم يُمنح إذن الصوت؛ ستبدأ الشاشة الجماعية فيديو فقط.",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+        launchMediaProjectionConsent()
     }
     val qrScanner = rememberLauncherForActivityResult(ScanContract()) { result ->
         result.contents?.takeIf { it.isNotBlank() }?.let(::handleQr)
@@ -218,10 +270,15 @@ fun UltraShareExperienceScreen(
                         )
                     }
                 }.onSuccess { pairing ->
+                    if (state.requestingConnection || pendingQrPairing != null) {
+                        viewModel.cancelPendingPairingAttempt()
+                    }
                     host = pairing.host
                     secret = pairing.pairingSecret
+                    qrAutoSendArmed = selectedUris.isNotEmpty()
                     pendingQrPairing = pairing
                     page = UltraSharePage.SEND
+                    Toast.makeText(context, "تمت قراءة الدعوة؛ جارٍ الاقتران التلقائي الفوري...", Toast.LENGTH_SHORT).show()
                 }.onFailure {
                     Toast.makeText(context, "تعذر قراءة رمز QR من الصورة.", Toast.LENGTH_LONG).show()
                 }
@@ -273,18 +330,53 @@ fun UltraShareExperienceScreen(
             val wasAdvertisingInvitation = pendingInvitationAdvertisement
             pendingQrPairing = null
             pendingInvitationAdvertisement = false
-            if (pairing != null && !pairing.hotspotSsid.isNullOrBlank()) {
-                Toast.makeText(
-                    context,
-                    "يلزم إذن الأجهزة القريبة للانضمام تلقائياً إلى شبكة MalekPlayer. امنح الإذن ثم أعد مسح QR.",
-                    Toast.LENGTH_LONG
-                ).show()
-            } else if (pairing != null && pairing.hosts.isNotEmpty()) {
-                viewModel.requestConnection(
-                    pairing.hosts.first(),
-                    pairing.pairingSecret,
-                    alternateHosts = pairing.hosts.drop(1)
-                )
+            if (pairing != null) {
+                val hasWifiCredentials = !pairing.hotspotSsid.isNullOrBlank() &&
+                    !pairing.hotspotPassword.isNullOrBlank()
+                val lanFallbacks = UltraShareNetworkRouting.findNonP2pLanFallbackHosts(context, pairing.hosts)
+                    .ifEmpty {
+                        pairing.hosts.filter {
+                            UltraShareCore.isValidPrivateLanHost(it) &&
+                                !UltraShareNetworkRouting.isWifiDirectGroupHost(it) &&
+                                !UltraShareNetworkRouting.isLocalAddress(context, it)
+                        }
+                    }
+                val preferHotspotDirect = hasWifiCredentials &&
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+                    (UltraShareNetworkRouting.hasCaptivePortalWifi(context) || lanFallbacks.isEmpty())
+                if (preferHotspotDirect) {
+                    Toast.makeText(
+                        context,
+                        "لم يُمنح إذن Wi-Fi Direct؛ سيتم الانضمام مباشرةً عبر شبكة MalekPlay.",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    viewModel.connectHotspotInvitation(pairing, allowWifiDirectFallback = false)
+                } else if (lanFallbacks.isNotEmpty()) {
+                    Toast.makeText(
+                        context,
+                        "لم يُمنح إذن Wi-Fi Direct؛ سيتم الاتصال تلقائياً عبر الشبكة المحلية (LAN).",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    viewModel.requestConnection(
+                        lanFallbacks.first(),
+                        pairing.pairingSecret,
+                        alternateHosts = lanFallbacks.drop(1),
+                        port = pairing.port,
+                        onConnectionFailed = { rejected, _ ->
+                            if (!rejected && hasWifiCredentials && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                viewModel.connectHotspotInvitation(pairing, allowWifiDirectFallback = false)
+                            }
+                        }
+                    )
+                } else if (hasWifiCredentials && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    viewModel.connectHotspotInvitation(pairing, allowWifiDirectFallback = false)
+                } else if (hasWifiCredentials) {
+                    Toast.makeText(
+                        context,
+                        "يلزم إذن الأجهزة القريبة للانضمام تلقائياً إلى شبكة MalekPlayer. امنح الإذن ثم أعد مسح QR.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
             } else if (pendingReceiverStart) {
                 pendingReceiverStart = false
                 // Permission denial disables only the optional Wi-Fi Direct route.
@@ -532,13 +624,13 @@ fun UltraShareExperienceScreen(
 
         val hasWifiCredentials = !pairing.hotspotSsid.isNullOrBlank() &&
             !pairing.hotspotPassword.isNullOrBlank()
-        // Wi-Fi Direct discovery requires the runtime permission on API 23–32,
-        // even when a P2P room also carries SSID/PSK credentials for fallback.
-        // WifiNetworkSpecifier additionally requires the nearby-Wi-Fi permission
-        // on API 29+ when joining a hotspot invitation.
+        // Wi-Fi Direct discovery requires the runtime permission on API 23+,
+        // while legacy WifiManager.addNetwork needs it on API < 29.
+        // Android 10+ WifiNetworkSpecifier uses a system consent sheet and does
+        // not require NEARBY_WIFI_DEVICES when joining a hotspot-only QR.
         val needsRuntimePermission =
             !pairing.invitationId.isNullOrBlank() ||
-                (hasWifiCredentials && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
+                (hasWifiCredentials && Build.VERSION.SDK_INT < Build.VERSION_CODES.Q)
         if (needsRuntimePermission) {
             val required = UltraSharePlatformCompatibility.wifiDirectRuntimePermissions(Build.VERSION.SDK_INT)
             val missing = required.filter {
@@ -568,6 +660,17 @@ fun UltraShareExperienceScreen(
     LaunchedEffect(state.approvedPeerHost) {
         state.approvedPeerHost?.let { host = it }
     }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.resumePendingQrAfterSettingsReturn()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     // Move directly to the live transfer room as soon as either direction starts.
     LaunchedEffect(state.sending, state.sendProgress, state.receiveProgress) {
         if (state.sending || state.sendProgress != null || state.receiveProgress != null) {
@@ -587,93 +690,9 @@ fun UltraShareExperienceScreen(
         }
     }
 
-    val currentWifiDirectFallbackHosts = remember(context, state.localAddresses) {
-        UltraShareNetworkRouting.nonP2pLocalIpv4Addresses(context, state.localAddresses)
-    }
-    val wifiDirectFallbackHosts = viewModel.stableWifiDirectQrHosts(
-        state.invitationId, currentWifiDirectFallbackHosts
-    )
-    val wifiDirectQrPayload = state.invitationId
-        .takeIf {
-            !state.hotspotSsid.isNullOrBlank() &&
-                !state.hotspotPassword.isNullOrBlank() &&
-                com.malekplay.network.UltraSharePairingReadiness.canShowWifiDirectQr(
-                    receiving = state.receiving,
-                    controlChannelReady = state.controlChannelReady,
-                    dataChannelReady = state.dataChannelReady,
-                    activePeerCount = state.activePeers.size,
-                    pairingSecret = state.pairingSecret,
-                    invitationId = state.invitationId
-                )
-        }
-        ?.let {
-            // v5 advertises the P2P group as a normal WPA2 SoftAP as well as
-            // any live WLAN routes, so Android 6–16 can join without DNS-SD.
-            val hosts = (
-                wifiDirectFallbackHosts + listOfNotNull(state.wifiDirectLocalAddress)
-                ).distinct().take(8)
-            hosts.takeIf { it.isNotEmpty() }?.let { safeHosts ->
-                UltraShareQrCode.createUnifiedReceiverPayload(
-                    hosts = safeHosts,
-                    pairingSecret = state.pairingSecret,
-                    ssid = state.hotspotSsid,
-                    wifiPassword = state.hotspotPassword,
-                    invitationId = it,
-                    wifiSecurity = state.hotspotSecurity
-                )
-            }
-        }
-    val hotspotQrPayload = state.localAddresses
-        // Hotspot QR is published only after both listeners and hotspot credentials are ready.
-        .takeIf {
-            com.malekplay.network.UltraSharePairingReadiness.canShowHotspotQr(
-                receiving = state.receiving,
-                controlChannelReady = state.controlChannelReady,
-                dataChannelReady = state.dataChannelReady,
-                hotspotActive = state.hotspotActive,
-                activePeerCount = state.activePeers.size,
-                pairingSecret = state.pairingSecret,
-                hotspotSsid = state.hotspotSsid,
-                hotspotPassword = state.hotspotPassword,
-                localAddresses = it
-            )
-        }
-        ?.let {
-            UltraShareQrCode.createUnifiedReceiverPayload(
-                hosts = it,
-                pairingSecret = state.pairingSecret,
-                ssid = state.hotspotSsid,
-                wifiPassword = state.hotspotPassword,
-                invitationId = state.invitationId.takeIf { id -> id.isNotBlank() },
-                wifiSecurity = state.hotspotSecurity
-            )
-        }
-    val liveLanFallbackHosts = remember(context, state.localAddresses) {
-        UltraShareNetworkRouting.nonP2pLocalIpv4Addresses(context, state.localAddresses)
-    }
-    val lanQrPayload = liveLanFallbackHosts
-        .takeIf {
-            com.malekplay.network.UltraSharePairingReadiness.canShowLanQr(
-                receiving = state.receiving,
-                controlChannelReady = state.controlChannelReady,
-                dataChannelReady = state.dataChannelReady,
-                lanFallbackReady = state.lanFallbackReady,
-                activePeerCount = state.activePeers.size,
-                pairingSecret = state.pairingSecret,
-                localAddresses = it
-            )
-        }
-        ?.let { UltraShareQrCode.createReceiverPayload(it, state.pairingSecret) }
-    val candidateQrPayload = wifiDirectQrPayload ?: hotspotQrPayload ?: lanQrPayload
-    LaunchedEffect(candidateQrPayload, state.receiverQrPayload) {
-        if (!candidateQrPayload.isNullOrBlank() &&
-            candidateQrPayload != state.receiverQrPayload
-        ) {
-            viewModel.latchReceiverQrPayload(candidateQrPayload)
-        }
-    }
-    // Keep the room invitation visible after the first peer joins so more
-    // devices can join the same group using the same one-session secret.
+    // UltraShareViewModel is the single source of truth for receiverQrPayload:
+    // it withholds P2P QR codes until DNS-SD advertisement succeeds and keeps v6
+    // mode/host priority consistent across Wi-Fi Direct, Hotspot, and LAN fallbacks.
     val qrPayload = state.receiverQrPayload.takeIf { state.receiving }
     val qrBitmap = remember(qrPayload) {
         qrPayload?.let { runCatching { UltraShareQrCode.createBitmap(it) }.getOrNull() }
@@ -683,33 +702,231 @@ fun UltraShareExperienceScreen(
     }
     val hasConnectedPeer = state.activePeers.isNotEmpty() ||
         state.approvedSenderPeerHosts.isNotEmpty() || !state.approvedPeerHost.isNullOrBlank()
+    val colors = MaterialTheme.colorScheme
     fun sendSelectedUrisToRoom() {
         if (selectedUris.isEmpty()) return
         if (viewModel.sendBatchToApprovedPeers(selectedUris)) {
             selectedUris = emptyList()
+            qrAutoSendArmed = false
             onInitialUrisConsumed()
         }
     }
 
+    // Automatically send user-selected files as soon as QR pairing completes.
+    LaunchedEffect(
+        qrAutoSendArmed,
+        state.approvedSenderPeerHosts,
+        state.approvedPeerHost,
+        state.sending,
+        selectedUris
+    ) {
+        if (!qrAutoSendArmed || selectedUris.isEmpty() || state.sending) return@LaunchedEffect
+        val senderReady = state.approvedSenderPeerHosts.isNotEmpty() || !state.approvedPeerHost.isNullOrBlank()
+        if (!senderReady) return@LaunchedEffect
+        if (viewModel.sendBatchToApprovedPeers(selectedUris)) {
+            qrAutoSendArmed = false
+            selectedUris = emptyList()
+            onInitialUrisConsumed()
+            page = UltraSharePage.TRANSFERS
+            Toast.makeText(context, "تم الاقتران وبدأ إرسال الملفات مباشرة!", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val connectedDevicesCount = (state.activePeers.map { it.host } + state.approvedSenderPeerHosts).distinct().size
+    val nearbyDevicesCount = state.discoveredPeers.size + state.wifiDirectPeers.size +
+        state.bluetoothPeers.size + state.blePeers.size
+
     Column(
-        modifier = Modifier.fillMaxSize()
-            .background(Brush.verticalGradient(listOf(Color(0xFF171021), Color(0xFF100D18), Color(0xFF0D0D12))))
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        colors.primaryContainer.copy(alpha = 0.24f),
+                        colors.background,
+                        colors.surface
+                    )
+                )
+            )
             .padding(contentPadding)
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        if (selectedUris.isNotEmpty()) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF251535))
-            ) {
-                Column(Modifier.fillMaxWidth().padding(13.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // Quick navigation pills across all UltraShare pages
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            listOf(
+                UltraSharePage.HOME to "الرئيسية",
+                UltraSharePage.RECEIVE to "استقبال (QR)",
+                UltraSharePage.SEND to if (selectedUris.isNotEmpty()) "إرسال (${selectedUris.size})" else "إرسال",
+                UltraSharePage.TRANSFERS to if (connectedDevicesCount > 0) "غرفة النقل ($connectedDevicesCount)" else "غرفة النقل",
+                UltraSharePage.NEARBY to if (nearbyDevicesCount > 0) "القريبة ($nearbyDevicesCount)" else "القريبة",
+                UltraSharePage.HISTORY to "السجل"
+            ).forEach { (targetPage, label) ->
+                val isSelected = page == targetPage || (page == UltraSharePage.JOIN && targetPage == UltraSharePage.SEND)
+                val bg = if (isSelected) colors.primary else colors.surfaceContainerHigh.copy(alpha = 0.85f)
+                val fg = if (isSelected) contrastingOnColor(colors.primary) else colors.onSurfaceVariant
+                Surface(
+                    shape = CircleShape,
+                    color = bg,
+                    border = BorderStroke(1.dp, if (isSelected) colors.primary else colors.outlineVariant.copy(alpha = 0.5f)),
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .clickable {
+                            if (targetPage == UltraSharePage.RECEIVE && !state.receiving) {
+                                startReceivingGroup()
+                            }
+                            page = targetPage
+                        }
+                ) {
                     Text(
-                        if (hasConnectedPeer) "الغرفة جاهزة — ${selectedUris.size} ملفات بانتظار الإرسال"
-                        else "جاهز للإرسال فور الاقتران (${selectedUris.size} ملفات)",
-                        color = MalekPlayColors.TextPrimary,
+                        text = label,
+                        modifier = Modifier.padding(horizontal = 13.dp, vertical = 7.dp),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = fg,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                    )
+                }
+            }
+        }
+
+        if (state.pendingQrLocationAction != null) {
+            val isServiceOff = state.locationPrereqStatus ==
+                UltraSharePlatformCompatibility.WifiDirectPrerequisiteStatus.LOCATION_SERVICES_DISABLED
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = Color(0xFFFFC66D).copy(alpha = 0.14f),
+                border = BorderStroke(1.dp, Color(0xFFFFC66D).copy(alpha = 0.45f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = if (isServiceOff) {
+                            "خدمة الموقع (Location) مطفأة في النظام"
+                        } else {
+                            "يلزم منح إذن الأجهزة القريبة / الموقع"
+                        },
+                        color = colors.onSurface,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = if (isServiceOff) {
+                            "يشترط Android 6–12 تفعيل خدمة الموقع لاستمرار اكتشاف ونشر دعوة QR عبر Wi-Fi Direct. سنحتفظ بنفس رمز QR والجلسة ونستأنف تلقائياً عند عودتك."
+                        } else {
+                            "امنح الإذن لاستكمال نشر أو اكتشاف دعوة QR عبر Wi-Fi Direct بنفس الجلسة."
+                        },
+                        color = colors.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                if (isServiceOff) {
+                                    runCatching {
+                                        context.startActivity(
+                                            Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)
+                                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        )
+                                    }.onFailure {
+                                        Toast.makeText(
+                                            context,
+                                            "افتح إعدادات الجهاز وفعّل خدمة الموقع (Location).",
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                    }
+                                } else {
+                                    val required = UltraSharePlatformCompatibility
+                                        .wifiDirectRuntimePermissions(Build.VERSION.SDK_INT)
+                                        .toTypedArray()
+                                    wifiPermission.launch(required)
+                                }
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(
+                                text = if (isServiceOff) "تفعيل خدمة الموقع" else "منح الإذن",
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        OutlinedButton(onClick = viewModel::clearPendingQrLocationAction) {
+                            Text("تجاهل")
+                        }
+                    }
+                }
+            }
+        }
+
+        if (hasConnectedPeer && page != UltraSharePage.TRANSFERS) {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = Color(0xFF16A34A).copy(alpha = 0.14f),
+                border = BorderStroke(1.dp, Color(0xFF22C55E).copy(alpha = 0.40f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.CheckCircle,
+                        contentDescription = null,
+                        tint = Color(0xFF22C55E),
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        text = "متصل بـ ${connectedDevicesCount.coerceAtLeast(1)} جهاز • جاهز للنقل المباشر",
+                        color = colors.onSurface,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TextButton(onClick = { page = UltraSharePage.TRANSFERS }) {
+                        Text("الغرفة", fontWeight = FontWeight.Bold)
+                    }
+                    TextButton(
+                        onClick = {
+                            viewModel.stopHostScreenMirroring()
+                            viewModel.leaveMirrorViewer()
+                            (state.activePeers.map { it.host } + state.approvedSenderPeerHosts)
+                                .distinct()
+                                .forEach { viewModel.disconnectPeer(it) }
+                            if (state.receiving) stopReceivingGroup()
+                        }
+                    ) {
+                        Text("فصل", color = colors.error)
+                    }
+                }
+            }
+        }
+
+        if (selectedUris.isNotEmpty()) {
+            ElevatedCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, colors.primary.copy(alpha = 0.35f), RoundedCornerShape(18.dp)),
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.elevatedCardColors(containerColor = colors.primaryContainer.copy(alpha = 0.45f))
+            ) {
+                Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        if (hasConnectedPeer) "متصل وجاهز — ${selectedUris.size} ملف بانتظار الإرسال"
+                        else "تم تحديد ${selectedUris.size} ملف — امسح QR للإرسال التلقائي",
+                        color = colors.onSurface,
                         fontWeight = FontWeight.Bold
                     )
                     if (hasConnectedPeer) {
@@ -717,13 +934,26 @@ fun UltraShareExperienceScreen(
                             onClick = ::sendSelectedUrisToRoom,
                             enabled = !state.sending,
                             modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(14.dp),
                             colors = ultraShareButtonColors()
                         ) {
                             Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null)
-                            Text("إرسال المختار الآن", modifier = Modifier.padding(start = 8.dp), fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("إرسال المختار الآن", fontWeight = FontWeight.Bold)
                         }
                     } else {
-                        Text("أنشئ غرفة أو امسح رمز QR؛ ستبقى الملفات محددة هنا حتى يصبح الجهاز الآخر متصلاً.", color = MalekPlayColors.TextSecondary, style = MaterialTheme.typography.bodySmall)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                onClick = { scanQr() },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ultraShareButtonColors()
+                            ) {
+                                Icon(Icons.Filled.QrCodeScanner, contentDescription = null, modifier = Modifier.size(17.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("مسح QR وإرسال فوراً", fontWeight = FontWeight.Bold)
+                            }
+                        }
                     }
                 }
             }
@@ -731,118 +961,188 @@ fun UltraShareExperienceScreen(
         if (page == UltraSharePage.HOME) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "رجوع", tint = Color.White)
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "رجوع", tint = colors.onSurface)
                 }
-                Text(
-                    "المشاركة مع صديق",
-                    modifier = Modifier.weight(1f),
-                    color = Color.White,
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold
-                )
-                IconButton(onClick = { page = UltraSharePage.JOIN; scanQr() }) {
-                    Icon(Icons.Filled.QrCode, contentDescription = "مسح رمز QR", tint = Color(0xFF75E8F4))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "المشاركة الفورية",
+                        color = colors.onSurface,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                    Text(
+                        "اقتران مباشر بمسح QR وإرسال واستقبال بدون تعقيد",
+                        color = colors.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
+                FilledTonalButton(
+                    onClick = { page = UltraSharePage.JOIN; scanQr() },
+                    shape = CircleShape,
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Icon(Icons.Filled.QrCodeScanner, contentDescription = "مسح رمز QR", modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(5.dp))
+                    Text("مسح QR", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                 }
             }
-            Spacer(Modifier.height(14.dp))
+
+            // Primary circular actions: Create Room (QR) vs Join Room (Scan QR)
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(18.dp),
+                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalAlignment = Alignment.Top
             ) {
                 ZapyaPrimaryAction(
                     modifier = Modifier.weight(1f),
-                    title = "إنشاء غرفة",
-                    subtitle = "إرسال واستقبال • اعرض رمز QR",
-                    icon = { Icon(Icons.Filled.CheckCircle, null, tint = Color(0xFF75E8F4), modifier = Modifier.size(58.dp)) }
+                    title = "إنشاء غرفة (QR)",
+                    subtitle = "اعرض الرمز للاستقبال والإرسال الفوري",
+                    icon = { Icon(Icons.Filled.QrCode, null, tint = colors.primary, modifier = Modifier.size(54.dp)) }
                 ) {
                     startReceivingGroup()
                     page = UltraSharePage.RECEIVE
                 }
                 ZapyaPrimaryAction(
                     modifier = Modifier.weight(1f),
-                    title = "انضمام لغرفة",
-                    subtitle = "مسح QR والاتصال التلقائي",
-                    icon = { Icon(Icons.AutoMirrored.Filled.Send, null, tint = Color(0xFF75E8F4), modifier = Modifier.size(58.dp)) }
+                    title = "انضمام بمسح QR",
+                    subtitle = "امسح الرمز للاتصال والبدء مباشرة",
+                    icon = { Icon(Icons.Filled.QrCodeScanner, null, tint = colors.primary, modifier = Modifier.size(54.dp)) }
                 ) {
                     page = UltraSharePage.JOIN
                     scanQr()
                 }
             }
+
+            // Fast shortcuts row
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Text(
-                    if (state.scanning || state.wifiDirectScanning || state.bluetoothScanning || state.bleScanning)
-                        "جارٍ البحث عن الأصدقاء…" else "الأجهزة القريبة: ${state.discoveredPeers.size + state.wifiDirectPeers.size + state.bluetoothPeers.size + state.blePeers.size}",
-                    color = Color(0xFFB7C5E7),
-                    style = MaterialTheme.typography.labelMedium
-                )
-            }
-            Spacer(Modifier.height(10.dp))
-            androidx.compose.foundation.Canvas(
-                modifier = Modifier.fillMaxWidth().height(1.dp)
-            ) {
-                drawLine(
-                    color = Color(0xFF75E8F4).copy(alpha = 0.35f),
-                    start = androidx.compose.ui.geometry.Offset(0f, 0f),
-                    end = androidx.compose.ui.geometry.Offset(size.width, 0f),
-                    strokeWidth = 1.dp.toPx()
-                )
-            }
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(18.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF21192D))
-            ) {
-                Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = { advancedOptionsExpanded = !advancedOptionsExpanded }) {
-                        Text(if (advancedOptionsExpanded) "إخفاء الخيارات المتقدمة" else "الخيارات المتقدمة والاتصال اليدوي")
-                    }
-                    if (advancedOptionsExpanded) {
-                        OutlinedButton(onClick = { page = UltraSharePage.NEARBY; scanAllNearby() }, modifier = Modifier.fillMaxWidth()) {
-                            Icon(Icons.Filled.Wifi, null)
-                            Text("الأجهزة القريبة", modifier = Modifier.padding(start = 8.dp))
-                        }
-                        OutlinedButton(onClick = { qrImagePicker.launch(arrayOf("image/*")) }, modifier = Modifier.fillMaxWidth()) {
-                            Icon(Icons.Filled.QrCode, null)
-                            Text("مسح QR من صورة محفوظة", modifier = Modifier.padding(start = 8.dp))
-                        }
-                        OutlinedButton(
-                            onClick = {
-                                diagnosticsExportLauncher.launch("MalekPlayer-UltraShare-Diagnostics.jsonl")
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Icon(Icons.Filled.Download, null)
-                            Text("تصدير سجل تشخيص الأخطاء", modifier = Modifier.padding(start = 8.dp))
-                        }
-                        OutlinedButton(onClick = { page = UltraSharePage.SEND }, modifier = Modifier.fillMaxWidth()) {
-                            Icon(Icons.AutoMirrored.Filled.Send, null)
-                            Text("الإدخال اليدوي / اختيار الملفات", modifier = Modifier.padding(start = 8.dp))
-                        }
-                    }
+                FilledTonalButton(
+                    onClick = { page = UltraSharePage.SEND },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Icon(Icons.Filled.FolderOpen, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("اختيار ملفات", fontWeight = FontWeight.SemiBold)
+                }
+                OutlinedButton(
+                    onClick = { page = UltraSharePage.NEARBY; scanAllNearby() },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Icon(Icons.Filled.Wifi, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("الأجهزة ($nearbyDevicesCount)", fontWeight = FontWeight.SemiBold)
                 }
             }
+
+            OutlinedButton(
+                onClick = {
+                    if (selectedUris.isNotEmpty()) {
+                        val items = selectedUris.mapIndexed { idx, uri ->
+                            val name = context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                                if (c.moveToFirst()) c.getString(0) else null
+                            } ?: uri.lastPathSegment ?: "Media ${idx + 1}"
+                            val mime = context.contentResolver.getType(uri)
+                                ?: CastMediaHttpServer.inferMimeFromUriOrName(uri, name)
+                            WebCastItem(
+                                id = "us-$idx-${uri.toString().hashCode().toUInt()}",
+                                title = name,
+                                uri = uri,
+                                mimeType = mime
+                            )
+                        }
+                        WebCastRegistry.updateQueue(items, 0)
+                        if (!WebCastRegistry.state.value.running) {
+                            runCatching { WebCastRegistry.start(context, requirePin = true) }
+                        }
+                    }
+                    showWebCastDialog = true
+                },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Icon(Icons.Filled.Computer, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("البث المباشر إلى متصفح الكمبيوتر (بدون تثبيت)", fontWeight = FontWeight.SemiBold)
+            }
+
             StatusPanel(
                 title = when {
-                    state.sending -> "جارٍ إرسال الملفات"
-                    state.activePeers.isNotEmpty() || state.approvedSenderPeerHosts.isNotEmpty() -> "جهاز متصل وجاهز"
-                    state.scanning || state.wifiDirectScanning || state.bluetoothScanning || state.bleScanning -> "البحث عن الأجهزة القريبة"
-                    else -> "جاهز للمشاركة"
+                    state.sending -> "جارٍ إرسال الملفات..."
+                    hasConnectedPeer -> "متصل وجاهز للإرسال والاستقبال"
+                    state.receiving -> "الغرفة مفتوحة — بانتظار المسح"
+                    state.scanning || state.wifiDirectScanning || state.bluetoothScanning || state.bleScanning -> "جارٍ البحث عن الأجهزة القريبة..."
+                    else -> "جاهز للمشاركة الفورية"
                 },
-                subtitle = "${(state.activePeers.map { it.host } + state.approvedSenderPeerHosts).distinct().size} متصل • ${state.discoveredPeers.size + state.wifiDirectPeers.size + state.bluetoothPeers.size + state.blePeers.size} جهاز قريب • ${selectedUris.size} ملف محدد",
-                active = state.sending || state.activePeers.isNotEmpty() || state.approvedSenderPeerHosts.isNotEmpty()
+                subtitle = "$connectedDevicesCount متصل • $nearbyDevicesCount جهاز قريب • ${selectedUris.size} ملف محدد",
+                active = state.sending || hasConnectedPeer || state.receiving
             )
-            if (state.activePeers.isNotEmpty() || state.approvedSenderPeerHosts.isNotEmpty() ||
-                state.sending || state.receiveProgress != null
-            ) {
-                OutlinedButton(
+
+            if (hasConnectedPeer || state.sending || state.receiveProgress != null) {
+                Button(
                     onClick = { page = UltraSharePage.TRANSFERS },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ultraShareButtonColors()
                 ) {
-                    Text("فتح غرفة النقل — السرعة والتقدم والوقت المتبقي")
+                    Icon(Icons.Filled.SwapHoriz, contentDescription = null, modifier = Modifier.size(19.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("فتح غرفة النقل المباشر", fontWeight = FontWeight.Bold)
+                }
+            }
+
+            ElevatedCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, colors.outlineVariant.copy(alpha = 0.4f), RoundedCornerShape(18.dp)),
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.elevatedCardColors(containerColor = colors.surfaceContainer)
+            ) {
+                Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable { advancedOptionsExpanded = !advancedOptionsExpanded }
+                            .padding(horizontal = 4.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "خيارات إضافية (مسح من صورة / اتصال يدوي / تشخيص)",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = colors.onSurface,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Icon(
+                            imageVector = if (advancedOptionsExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                            contentDescription = null,
+                            tint = colors.onSurfaceVariant
+                        )
+                    }
+                    if (advancedOptionsExpanded) {
+                        OutlinedButton(
+                            onClick = { qrImagePicker.launch(arrayOf("image/*")) },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Filled.QrCode, null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("مسح QR من صورة محفوظة")
+                        }
+                        OutlinedButton(
+                            onClick = { page = UltraSharePage.HISTORY },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Filled.History, null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("سجل الإرسال والاستقبال")
+                        }
+                    }
                 }
             }
             UltraShareHelpCard()
@@ -921,15 +1221,18 @@ fun UltraShareExperienceScreen(
                             }
                         },
                         onRequestConnection = { viewModel.requestConnection(host, secret) },
+                        onCancelPairing = { viewModel.cancelPendingPairingAttempt() },
                         onSendBatch = { targetHost ->
                             if (viewModel.sendBatch(selectedUris, targetHost)) {
                                 selectedUris = emptyList()
+                                qrAutoSendArmed = false
                                 onInitialUrisConsumed()
                             }
                         },
                         onSendToAllPeers = {
                             if (viewModel.sendBatchToApprovedPeers(selectedUris)) {
                                 selectedUris = emptyList()
+                                qrAutoSendArmed = false
                                 onInitialUrisConsumed()
                             }
                         },
@@ -964,35 +1267,54 @@ fun UltraShareExperienceScreen(
                     )
                 }
                 UltraSharePage.JOIN -> {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(22.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1B2940))
+                    val colors = MaterialTheme.colorScheme
+                    ElevatedCard(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(1.dp, colors.primary.copy(alpha = 0.25f), RoundedCornerShape(24.dp)),
+                        shape = RoundedCornerShape(24.dp),
+                        colors = CardDefaults.elevatedCardColors(containerColor = colors.surfaceContainerHigh)
                     ) {
                         Column(
-                            Modifier.fillMaxWidth().padding(18.dp),
+                            Modifier.fillMaxWidth().padding(20.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             Box(
-                                Modifier.size(92.dp).background(Color(0xFF263E5C), CircleShape),
+                                Modifier
+                                    .size(88.dp)
+                                    .background(colors.primaryContainer, CircleShape)
+                                    .border(1.5.dp, colors.primary.copy(alpha = 0.35f), CircleShape),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(Icons.Filled.QrCode, null, tint = Color(0xFF75E8F4), modifier = Modifier.size(48.dp))
+                                Icon(Icons.Filled.QrCodeScanner, null, tint = colors.primary, modifier = Modifier.size(44.dp))
                             }
-                            Text("انضم إلى مجموعة صديقك", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                             Text(
-                                "امسح رمز QR الظاهر على هاتف المضيف، أو ابحث عن الأجهزة القريبة. سيبدأ الاتصال تلقائياً بعد التحقق من رمز الاقتران، ويمكنك نقل الملفات مباشرة.",
-                                color = Color(0xFFB7C5E7),
+                                "انضمام فوري عبر QR",
+                                color = colors.onSurface,
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                            Text(
+                                "امسح رمز QR الظاهر على هاتف الاستقبال؛ يتم الاقتران وقبول الإرسال والاستقبال تلقائياً دون أي خطوات إضافية.",
+                                color = colors.onSurfaceVariant,
                                 style = MaterialTheme.typography.bodyMedium,
                                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
                             )
-                            Button(colors = ultraShareButtonColors(), onClick = ::scanQr, modifier = Modifier.fillMaxWidth()) {
-                                Icon(Icons.Filled.QrCode, null)
-                                Text("مسح رمز QR بالكاميرا", modifier = Modifier.padding(start = 8.dp))
+                            Button(
+                                colors = ultraShareButtonColors(),
+                                onClick = ::scanQr,
+                                modifier = Modifier.fillMaxWidth().height(50.dp),
+                                shape = RoundedCornerShape(14.dp)
+                            ) {
+                                Icon(Icons.Filled.QrCodeScanner, null)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("مسح رمز QR بالكاميرا", fontWeight = FontWeight.Bold)
                             }
-                            OutlinedButton(onClick = { qrImagePicker.launch(arrayOf("image/*")) },
-                                modifier = Modifier.fillMaxWidth()
+                            OutlinedButton(
+                                onClick = { qrImagePicker.launch(arrayOf("image/*")) },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(14.dp)
                             ) { Text("قراءة QR من صورة محفوظة") }
                             OutlinedButton(onClick = {
                                     scanAllNearby()
@@ -1203,10 +1525,33 @@ fun UltraShareExperienceScreen(
                             page = UltraSharePage.RECEIVE
                         },
                         onLeaveRoom = {
+                            viewModel.stopHostScreenMirroring()
+                            viewModel.leaveMirrorViewer()
                             (state.activePeers.map { it.host } + state.approvedSenderPeerHosts).distinct()
                                 .forEach(viewModel::forgetPeer)
                             stopReceivingGroup()
                             page = UltraSharePage.HOME
+                        },
+                        onToggleMirrorAudio = viewModel::setMirrorAudioRequested,
+                        onSelectMirrorAudioMode = viewModel::setMirrorAudioMode,
+                        onStartScreenMirror = {
+                            if (UltraShareScreenMirrorPolicy.requiresRecordAudioPermission(state.mirrorAudioMode) &&
+                                !UltraShareScreenMirrorPolicy.hasRecordAudioPermission(context)
+                            ) {
+                                mirrorAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                            } else {
+                                launchMediaProjectionConsent()
+                            }
+                        },
+                        onStopScreenMirror = viewModel::stopHostScreenMirroring,
+                        onJoinScreenMirror = viewModel::joinMirrorViewer,
+                        onCreateMirrorGroup = {
+                            if (!state.receiving) startReceivingGroup()
+                            page = UltraSharePage.RECEIVE
+                        },
+                        onJoinMirrorGroup = {
+                            page = UltraSharePage.JOIN
+                            scanQr()
                         }
                     )
                     val connectedHosts = (
@@ -1440,6 +1785,19 @@ fun UltraShareExperienceScreen(
         }
         Spacer(Modifier.height(12.dp))
     }
+    state.watchingMirrorSession?.let { activeOffer ->
+        ScreenMirrorViewerModal(
+            offer = activeOffer,
+            onLeave = viewModel::leaveMirrorViewer
+        )
+    }
+    if (showWebCastDialog) {
+        WebCastDialog(
+            onDismiss = { showWebCastDialog = false },
+            onPickFilesToShare = { mediaPicker.launch(arrayOf("*/*")) }
+        )
+    }
+
     if (showDevicePicker) {
         DevicePickerBottomSheet(
             discoveredPeers = state.discoveredPeers,
@@ -1463,13 +1821,14 @@ fun UltraShareExperienceScreen(
 
 @Composable
 private fun PageHeader(title: String, subtitle: String, onBack: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
     Row(verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = onBack) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "رجوع", tint = MalekPlayColors.TextPrimary)
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "رجوع", tint = colors.onSurface)
         }
         Column(Modifier.weight(1f)) {
-            Text(title, color = MalekPlayColors.TextPrimary, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
-            Text(subtitle, color = MalekPlayColors.TextSecondary, style = MaterialTheme.typography.bodySmall)
+            Text(title, color = colors.onSurface, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
+            Text(subtitle, color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
         }
     }
 }
@@ -1483,30 +1842,54 @@ private fun ZapyaPrimaryAction(
     icon: @Composable () -> Unit,
     onClick: () -> Unit
 ) {
+    val colors = MaterialTheme.colorScheme
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Card(
-            modifier = Modifier.size(148.dp),
+        ElevatedCard(
+            modifier = Modifier
+                .size(144.dp)
+                .border(1.5.dp, colors.primary.copy(alpha = 0.35f), CircleShape),
             onClick = onClick,
             shape = CircleShape,
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF251535))
+            colors = CardDefaults.elevatedCardColors(containerColor = colors.surfaceContainerHigh)
         ) {
             Box(
-                modifier = Modifier.fillMaxSize().padding(5.dp)
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(6.dp)
                     .background(
-                        Brush.radialGradient(listOf(Color(0xFF3A2054), Color(0xFF171021))),
+                        Brush.radialGradient(
+                            listOf(
+                                colors.primaryContainer.copy(alpha = 0.78f),
+                                colors.surfaceContainer
+                            )
+                        ),
                         CircleShape
                     ),
                 contentAlignment = Alignment.Center
             ) {
                 Box(
-                    modifier = Modifier.size(116.dp)
-                        .background(Color(0xFF2B1940), CircleShape),
+                    modifier = Modifier
+                        .size(106.dp)
+                        .background(colors.surfaceContainerLowest.copy(alpha = 0.85f), CircleShape)
+                        .border(1.dp, colors.primary.copy(alpha = 0.25f), CircleShape),
                     contentAlignment = Alignment.Center
                 ) { icon() }
             }
         }
-        Text(title, color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-        Text(subtitle, color = MalekPlayColors.TextSecondary, style = MaterialTheme.typography.labelSmall, textAlign = androidx.compose.ui.text.style.TextAlign.Center, minLines = 2)
+        Text(
+            title,
+            color = colors.primary,
+            fontWeight = FontWeight.ExtraBold,
+            style = MaterialTheme.typography.titleMedium,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+        )
+        Text(
+            subtitle,
+            color = colors.onSurfaceVariant,
+            style = MaterialTheme.typography.labelSmall,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            minLines = 2
+        )
     }
 }
 
@@ -1558,12 +1941,25 @@ private fun ActionTile(
 
 @Composable
 private fun StatusPanel(title: String, subtitle: String, active: Boolean) {
-    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF251535)), modifier = Modifier.fillMaxWidth()) {
+    val colors = MaterialTheme.colorScheme
+    ElevatedCard(
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = if (active) colors.primaryContainer.copy(alpha = 0.45f) else colors.surfaceContainer
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(
+                1.dp,
+                if (active) Color(0xFF22C55E).copy(alpha = 0.4f) else colors.outlineVariant.copy(alpha = 0.4f),
+                RoundedCornerShape(18.dp)
+            )
+    ) {
         Row(Modifier.fillMaxWidth().padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(10.dp).background(if (active) Color(0xFF65D6A2) else MalekPlayColors.PurpleBright, CircleShape))
+            Box(Modifier.size(10.dp).background(if (active) Color(0xFF22C55E) else colors.primary, CircleShape))
             Column(Modifier.weight(1f).padding(start = 10.dp)) {
-                Text(title, color = MalekPlayColors.TextPrimary, fontWeight = FontWeight.Bold)
-                Text(subtitle, color = MalekPlayColors.TextSecondary, style = MaterialTheme.typography.labelSmall)
+                Text(title, color = colors.onSurface, fontWeight = FontWeight.Bold)
+                Text(subtitle, color = colors.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
             }
         }
     }
@@ -1571,10 +1967,17 @@ private fun StatusPanel(title: String, subtitle: String, active: Boolean) {
 
 @Composable
 internal fun InfoPanel(title: String, body: String) {
-    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF21192D)), modifier = Modifier.fillMaxWidth()) {
+    val colors = MaterialTheme.colorScheme
+    ElevatedCard(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.elevatedCardColors(containerColor = colors.surfaceContainer),
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, colors.outlineVariant.copy(alpha = 0.35f), RoundedCornerShape(16.dp))
+    ) {
         Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(title, color = MalekPlayColors.TextPrimary, fontWeight = FontWeight.Bold)
-            Text(body, color = MalekPlayColors.TextSecondary, style = MaterialTheme.typography.bodySmall)
+            Text(title, color = colors.onSurface, fontWeight = FontWeight.Bold)
+            Text(body, color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
         }
     }
 }

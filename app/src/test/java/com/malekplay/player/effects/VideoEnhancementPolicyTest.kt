@@ -373,4 +373,49 @@ class VideoEnhancementPolicyTest {
         assertEquals(VideoEnhancementProfile.ECONOMY, result.effective)
     }
 
+    @Test fun profilesExposeIncreasingBoundedVibranceStrengths() {
+        assertEquals(0.04f, VideoEnhancementProfile.ECONOMY.vibranceStrength, 0.0001f)
+        assertEquals(0.08f, VideoEnhancementProfile.BALANCED.vibranceStrength, 0.0001f)
+        assertEquals(0.12f, VideoEnhancementProfile.ULTRA.vibranceStrength, 0.0001f)
+    }
+
+    @Test fun pipelineConfigTracksActiveStagesIndependentlyIncludingVibranceAndBypass() {
+        val idle = VideoEnhancementPipelineConfig()
+        assertFalse(idle.hasActiveStage)
+
+        val vibranceOnly = VideoEnhancementPipelineConfig(
+            denoiseEnabled = false,
+            detailEnabled = false,
+            vibranceStrength = 0.08f
+        )
+        assertTrue(vibranceOnly.hasActiveStage)
+        assertFalse(vibranceOnly.detailEnabled)
+        assertFalse(vibranceOnly.denoiseEnabled)
+
+        val bypassed = vibranceOnly.copy(bypassed = true)
+        assertFalse(bypassed.hasActiveStage)
+    }
+
+    @Test fun pipelineEffectResolvesEffectivePassesWithoutForcingDetailOnVibranceOnly() {
+        val effect = VideoEnhancementPipelineEffect(
+            VideoEnhancementPipelineConfig(
+                denoiseEnabled = false,
+                detailEnabled = false,
+                vibranceStrength = 0.10f
+            )
+        )
+        assertTrue(effect.currentConfig().hasActiveStage)
+        assertFalse(effect.currentConfig().detailEnabled)
+
+        effect.update(
+            VideoEnhancementPipelineConfig(
+                denoiseEnabled = false,
+                detailEnabled = false,
+                vibranceStrength = 0.10f,
+                bypassed = true
+            )
+        )
+        assertFalse(effect.currentConfig().hasActiveStage)
+    }
+
 }

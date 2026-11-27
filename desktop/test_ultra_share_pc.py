@@ -7,7 +7,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from ultra_share_web import is_local_host_header, validate_upload
+from ultra_share_web import (
+    PairingApprovalQueue,
+    _media_kind,
+    _parse_range_header,
+    is_local_host_header,
+    validate_upload,
+)
 
 from ultra_share_v2 import (
     DISCOVERY_PROBE_PROOF,
@@ -368,6 +374,39 @@ class UltraShareDesktopProtocolTests(unittest.TestCase):
             validate_upload("192.168.1.20", "004219837", "clip.mp4", -1)
         with self.assertRaises(ValueError):
             validate_upload("192.168.1.20", "004219837", "package.apk", 128)
+
+    def test_pairing_approval_queue_resolves_from_browser_and_auto_approve(self):
+        auto_q = PairingApprovalQueue(auto_approve=True)
+        self.assertTrue(auto_q.request_approval("Phone", "192.168.1.20"))
+
+        manual_q = PairingApprovalQueue(auto_approve=False)
+        result_box: list[bool] = []
+
+        def worker():
+            result_box.append(manual_q.request_approval("Phone", "192.168.1.20", timeout=2.0))
+
+        t = threading.Thread(target=worker, daemon=True)
+        t.start()
+        pending = []
+        for _ in range(40):
+            pending = manual_q.list_pending()
+            if pending:
+                break
+            threading.Event().wait(0.02)
+        self.assertEqual(1, len(pending))
+        self.assertTrue(manual_q.resolve(pending[0]["id"], True))
+        t.join(timeout=2.0)
+        self.assertEqual([True], result_box)
+
+    def test_web_range_header_and_media_kind_classification(self):
+        self.assertEqual((0, 99), _parse_range_header("bytes=0-99", 1000))
+        self.assertEqual((500, 999), _parse_range_header("bytes=500-", 1000))
+        self.assertEqual((800, 999), _parse_range_header("bytes=-200", 1000))
+        self.assertIsNone(_parse_range_header("bytes=1500-2000", 1000))
+        self.assertEqual("video", _media_kind("movie.mp4"))
+        self.assertEqual("audio", _media_kind("track.flac"))
+        self.assertEqual("image", _media_kind("cover.webp"))
+        self.assertEqual("file", _media_kind("subs.srt"))
 
 
 if __name__ == "__main__":

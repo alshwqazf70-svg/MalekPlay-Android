@@ -84,7 +84,21 @@ data class PlayerSettings(
     val sortAscending: Boolean = false,
     val foldersFirst: Boolean = true,
     val manualSortOrder: List<String> = emptyList(),
-    val viewMode: ViewMode = ViewMode.GRID
+    val viewMode: ViewMode = ViewMode.GRID,
+
+    // Video Quality Enhancement
+    val rememberVideoEnhancement: Boolean = false,
+    val videoEnhancementEnabled: Boolean = false,
+    val videoEnhancementProfile: String = "balanced",
+    val videoEnhancementCustom: Boolean = false,
+    val videoEnhancementUpscaling: Boolean = true,
+    val videoEnhancementDenoise: Boolean = true,
+    val videoEnhancementVibrance: Boolean = true,
+    val videoEnhancementSmartAi: Boolean = false,
+    val videoEnhancementDetailStrength: Float = 0.90f,
+    val videoEnhancementDenoiseStrength: Float = 0.34f,
+    val videoEnhancementContrastBoost: Float = 0.14f,
+    val videoEnhancementVibranceStrength: Float = 0.08f
 ) {
     val subtitleColorInt: Int get() = (subtitleColor and 0xFFFFFFFFL).toInt()
 }

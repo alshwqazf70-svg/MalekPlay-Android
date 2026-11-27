@@ -203,6 +203,11 @@ class Subf2mSubtitleProviderTest {
             "https://subf2m.co/subtitles/example/arabic/12345/download",
             provider.resolveDownloadPageLink(legacyLayout, detail)
         )
+        val formLayout = """<form action="/subtitles/example/arabic/12345/download" method="post"></form>"""
+        assertEquals(
+            "https://subf2m.co/subtitles/example/arabic/12345/download",
+            provider.resolveDownloadPageLink(formLayout, detail)
+        )
     }
 
     @Test fun rejectsDifferentImdbSeriesIdentity() {

@@ -27,6 +27,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Cast
+import androidx.compose.material.icons.filled.StopScreenShare
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Button
@@ -62,7 +65,14 @@ fun UltraShareSessionRoom(
     onCancelSending: () -> Unit,
     onPickAndSendFiles: () -> Unit,
     onShowGroupQr: () -> Unit,
-    onLeaveRoom: () -> Unit
+    onLeaveRoom: () -> Unit,
+    onToggleMirrorAudio: (Boolean) -> Unit = {},
+    onSelectMirrorAudioMode: (com.malekplay.network.UltraShareScreenMirrorPolicy.MirrorAudioMode) -> Unit = {},
+    onStartScreenMirror: () -> Unit = {},
+    onStopScreenMirror: () -> Unit = {},
+    onJoinScreenMirror: () -> Unit = {},
+    onCreateMirrorGroup: () -> Unit = {},
+    onJoinMirrorGroup: () -> Unit = {}
 ) {
     val isSendingRoom = activeMode == "send"
     // Receiver-side approvals live in activePeers; sender-side approvals are
@@ -229,6 +239,17 @@ fun UltraShareSessionRoom(
                     border = BorderStroke(1.dp, Color(0xFF9A63C7))
                 ) { Text("مغادرة الغرفة", fontWeight = FontWeight.SemiBold) }
             }
+            GroupScreenMirrorCard(
+                state = state,
+                connected = connected,
+                onToggleMirrorAudio = onToggleMirrorAudio,
+                onSelectMirrorAudioMode = onSelectMirrorAudioMode,
+                onStartScreenMirror = onStartScreenMirror,
+                onStopScreenMirror = onStopScreenMirror,
+                onJoinScreenMirror = onJoinScreenMirror,
+                onCreateMirrorGroup = onCreateMirrorGroup,
+                onJoinMirrorGroup = onJoinMirrorGroup
+            )
             if (isSendingRoom && (state.sending || sendingPaused)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -965,4 +986,302 @@ private fun formatSessionTransferBytes(value: Long): String {
         unitIndex++
     }
     return String.format(java.util.Locale.US, "%.1f %s", amount, units[unitIndex])
+}
+
+@Composable
+private fun GroupScreenMirrorCard(
+    state: UltraShareUiState,
+    connected: Boolean,
+    onToggleMirrorAudio: (Boolean) -> Unit,
+    onSelectMirrorAudioMode: (com.malekplay.network.UltraShareScreenMirrorPolicy.MirrorAudioMode) -> Unit,
+    onStartScreenMirror: () -> Unit,
+    onStopScreenMirror: () -> Unit,
+    onJoinScreenMirror: () -> Unit,
+    onCreateMirrorGroup: () -> Unit,
+    onJoinMirrorGroup: () -> Unit
+) {
+    val hostMirror = state.mirrorHostState
+    val incomingOffer = state.incomingMirrorOffer
+    val isHostRole = (state.receiving && incomingOffer == null) &&
+        (state.activePeers.isNotEmpty() || hostMirror.active || hostMirror.starting)
+    val isWaitingHost = state.receiving && !connected && !hostMirror.active && !hostMirror.starting && incomingOffer == null
+    val availableAudioModes = com.malekplay.network.UltraShareScreenMirrorPolicy.availableAudioModes()
+    val selectedAudioMode = state.mirrorAudioMode.takeIf { it in availableAudioModes }
+        ?: com.malekplay.network.UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                Brush.linearGradient(
+                    listOf(Color(0xFF281D38), Color(0xFF1D1528))
+                ),
+                RoundedCornerShape(14.dp)
+            )
+            .padding(13.dp),
+        verticalArrangement = Arrangement.spacedBy(9.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .background(MalekPlayColors.PurpleBright.copy(alpha = 0.18f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Filled.Cast,
+                    contentDescription = null,
+                    tint = MalekPlayColors.PurpleBright,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    "الشاشة الجماعية",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.ExtraBold,
+                    style = MaterialTheme.typography.titleSmall
+                )
+                Text(
+                    when {
+                        hostMirror.active -> "بث شاشة هذا الهاتف نشط الآن (${hostMirror.viewerCount} مشاهد)"
+                        incomingOffer != null -> "بث مباشر متاح من ${incomingOffer.hostName}"
+                        isHostRole -> "شارك شاشة هذا الهاتف مع جميع أجهزة المجموعة"
+                        isWaitingHost -> "الغرفة جاهزة — شارك رمز QR أو ابدأ البث فوراً"
+                        connected -> "بانتظار بدء الشاشة الجماعية من منشئ المجموعة"
+                        else -> "أنشئ مجموعة لمشاركة شاشتك أو امسح QR لمشاهدة شاشة المضيف"
+                    },
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelSmall
+                )
+            }
+            if (hostMirror.active || incomingOffer != null) {
+                Box(
+                    modifier = Modifier
+                        .background(Color(0xFF65D6A2).copy(alpha = 0.16f), RoundedCornerShape(14.dp))
+                        .padding(horizontal = 9.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        "مباشر",
+                        color = Color(0xFF65D6A2),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+
+        if (!connected && !state.receiving && !hostMirror.active && !hostMirror.starting && incomingOffer == null) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(
+                    onClick = onCreateMirrorGroup,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFB66CFF),
+                        contentColor = Color(0xFF190F22)
+                    )
+                ) {
+                    Text("إنشاء مجموعة وبث شاشتي", fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                OutlinedButton(
+                    onClick = onJoinMirrorGroup,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFD7A0FF)),
+                    border = BorderStroke(1.dp, Color(0xFF9A63C7))
+                ) {
+                    Text("انضمام بمسح QR", fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        } else if (isWaitingHost) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(
+                    onClick = onStartScreenMirror,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFB66CFF),
+                        contentColor = Color(0xFF190F22)
+                    )
+                ) {
+                    Text("بدء البث الآن", fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                OutlinedButton(
+                    onClick = onCreateMirrorGroup,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFD7A0FF)),
+                    border = BorderStroke(1.dp, Color(0xFF9A63C7))
+                ) {
+                    Text("عرض رمز QR", fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        } else if (incomingOffer != null) {
+            val offerAudioLabel = when (incomingOffer.audioMode) {
+                com.malekplay.network.UltraShareScreenMirrorPolicy.MirrorAudioMode.INTERNAL_AUDIO -> "صوت داخلي + صورة"
+                com.malekplay.network.UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE -> "ميكروفون + صورة"
+                com.malekplay.network.UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE -> "فيديو فقط"
+            }
+            Text(
+                "الدقة: ${incomingOffer.width}×${incomingOffer.height} • ${incomingOffer.fps} إطار/ث • $offerAudioLabel",
+                color = Color(0xFFD5CBE2),
+                style = MaterialTheme.typography.labelSmall
+            )
+            Button(
+                onClick = onJoinScreenMirror,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF65D6A2),
+                    contentColor = Color(0xFF0E2018)
+                )
+            ) {
+                Icon(Icons.Filled.Cast, contentDescription = null, modifier = Modifier.size(18.dp))
+                Text(
+                    "مشاهدة الشاشة الجماعية",
+                    modifier = Modifier.padding(start = 7.dp),
+                    fontWeight = FontWeight.ExtraBold
+                )
+            }
+        } else if (isHostRole || hostMirror.active || hostMirror.starting) {
+            if (hostMirror.active || hostMirror.starting) {
+                hostMirror.statusMessage?.let { msg ->
+                    Text(
+                        msg,
+                        color = Color(0xFFD5CBE2),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                if (hostMirror.width > 0 && hostMirror.height > 0) {
+                    val hostAudioLabel = when (hostMirror.audioMode) {
+                        com.malekplay.network.UltraShareScreenMirrorPolicy.MirrorAudioMode.INTERNAL_AUDIO -> "الصوت الداخلي مفعّل"
+                        com.malekplay.network.UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE -> "صوت الميكروفون مفعّل"
+                        com.malekplay.network.UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE -> "فيديو فقط"
+                    }
+                    Text(
+                        "البث: ${hostMirror.width}×${hostMirror.height} • ${hostMirror.fps} إطار/ث • $hostAudioLabel",
+                        color = Color(0xFF65D6A2),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+                OutlinedButton(
+                    onClick = onStopScreenMirror,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFFB4A9)),
+                    border = BorderStroke(1.dp, Color(0xFFFFB4A9).copy(alpha = 0.65f))
+                ) {
+                    Icon(Icons.Filled.StopScreenShare, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Text(
+                        "إيقاف الشاشة الجماعية",
+                        modifier = Modifier.padding(start = 7.dp),
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            } else {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        "وضع الصوت أثناء مشاركة الشاشة",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        if (com.malekplay.network.UltraShareScreenMirrorPolicy.supportsAudioPlaybackCapture()) {
+                            "اختر وضعاً واحداً فقط: فيديو فقط، صوت الجهاز الداخلي، أو صوت الميكروفون."
+                        } else {
+                            "على Android 6–9 يتوفر الفيديو فقط أو الفيديو مع صوت الميكروفون (الصوت الداخلي يتطلب Android 10+)."
+                        },
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        availableAudioModes.forEach { mode ->
+                            val isSelected = selectedAudioMode == mode
+                            val label = when (mode) {
+                                com.malekplay.network.UltraShareScreenMirrorPolicy.MirrorAudioMode.NONE -> "فيديو فقط"
+                                com.malekplay.network.UltraShareScreenMirrorPolicy.MirrorAudioMode.INTERNAL_AUDIO -> "صوت داخلي"
+                                com.malekplay.network.UltraShareScreenMirrorPolicy.MirrorAudioMode.MICROPHONE -> "ميكروفون"
+                            }
+                            if (isSelected) {
+                                Button(
+                                    onClick = { onSelectMirrorAudioMode(mode) },
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = MalekPlayColors.PurpleBright,
+                                        contentColor = Color(0xFF190F22)
+                                    )
+                                ) {
+                                    Text(label, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                            } else {
+                                OutlinedButton(
+                                    onClick = { onSelectMirrorAudioMode(mode) },
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFD7A0FF)),
+                                    border = BorderStroke(1.dp, Color(0xFF9A63C7))
+                                ) {
+                                    Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                            }
+                        }
+                    }
+                }
+                Button(
+                    onClick = onStartScreenMirror,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFB66CFF),
+                        contentColor = Color(0xFF190F22)
+                    )
+                ) {
+                    Icon(Icons.Filled.Cast, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Text(
+                        "بدء الشاشة الجماعية",
+                        modifier = Modifier.padding(start = 7.dp),
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                }
+            }
+        } else {
+            Text(
+                if (state.waitingForHostMirror) {
+                    "بانتظار بدء مشاركة الشاشة من المضيف — سيفتح البث تلقائياً فور بدئه."
+                } else {
+                    "منشئ المجموعة فقط يبدأ مشاركة شاشته؛ سيفتح العارض تلقائياً فور بدء البث."
+                },
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.labelSmall
+            )
+            OutlinedButton(
+                onClick = onJoinScreenMirror,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFD7A0FF)),
+                border = BorderStroke(1.dp, Color(0xFF9A63C7))
+            ) {
+                Text("الاستعداد لمشاهدة شاشة المضيف", fontWeight = FontWeight.SemiBold)
+            }
+        }
+
+        hostMirror.error?.let { err ->
+            Text(
+                err,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+    }
 }

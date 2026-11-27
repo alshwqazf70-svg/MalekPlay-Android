@@ -77,4 +77,27 @@ class TenBandEqualizerAudioProcessorTest {
         }
         assertEquals(1_024L, processor.metrics.value.effectFrames)
     }
+
+    @Test
+    fun pcmSpectrumEmitsEnergyWhenCaptureEnabledAndClearsWhenDisabled() {
+        val processor = TenBandEqualizerAudioProcessor()
+        processor.setSpectrumCaptureEnabled(true)
+        processor.configure(AudioProcessor.AudioFormat(44_100, 1, C.ENCODING_PCM_16BIT))
+        processor.flush()
+
+        val input = ByteBuffer.allocateDirect(2_048 * 2).order(ByteOrder.nativeOrder())
+        repeat(2_048) { index ->
+            val sample = (sin(2.0 * PI * 180.0 * index / 44_100.0) * 16_000.0).toInt()
+            input.putShort(sample.toShort())
+        }
+        input.flip()
+
+        processor.queueInput(input)
+        val spectrum = processor.pcmSpectrum.value
+        assertEquals(TenBandEqualizerAudioProcessor.SPECTRUM_BAR_COUNT, spectrum.size)
+        assertTrue(spectrum.any { it > 0.01f })
+
+        processor.setSpectrumCaptureEnabled(false)
+        assertTrue(processor.pcmSpectrum.value.all { it == 0f })
+    }
 }

@@ -253,6 +253,67 @@ internal object UltraShareNetworkRouting {
     fun findNonP2pLanFallbackHost(context: Context, hosts: List<String>): String? =
         findNonP2pLanFallbackHosts(context, hosts).firstOrNull()
 
+    /** Returns IPv4 addresses owned by an active local hotspot/SoftAP interface. */
+    fun hotspotLocalIpv4Addresses(): List<String> = runCatching {
+        java.util.Collections.list(NetworkInterface.getNetworkInterfaces())
+            .asSequence()
+            .filter { network ->
+                network.isUp && !network.isLoopback && isHotspotInterfaceName(network.name)
+            }
+            .flatMap { network ->
+                java.util.Collections.list(network.inetAddresses).asSequence()
+                    .filterIsInstance<Inet4Address>()
+                    .filter { !it.isLoopbackAddress && (it.isSiteLocalAddress || it.isLinkLocalAddress) }
+                    .mapNotNull { it.hostAddress }
+            }
+            .filter { UltraShareCore.isValidPrivateLanHost(it) }
+            .distinct()
+            .toList()
+    }.getOrDefault(emptyList())
+
+    /**
+     * Detects whether the device is currently attached to a captive-portal Wi-Fi
+     * network (common on voucher/MikroTik hotspots where client isolation is enabled).
+     */
+    fun hasCaptivePortalWifi(context: Context): Boolean = runCatching {
+        val manager = context.applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE)
+            as? ConnectivityManager ?: return@runCatching false
+        manager.allNetworks.any { network ->
+            val capabilities = manager.getNetworkCapabilities(network) ?: return@any false
+            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) &&
+                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL)
+        }
+    }.getOrDefault(false)
+
+    /**
+     * Places SoftAP/hotspot interface addresses before regular WLAN addresses so a
+     * dual-STA+AP receiver advertises its direct hotspot gateway as the primary host.
+     */
+    fun orderHotspotPreferredAddresses(
+        context: Context,
+        candidates: List<String>
+    ): List<String> {
+        val softApHosts = hotspotLocalIpv4Addresses().toSet()
+        val cmHotspotHosts = runCatching {
+            val manager = context.applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE)
+                as? ConnectivityManager ?: return@runCatching emptySet<String>()
+            manager.allNetworks.flatMap { network ->
+                val properties = manager.getLinkProperties(network) ?: return@flatMap emptyList()
+                val interfaceName = properties.interfaceName.orEmpty()
+                if (!isHotspotInterfaceName(interfaceName)) emptyList()
+                else properties.linkAddresses.mapNotNull { (it.address as? Inet4Address)?.hostAddress }
+            }.toSet()
+        }.getOrDefault(emptySet())
+        val preferred = softApHosts + cmHotspotHosts
+        val clean = (preferred.toList() + candidates)
+            .asSequence()
+            .map { it.trim() }
+            .filter { UltraShareCore.isValidPrivateLanHost(it) }
+            .distinct()
+            .toList()
+        return clean.sortedBy { if (it in preferred) 0 else 1 }
+    }
+
     /**
      * Return only addresses owned by a live non-P2P Wi-Fi/Ethernet/SoftAP
      * interface. These can be advertised as optional QR fallback candidates;
@@ -261,8 +322,8 @@ internal object UltraShareNetworkRouting {
     fun nonP2pLocalIpv4Addresses(context: Context, candidates: List<String>): List<String> =
         runCatching {
             val manager = context.applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE)
-                as? ConnectivityManager ?: return@runCatching emptyList()
-            val localAddresses = manager.allNetworks.flatMap { network ->
+                as? ConnectivityManager ?: return@runCatching hotspotLocalIpv4Addresses().filter { it in candidates }
+            val cmAddresses = manager.allNetworks.flatMap { network ->
                 val properties = manager.getLinkProperties(network) ?: return@flatMap emptyList()
                 val interfaceName = properties.interfaceName.orEmpty()
                 val capabilities = manager.getNetworkCapabilities(network)
@@ -278,6 +339,7 @@ internal object UltraShareNetworkRouting {
                     }
                 }
             }.toSet()
+            val localAddresses = cmAddresses + hotspotLocalIpv4Addresses()
             activeNonP2pHosts(candidates, localAddresses)
         }.getOrDefault(emptyList())
 

@@ -28,8 +28,9 @@ data class DlnaEntry(
 
 internal fun isPrivateLanHost(host: String): Boolean = runCatching {
     // Discovery supplies numeric packet-source addresses; never resolve arbitrary DNS names here.
-    require(host.contains(':') || host.matches(Regex("\\d{1,3}(\\.\\d{1,3}){3}")))
-    val address = InetAddress.getByName(host)
+    val bare = LanNetworkSupport.stripZone(host)
+    require(bare.contains(':') || bare.matches(Regex("\\d{1,3}(\\.\\d{1,3}){3}")))
+    val address = InetAddress.getByName(bare)
     if (address.isSiteLocalAddress || address.isLinkLocalAddress) true
     else {
         val bytes = address.address
@@ -47,7 +48,14 @@ internal fun validateDlnaDeviceUrl(raw: String, deviceHost: String): URI {
     require(uri.scheme.equals("http", true) || uri.scheme.equals("https", true)) {
         "خادم DLNA أعلن رابطاً غير آمن"
     }
-    require(uri.userInfo == null && uri.fragment == null && uri.host?.equals(deviceHost, true) == true) {
+    val bareUriHost = LanNetworkSupport.stripZone(uri.host)
+    val bareDeviceHost = LanNetworkSupport.stripZone(deviceHost)
+    require(
+        uri.userInfo == null &&
+            uri.fragment == null &&
+            bareUriHost.isNotBlank() &&
+            bareUriHost.equals(bareDeviceHost, true)
+    ) {
         "رابط DLNA لا يطابق الجهاز الذي تم اكتشافه"
     }
     require(uri.toString().length <= 4096) { "رابط DLNA طويل جداً" }
@@ -82,24 +90,31 @@ class DlnaContentDirectoryClient(
         val descriptionUrl = device.descriptionUrl
             ?: throw IllegalStateException("لم يعلن الجهاز رابط وصف DLNA؛ لا يمكن فتح مكتبته")
         val description = validateDlnaDeviceUrl(descriptionUrl, device.host)
+        val pool = ConnectionPool()
         val networkClient = http.newBuilder()
             .socketFactory(network.socketFactory)
             .proxy(Proxy.NO_PROXY)
-            .connectionPool(ConnectionPool())
+            .connectionPool(pool)
             .build()
-        val descriptionXml = execute(networkClient,
-            Request.Builder().url(description.toString()).get().header("Accept", "application/xml,text/xml").build()
-        )
-        val endpoint = findContentDirectoryEndpoint(descriptionXml, description, device.host)
-            ?: throw IllegalStateException("الجهاز لا يوفر خدمة ContentDirectory لتصفح الوسائط")
-        val soap = buildBrowseEnvelope(objectId, startingIndex, requestedCount, endpoint.serviceType)
-        val request = Request.Builder()
-            .url(endpoint.controlUrl.toString())
-            .header("Content-Type", "text/xml; charset=utf-8")
-            .header("SOAPAction", "\"${endpoint.serviceType}#Browse\"")
-            .post(soap.toRequestBody("text/xml; charset=utf-8".toMediaType()))
-            .build()
-        parseBrowseResponse(execute(networkClient, request), device.host)
+        try {
+            val descriptionXml = execute(
+                networkClient,
+                Request.Builder().url(description.toString()).get()
+                    .header("Accept", "application/xml,text/xml").build()
+            )
+            val endpoint = findContentDirectoryEndpoint(descriptionXml, description, device.host)
+                ?: throw IllegalStateException("الجهاز لا يوفر خدمة ContentDirectory لتصفح الوسائط")
+            val soap = buildBrowseEnvelope(objectId, startingIndex, requestedCount, endpoint.serviceType)
+            val request = Request.Builder()
+                .url(endpoint.controlUrl.toString())
+                .header("Content-Type", "text/xml; charset=utf-8")
+                .header("SOAPAction", "\"${endpoint.serviceType}#Browse\"")
+                .post(soap.toRequestBody("text/xml; charset=utf-8".toMediaType()))
+                .build()
+            parseBrowseResponse(execute(networkClient, request), device.host)
+        } finally {
+            pool.evictAll()
+        }
     }
 
     private fun execute(client: OkHttpClient, request: Request): String {

@@ -25,12 +25,14 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Movie
@@ -52,6 +54,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
@@ -66,14 +69,15 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.malekplay.R
-import com.malekplay.core.ui.theme.MalekPlayColors
+import com.malekplay.core.ui.theme.MalekPlayGradients
+import com.malekplay.core.ui.theme.contrastingOnColor
+import com.malekplay.core.ui.theme.tintedSurface
 import com.malekplay.core.ui.util.formatDuration
 import com.malekplay.domain.model.LibraryItem
 import com.malekplay.domain.model.MediaItem
 import com.malekplay.ui.components.MediaThumbnail
 import com.malekplay.ui.library.LibraryViewModel
 
-private val Neon = MalekPlayColors.NeonPurple
 private val CardShape = RoundedCornerShape(24.dp)
 
 @Composable
@@ -105,11 +109,32 @@ private fun rememberGlassBorder(): Brush {
     }
 }
 
-private data class HomeAction(
+internal data class HomeAction(
     val title: String,
     val icon: ImageVector,
     val onClick: () -> Unit
 )
+
+internal const val HOME_GROUP_SCREEN_MIRROR_TITLE = "الشاشة الجماعية"
+
+internal fun buildHomeConnectionSharingActions(
+    ultraShareLabel: String,
+    computerLabel: String,
+    castLabel: String,
+    groupMirrorLabel: String = HOME_GROUP_SCREEN_MIRROR_TITLE,
+    onOpenUltraShare: (() -> Unit)?,
+    onOpenNetwork: (() -> Unit)?,
+    onOpenGroupScreenMirror: (() -> Unit)?
+): List<HomeAction> {
+    if (onOpenNetwork == null || onOpenUltraShare == null) return emptyList()
+    val mirrorAction = onOpenGroupScreenMirror ?: onOpenUltraShare
+    return listOf(
+        HomeAction(ultraShareLabel, Icons.Filled.PlayArrow, onOpenUltraShare),
+        HomeAction(computerLabel, Icons.Filled.Folder, onOpenNetwork),
+        HomeAction(castLabel, Icons.Filled.Tv, onOpenNetwork),
+        HomeAction(groupMirrorLabel, Icons.Filled.Cast, mirrorAction)
+    )
+}
 
 @Composable
 fun HomeScreen(
@@ -124,6 +149,7 @@ fun HomeScreen(
     onOpenPlaylists: (() -> Unit)? = null,
     onOpenNetwork: (() -> Unit)? = null,
     onOpenUltraShare: (() -> Unit)? = null,
+    onOpenGroupScreenMirror: (() -> Unit)? = null,
     viewModel: LibraryViewModel = hiltViewModel()
 ) {
     val stats by viewModel.stats.collectAsStateWithLifecycle()
@@ -159,33 +185,34 @@ fun HomeScreen(
     val computerLabel = stringResource(R.string.home_connect_computer)
     val castLabel = stringResource(R.string.home_cast_to_tv)
     val networkActions = remember(
-        ultraShareLabel, computerLabel, castLabel, onOpenUltraShare, onOpenNetwork
+        ultraShareLabel, computerLabel, castLabel, onOpenUltraShare, onOpenNetwork, onOpenGroupScreenMirror
     ) {
-        if (onOpenNetwork != null && onOpenUltraShare != null) {
-            listOf(
-                HomeAction(ultraShareLabel, Icons.Filled.PlayArrow, onOpenUltraShare),
-                HomeAction(computerLabel, Icons.Filled.Folder, onOpenNetwork),
-                HomeAction(castLabel, Icons.Filled.Tv, onOpenNetwork)
-            )
-        } else {
-            emptyList()
-        }
+        buildHomeConnectionSharingActions(
+            ultraShareLabel = ultraShareLabel,
+            computerLabel = computerLabel,
+            castLabel = castLabel,
+            onOpenUltraShare = onOpenUltraShare,
+            onOpenNetwork = onOpenNetwork,
+            onOpenGroupScreenMirror = onOpenGroupScreenMirror
+        )
     }
 
+    val primary = MaterialTheme.colorScheme.primary
+    val tertiary = MaterialTheme.colorScheme.tertiary
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        // Ambient violet light gives depth without relying on a flat purple fill.
+        // Ambient accent lights give cinematic depth responsive to the user's chosen theme.
         Box(
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .offset(x = 104.dp, y = (-72).dp)
-                .size(300.dp)
+                .size(320.dp)
                 .background(
                     Brush.radialGradient(
-                        colors = listOf(Neon.copy(alpha = 0.20f), Color.Transparent)
+                        colors = listOf(primary.copy(alpha = 0.22f), Color.Transparent)
                     ),
                     CircleShape
                 )
@@ -194,10 +221,10 @@ fun HomeScreen(
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .offset(x = (-120).dp, y = 100.dp)
-                .size(280.dp)
+                .size(300.dp)
                 .background(
                     Brush.radialGradient(
-                        colors = listOf(MalekPlayColors.PurpleDeep.copy(alpha = 0.13f), Color.Transparent)
+                        colors = listOf(tertiary.copy(alpha = 0.14f), Color.Transparent)
                     ),
                     CircleShape
                 )
@@ -330,14 +357,14 @@ fun HomeScreen(
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Box(Modifier.width(26.dp).height(2.dp).background(Neon.copy(alpha = 0.55f), CircleShape))
+                    Box(Modifier.width(26.dp).height(2.dp).background(primary.copy(alpha = 0.55f), CircleShape))
                     Text(
                         text = stringResource(R.string.home_library_tagline),
                         modifier = Modifier.padding(horizontal = 10.dp),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.labelSmall
                     )
-                    Box(Modifier.width(26.dp).height(2.dp).background(Neon.copy(alpha = 0.55f), CircleShape))
+                    Box(Modifier.width(26.dp).height(2.dp).background(primary.copy(alpha = 0.55f), CircleShape))
                 }
             }
         }
@@ -349,6 +376,8 @@ private fun HomeHeader(
     onOpenSettings: () -> Unit,
     onOpenLibrary: () -> Unit
 ) {
+    val primary = MaterialTheme.colorScheme.primary
+    val isDarkCanvas = MaterialTheme.colorScheme.background.luminance() < 0.5f
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -361,8 +390,8 @@ private fun HomeHeader(
                 .shadow(
                     elevation = 18.dp,
                     shape = CircleShape,
-                    ambientColor = Neon.copy(alpha = 0.34f),
-                    spotColor = Neon.copy(alpha = 0.20f)
+                    ambientColor = primary.copy(alpha = 0.36f),
+                    spotColor = primary.copy(alpha = 0.22f)
                 )
                 .clip(CircleShape)
                 .background(MaterialTheme.colorScheme.surfaceContainerHigh)
@@ -384,7 +413,7 @@ private fun HomeHeader(
                     text = stringResource(R.string.app_name),
                     style = MaterialTheme.typography.headlineSmall.copy(
                         fontWeight = FontWeight.ExtraBold,
-
+                        brush = MalekPlayGradients.textBrush(isDarkCanvas)
                     ),
                     maxLines = 1
                 )
@@ -418,10 +447,11 @@ private fun GlassIconButton(
     label: String,
     onClick: () -> Unit
 ) {
+    val primary = MaterialTheme.colorScheme.primary
     Box(
         modifier = Modifier
             .size(44.dp)
-            .shadow(8.dp, CircleShape, ambientColor = Neon.copy(alpha = 0.12f))
+            .shadow(8.dp, CircleShape, ambientColor = primary.copy(alpha = 0.16f))
             .clip(CircleShape)
             .background(rememberGlassBrush())
             .border(1.dp, rememberGlassBorder(), CircleShape)
@@ -431,7 +461,7 @@ private fun GlassIconButton(
         Icon(
             imageVector = icon,
             contentDescription = label,
-            tint = MalekPlayColors.TextPrimary,
+            tint = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.size(20.dp)
         )
     }
@@ -447,6 +477,7 @@ private fun HeroCard(
     onOpenLibrary: () -> Unit
 ) {
     val shape = RoundedCornerShape(28.dp)
+    val primary = MaterialTheme.colorScheme.primary
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -455,8 +486,8 @@ private fun HeroCard(
             .shadow(
                 elevation = 26.dp,
                 shape = shape,
-                ambientColor = Neon.copy(alpha = 0.26f),
-                spotColor = Neon.copy(alpha = 0.16f)
+                ambientColor = primary.copy(alpha = 0.28f),
+                spotColor = primary.copy(alpha = 0.18f)
             )
             .clip(shape)
             .background(
@@ -530,8 +561,8 @@ private fun HeroCard(
         ) {
             Box(
                 Modifier
-                    .size(6.dp)
-                    .background(Neon, CircleShape)
+                    .size(7.dp)
+                    .background(primary, CircleShape)
             )
             Text(
                 text = if (isResume) {
@@ -613,24 +644,28 @@ private fun NeonButton(
     icon: ImageVector,
     onClick: () -> Unit
 ) {
+    val primary = MaterialTheme.colorScheme.primary
+    val secondary = MaterialTheme.colorScheme.secondary
+    val deepStop = tintedSurface(primary, Color.Black, 0.28f)
+    val ink = contrastingOnColor(primary)
     Row(
         modifier = Modifier
             .clip(CircleShape)
             .background(
                 Brush.horizontalGradient(
-                    colors = listOf(Color(0xFF7E22CE), Neon, Color(0xFFC084FC))
+                    colors = listOf(deepStop, primary, secondary)
                 )
             )
-            .border(1.dp, Color.White.copy(alpha = 0.26f), CircleShape)
+            .border(1.dp, Color.White.copy(alpha = 0.28f), CircleShape)
             .clickable(role = Role.Button, onClick = onClick)
             .padding(horizontal = 15.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+        Icon(icon, contentDescription = null, tint = ink, modifier = Modifier.size(18.dp))
         Text(
             text = text,
-            color = Color.White,
+            color = ink,
             fontWeight = FontWeight.Bold,
             style = MaterialTheme.typography.labelLarge,
             maxLines = 1
@@ -643,16 +678,17 @@ private fun StatPill(
     icon: ImageVector,
     value: String
 ) {
+    val accentGlow = tintedSurface(MaterialTheme.colorScheme.primary, Color.White, 0.65f)
     Row(
         modifier = Modifier
             .clip(CircleShape)
-            .background(Color.Black.copy(alpha = 0.36f))
-            .border(1.dp, Color.White.copy(alpha = 0.14f), CircleShape)
+            .background(Color.Black.copy(alpha = 0.42f))
+            .border(1.dp, Color.White.copy(alpha = 0.16f), CircleShape)
             .padding(horizontal = 10.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(5.dp)
     ) {
-        Icon(icon, contentDescription = null, tint = MalekPlayColors.PurpleSoft, modifier = Modifier.size(14.dp))
+        Icon(icon, contentDescription = null, tint = accentGlow, modifier = Modifier.size(14.dp))
         Text(value, color = Color.White, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
     }
 }
@@ -663,6 +699,8 @@ private fun SectionHeading(
     subtitle: String? = null,
     modifier: Modifier = Modifier
 ) {
+    val primary = MaterialTheme.colorScheme.primary
+    val secondary = MaterialTheme.colorScheme.secondary
     Row(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
@@ -687,12 +725,12 @@ private fun SectionHeading(
         }
         Box(
             modifier = Modifier
-                .width(34.dp)
+                .width(38.dp)
                 .height(3.dp)
                 .clip(CircleShape)
                 .background(
                     Brush.horizontalGradient(
-                        colors = listOf(Neon, MalekPlayColors.PurpleDeep.copy(alpha = 0.2f))
+                        colors = listOf(primary, secondary.copy(alpha = 0.25f))
                     )
                 )
         )
@@ -714,16 +752,19 @@ private fun ActionRail(actions: List<HomeAction>) {
 @Composable
 private fun ActionTile(action: HomeAction) {
     val shape = RoundedCornerShape(19.dp)
+    val primary = MaterialTheme.colorScheme.primary
+    val primaryContainer = MaterialTheme.colorScheme.primaryContainer
+    val onPrimaryContainer = MaterialTheme.colorScheme.onPrimaryContainer
     Column(
         modifier = Modifier
-            .width(102.dp)
+            .widthIn(min = 102.dp, max = 132.dp)
             .height(108.dp)
-            .shadow(10.dp, shape, ambientColor = Neon.copy(alpha = 0.10f))
+            .shadow(10.dp, shape, ambientColor = primary.copy(alpha = 0.14f))
             .clip(shape)
             .background(rememberGlassBrush())
             .border(1.dp, rememberGlassBorder(), shape)
             .clickable(role = Role.Button, onClick = action.onClick)
-            .padding(horizontal = 9.dp, vertical = 12.dp),
+            .padding(horizontal = 10.dp, vertical = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
@@ -733,16 +774,16 @@ private fun ActionTile(action: HomeAction) {
                 .clip(CircleShape)
                 .background(
                     Brush.radialGradient(
-                        colors = listOf(Neon.copy(alpha = 0.32f), MalekPlayColors.PurpleDeep.copy(alpha = 0.12f))
+                        colors = listOf(primary.copy(alpha = 0.30f), primaryContainer.copy(alpha = 0.55f))
                     )
                 )
-                .border(1.dp, Neon.copy(alpha = 0.42f), CircleShape),
+                .border(1.dp, primary.copy(alpha = 0.45f), CircleShape),
             contentAlignment = Alignment.Center
         ) {
             Icon(
                 imageVector = action.icon,
                 contentDescription = action.title,
-                tint = MalekPlayColors.PurpleSoft,
+                tint = onPrimaryContainer,
                 modifier = Modifier.size(22.dp)
             )
         }
@@ -788,12 +829,14 @@ private fun MediaPosterCard(
     onClick: () -> Unit
 ) {
     val shape = RoundedCornerShape(19.dp)
+    val primary = MaterialTheme.colorScheme.primary
     Column(
         modifier = Modifier
             .width(if (portrait) 148.dp else 224.dp)
+            .shadow(8.dp, shape, ambientColor = primary.copy(alpha = 0.14f))
             .clip(shape)
             .background(MaterialTheme.colorScheme.surface)
-            .border(1.dp, Color.White.copy(alpha = 0.075f), shape)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f), shape)
             .clickable(role = Role.Button, onClick = onClick)
     ) {
         Box {
@@ -809,10 +852,10 @@ private fun MediaPosterCard(
                 modifier = Modifier
                     .align(Alignment.Center)
                     .size(42.dp)
-                    .shadow(8.dp, CircleShape, ambientColor = Neon.copy(alpha = 0.22f))
+                    .shadow(8.dp, CircleShape, ambientColor = primary.copy(alpha = 0.28f))
                     .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.50f))
-                    .border(1.dp, Color.White.copy(alpha = 0.27f), CircleShape),
+                    .background(Color.Black.copy(alpha = 0.54f))
+                    .border(1.dp, Color.White.copy(alpha = 0.28f), CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -856,7 +899,7 @@ private fun MediaPosterCard(
             if (showProgress && item.fraction > 0f) {
                 Text(
                     text = stringResource(R.string.home_continue_watching),
-                    color = MalekPlayColors.PurpleBright,
+                    color = primary,
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold
                 )
@@ -870,6 +913,9 @@ private fun NeonProgress(
     progress: Float,
     modifier: Modifier = Modifier
 ) {
+    val primary = MaterialTheme.colorScheme.primary
+    val secondary = MaterialTheme.colorScheme.secondary
+    val deepStop = tintedSurface(primary, Color.Black, 0.25f)
     val animatedProgress by animateFloatAsState(
         targetValue = progress.coerceIn(0f, 1f),
         animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing),
@@ -885,10 +931,10 @@ private fun NeonProgress(
             modifier = Modifier
                 .fillMaxWidth(animatedProgress)
                 .fillMaxHeight()
-                .shadow(7.dp, CircleShape, ambientColor = Neon, spotColor = Neon)
+                .shadow(7.dp, CircleShape, ambientColor = primary, spotColor = primary)
                 .background(
                     Brush.horizontalGradient(
-                        colors = listOf(MalekPlayColors.PurpleDeep, Neon, MalekPlayColors.PurpleSoft)
+                        colors = listOf(deepStop, primary, secondary)
                     )
                 )
         )
@@ -898,6 +944,7 @@ private fun NeonProgress(
 @Composable
 private fun EmptyVideos() {
     val shape = RoundedCornerShape(22.dp)
+    val primary = MaterialTheme.colorScheme.primary
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -912,7 +959,7 @@ private fun EmptyVideos() {
         Icon(
             imageVector = Icons.Filled.Movie,
             contentDescription = null,
-            tint = MalekPlayColors.PurpleBright,
+            tint = primary,
             modifier = Modifier.size(30.dp)
         )
         Text(
@@ -932,6 +979,7 @@ private fun EmptyVideos() {
 @Composable
 private fun EmptyLibrary(onOpenLibrary: () -> Unit) {
     val shape = RoundedCornerShape(22.dp)
+    val primary = MaterialTheme.colorScheme.primary
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -948,14 +996,14 @@ private fun EmptyLibrary(onOpenLibrary: () -> Unit) {
             modifier = Modifier
                 .size(52.dp)
                 .clip(CircleShape)
-                .background(MalekPlayColors.PurpleDeep.copy(alpha = 0.24f))
-                .border(1.dp, Neon.copy(alpha = 0.30f), CircleShape),
+                .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f))
+                .border(1.dp, primary.copy(alpha = 0.35f), CircleShape),
             contentAlignment = Alignment.Center
         ) {
             Icon(
                 Icons.Filled.Folder,
                 contentDescription = null,
-                tint = MalekPlayColors.PurpleBright,
+                tint = MaterialTheme.colorScheme.onPrimaryContainer,
                 modifier = Modifier.size(26.dp)
             )
         }
@@ -972,7 +1020,7 @@ private fun EmptyLibrary(onOpenLibrary: () -> Unit) {
         )
         Text(
             text = stringResource(R.string.home_open_library),
-            color = MalekPlayColors.PurpleBright,
+            color = primary,
             style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.Bold
         )
@@ -985,11 +1033,13 @@ private fun AudioPanel(
     onClick: () -> Unit
 ) {
     val shape = RoundedCornerShape(22.dp)
+    val primary = MaterialTheme.colorScheme.primary
+    val secondary = MaterialTheme.colorScheme.secondary
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
-            .shadow(12.dp, shape, ambientColor = Neon.copy(alpha = 0.12f))
+            .shadow(12.dp, shape, ambientColor = primary.copy(alpha = 0.16f))
             .clip(shape)
             .background(
                 Brush.horizontalGradient(
@@ -1009,14 +1059,14 @@ private fun AudioPanel(
             modifier = Modifier
                 .size(52.dp)
                 .clip(RoundedCornerShape(16.dp))
-                .background(MalekPlayColors.PurpleDeep.copy(alpha = 0.28f))
-                .border(1.dp, Neon.copy(alpha = 0.35f), RoundedCornerShape(16.dp)),
+                .background(primary.copy(alpha = 0.20f))
+                .border(1.dp, primary.copy(alpha = 0.40f), RoundedCornerShape(16.dp)),
             contentAlignment = Alignment.Center
         ) {
             Icon(
                 Icons.Filled.QueueMusic,
                 contentDescription = null,
-                tint = MalekPlayColors.PurpleSoft,
+                tint = MaterialTheme.colorScheme.onPrimaryContainer,
                 modifier = Modifier.size(28.dp)
             )
         }
@@ -1051,8 +1101,8 @@ private fun AudioPanel(
                         .height(barHeight)
                         .clip(CircleShape)
                         .background(
-                            if (index % 2 == 0) MalekPlayColors.PurpleBright
-                            else Neon.copy(alpha = 0.64f)
+                            if (index % 2 == 0) secondary
+                            else primary.copy(alpha = 0.68f)
                         )
                 )
             }

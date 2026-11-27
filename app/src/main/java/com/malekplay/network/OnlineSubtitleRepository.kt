@@ -2,8 +2,11 @@ package com.malekplay.network
 
 import android.content.Context
 import android.net.Uri
+import android.os.Build
 import android.provider.OpenableColumns
 import com.malekplay.translation.SrtSubtitleParser
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -15,17 +18,18 @@ import java.io.FileOutputStream
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.io.IOException
+import java.nio.charset.Charset
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.FutureTask
+import java.util.zip.GZIPInputStream
 import java.util.zip.ZipInputStream
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.InternalCoroutinesApi
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 
 internal class SubtitleHttpException(val statusCode: Int, message: String) : IOException(message)
@@ -78,44 +82,389 @@ internal fun subtitleCacheToken(sourceId: String): String {
     }
 }
 
+private val MICRODVD_LINE_REGEX = Regex("""^\s*\{(\d+)\}\{(\d+)\}(.*)$""")
+private val SUBVIEWER_TIMING_REGEX = Regex("""^\s*(\d{1,2}:\d{2}:\d{2}[.,]\d{2,3}),(\d{1,2}:\d{2}:\d{2}[.,]\d{2,3})\s*$""")
+private val SBV_TIMING_REGEX = Regex("""^\s*(\d{1,2}:\d{2}:\d{2}\.\d{3}),(\d{1,2}:\d{2}:\d{2}\.\d{3})\s*$""")
+
+private val UTF8_BOM = byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte())
+
+private fun cleanTimestampLine(line: String): String =
+    SrtSubtitleParser.cleanTimingLine(line)
+
+private fun hasSubtitleTimestampLine(text: String): Boolean =
+    SrtSubtitleParser.hasTimingLine(text)
+
+private fun isAssDialogueText(text: String): Boolean =
+    text.contains("[Events]", ignoreCase = true) &&
+        text.lineSequence().any { it.trimStart().startsWith("Dialogue:", ignoreCase = true) }
+
+private fun formatSrtTimestampFromMillis(totalMillis: Long): String {
+    val safe = totalMillis.coerceAtLeast(0L)
+    val hours = safe / 3_600_000L
+    val minutes = (safe / 60_000L) % 60L
+    val seconds = (safe / 1_000L) % 60L
+    val millis = safe % 1_000L
+    return "%02d:%02d:%02d,%03d".format(Locale.ROOT, hours, minutes, seconds, millis)
+}
+
+/** Converts MicroDVD ({start}{end}text) or SubViewer (HH:MM:SS.cc,HH:MM:SS.cc) to SRT when matched. */
+internal fun convertLegacySubToSrtIfApplicable(text: String): String? {
+    val lines = text.replace("\r\n", "\n").replace('\r', '\n').lines()
+    val microLines = lines.mapNotNull { line -> MICRODVD_LINE_REGEX.matchEntire(line)?.let { it to line } }
+    if (microLines.size >= 2) {
+        var fps = 23.976
+        val firstMatch = microLines.first().first
+        if (firstMatch.groupValues[1] == "1" && firstMatch.groupValues[2] == "1") {
+            firstMatch.groupValues[3].trim().toDoubleOrNull()?.takeIf { it in 10.0..120.0 }?.let { fps = it }
+        }
+        val srtCues = ArrayList<String>(microLines.size)
+        for ((match, _) in microLines) {
+            val startFrame = match.groupValues[1].toLongOrNull() ?: continue
+            val endFrame = match.groupValues[2].toLongOrNull() ?: continue
+            if (startFrame == 1L && endFrame == 1L && match.groupValues[3].trim().toDoubleOrNull() != null) continue
+            val startMs = ((startFrame * 1000.0) / fps).toLong()
+            val endMs = ((endFrame * 1000.0) / fps).toLong().coerceAtLeast(startMs + 500L)
+            val body = match.groupValues[3]
+                .replace(Regex("""\{[^}]*\}"""), "")
+                .replace("|", "\n")
+                .trim()
+            if (body.isBlank()) continue
+            srtCues += "${srtCues.size + 1}\n${formatSrtTimestampFromMillis(startMs)} --> ${formatSrtTimestampFromMillis(endMs)}\n$body"
+        }
+        if (srtCues.isNotEmpty()) return srtCues.joinToString("\n\n") + "\n"
+    }
+
+    val subViewerIndices = lines.indices.filter {
+        SUBVIEWER_TIMING_REGEX.matches(lines[it]) || SBV_TIMING_REGEX.matches(lines[it])
+    }
+    if (subViewerIndices.size >= 2) {
+        val srtCues = ArrayList<String>(subViewerIndices.size)
+        for (pos in subViewerIndices.indices) {
+            val lineIdx = subViewerIndices[pos]
+            val match = SUBVIEWER_TIMING_REGEX.matchEntire(lines[lineIdx])
+                ?: SBV_TIMING_REGEX.matchEntire(lines[lineIdx])
+                ?: continue
+            fun normalizeSubViewerTime(raw: String): String {
+                val fixed = raw.replace('.', ',')
+                val hms = fixed.substringBefore(',').split(':')
+                val hours = hms.getOrElse(0) { "00" }.padStart(2, '0')
+                val minutes = hms.getOrElse(1) { "00" }.padStart(2, '0')
+                val seconds = hms.getOrElse(2) { "00" }.padStart(2, '0')
+                val frac = fixed.substringAfter(',', "")
+                val millis = when (frac.length) {
+                    2 -> "${frac}0"
+                    1 -> "${frac}00"
+                    else -> frac.take(3).padStart(3, '0')
+                }
+                return "$hours:$minutes:$seconds,$millis"
+            }
+            val start = normalizeSubViewerTime(match.groupValues[1])
+            val end = normalizeSubViewerTime(match.groupValues[2])
+            val nextTimingIdx = subViewerIndices.getOrNull(pos + 1) ?: lines.size
+            val body = lines.subList(lineIdx + 1, nextTimingIdx)
+                .takeWhile { it.isNotBlank() && !it.trimStart().startsWith("[") }
+                .joinToString("\n")
+                .replace("[br]", "\n", ignoreCase = true)
+                .trim()
+            if (body.isBlank()) continue
+            srtCues += "${srtCues.size + 1}\n$start --> $end\n$body"
+        }
+        if (srtCues.isNotEmpty()) return srtCues.joinToString("\n\n") + "\n"
+    }
+    return null
+}
+
+private fun unsupportedArchiveTypeMessage(bytes: ByteArray): String? {
+    if (bytes.size >= 4 &&
+        bytes[0] == 0x52.toByte() && bytes[1] == 0x61.toByte() &&
+        bytes[2] == 0x72.toByte() && bytes[3] == 0x21.toByte()
+    ) {
+        return "ملف الترجمة مضغوط بصيغة RAR غير المدعومة؛ جرّب نتيجة أخرى بصيغة SRT أو ZIP."
+    }
+    if (bytes.size >= 6 &&
+        bytes[0] == 0x37.toByte() && bytes[1] == 0x7A.toByte() &&
+        bytes[2] == 0xBC.toByte() && bytes[3] == 0xAF.toByte() &&
+        bytes[4] == 0x27.toByte() && bytes[5] == 0x1C.toByte()
+    ) {
+        return "ملف الترجمة مضغوط بصيغة 7z غير المدعومة؛ جرّب نتيجة أخرى بصيغة SRT أو ZIP."
+    }
+    return null
+}
+
+/**
+ * Decodes subtitle bytes with explicit BOM handling (UTF-8, UTF-16LE/BE, UTF-32LE/BE),
+ * BOM-less UTF-16 / strict UTF-8 detection, and Windows-1256 vs Windows-1252 disambiguation.
+ */
+internal fun decodeSubtitleBytes(bytes: ByteArray, preferArabicLegacy: Boolean = false): String {
+    require(bytes.isNotEmpty()) { "ملف الترجمة فارغ" }
+    // Handle UTF-32 BOMs before UTF-16LE (FF FE 00 00 shares FF FE prefix with UTF-16LE).
+    if (bytes.size >= 4 &&
+        bytes[0] == 0xFF.toByte() && bytes[1] == 0xFE.toByte() &&
+        bytes[2] == 0x00.toByte() && bytes[3] == 0x00.toByte()
+    ) {
+        val aligned = ((bytes.size - 4) and 3.inv()).coerceAtLeast(0)
+        return String(bytes, 4, aligned, java.nio.charset.Charset.forName("UTF-32LE"))
+    }
+    if (bytes.size >= 4 &&
+        bytes[0] == 0x00.toByte() && bytes[1] == 0x00.toByte() &&
+        bytes[2] == 0xFE.toByte() && bytes[3] == 0xFF.toByte()
+    ) {
+        val aligned = ((bytes.size - 4) and 3.inv()).coerceAtLeast(0)
+        return String(bytes, 4, aligned, java.nio.charset.Charset.forName("UTF-32BE"))
+    }
+    val hasUtf16Bom =
+        (bytes.size >= 2 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xFE.toByte()) ||
+            (bytes.size >= 2 && bytes[0] == 0xFE.toByte() && bytes[1] == 0xFF.toByte())
+    if (hasUtf16Bom) {
+        val safeBytes = if (bytes.size > 3 && (bytes.size - 2) % 2 != 0) {
+            bytes.copyOf(bytes.size - 1)
+        } else bytes
+        return SrtSubtitleParser.decode(safeBytes)
+    }
+    val hasUtf8Bom =
+        bytes.size >= 3 && bytes[0] == 0xEF.toByte() && bytes[1] == 0xBB.toByte() && bytes[2] == 0xBF.toByte()
+    if (hasUtf8Bom) {
+        return SrtSubtitleParser.decode(bytes)
+    }
+
+    // BOM-less UTF-16 or strict UTF-8 first via SrtSubtitleParser.
+    val strictUtf8OrUtf16 = runCatching {
+        val evenZeros = bytes.indices.count { it % 2 == 0 && bytes[it] == 0.toByte() }
+        val oddZeros = bytes.indices.count { it % 2 == 1 && bytes[it] == 0.toByte() }
+        val evenCount = (bytes.size + 1) / 2
+        val oddCount = bytes.size / 2
+        val looksUtf16 = (oddCount > 0 && evenZeros >= 2 && evenZeros * 3 >= evenCount) ||
+            (evenCount > 0 && oddZeros >= 2 && oddZeros * 3 >= oddCount)
+        if (looksUtf16) {
+            return@runCatching SrtSubtitleParser.decode(bytes)
+        }
+        Charsets.UTF_8.newDecoder()
+            .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+            .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+            .decode(java.nio.ByteBuffer.wrap(bytes))
+            .toString()
+    }.getOrNull()
+    if (strictUtf8OrUtf16 != null) return strictUtf8OrUtf16.replace("\u0000", "")
+
+    // Legacy 8-bit encodings: distinguish Windows-1256 (Arabic) vs Windows-1252 (Western/Latin).
+    val win1256Strict = runCatching {
+        java.nio.charset.Charset.forName("windows-1256").newDecoder()
+            .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+            .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+            .decode(java.nio.ByteBuffer.wrap(bytes))
+            .toString()
+    }.getOrNull()
+    val win1256Lenient = runCatching {
+        String(bytes, java.nio.charset.Charset.forName("windows-1256"))
+    }.getOrNull()
+    val win1252 = runCatching {
+        String(bytes, java.nio.charset.Charset.forName("windows-1252"))
+    }.getOrNull()
+    val arabicChars = (win1256Strict ?: win1256Lenient)?.count { it in '\u0600'..'\u06FF' } ?: 0
+    if (preferArabicLegacy || arabicChars >= 2) {
+        return (win1256Strict ?: win1256Lenient ?: win1252 ?: SrtSubtitleParser.decode(bytes))
+            .replace("\u0000", "")
+    }
+    return (win1252 ?: win1256Lenient ?: SrtSubtitleParser.decode(bytes)).replace("\u0000", "")
+}
+
+/**
+ * Normalizes decoded subtitle text into clean UTF-8 bytes (with UTF-8 BOM for SRT/ASS/SSA
+ * so Media3 and external subtitle parsers handle Arabic/Unicode cues reliably).
+ */
+internal fun normalizeSubtitleForStorage(
+    bytes: ByteArray,
+    extension: String,
+    preferArabicLegacy: Boolean = false
+): ByteArray {
+    val decoded = decodeSubtitleBytes(bytes, preferArabicLegacy)
+        .trimStart('\uFEFF')
+        .replace("\r\n", "\n")
+        .replace('\r', '\n')
+    val converted = if (!extension.equals("vtt", ignoreCase = true) && !isAssDialogueText(decoded)) {
+        convertLegacySubToSrtIfApplicable(decoded) ?: decoded
+    } else decoded
+    val normalized = converted.lines().joinToString("\n") { line ->
+        if (SrtSubtitleParser.isTimingLine(line)) {
+            cleanTimestampLine(line)
+        } else {
+            line
+        }
+    }
+    val utf8Body = normalized.toByteArray(Charsets.UTF_8)
+    return if (extension.equals("vtt", ignoreCase = true)) {
+        utf8Body
+    } else {
+        UTF8_BOM + utf8Body
+    }
+}
+
+internal fun detectSubtitleFormat(bytes: ByteArray, preferArabicLegacy: Boolean = false): String? {
+    if (isHtmlOrCloudflarePayload(bytes)) return null
+    val decodedText = runCatching { decodeSubtitleBytes(bytes, preferArabicLegacy) }.getOrNull() ?: return null
+    val text = decodedText.trimStart('\uFEFF', ' ', '\t', '\n', '\r')
+        .replace("\r\n", "\n")
+        .replace('\r', '\n')
+    if (isAssDialogueText(text)) {
+        val isLegacySsa = Regex("""(?im)^\s*ScriptType:\s*v4\.00\s*$""").containsMatchIn(text)
+        return if (isLegacySsa) "ssa" else "ass"
+    }
+    val hasCue = hasSubtitleTimestampLine(text)
+    if (hasCue) {
+        return if (text.startsWith("WEBVTT", ignoreCase = true)) "vtt" else "srt"
+    }
+    if (convertLegacySubToSrtIfApplicable(text) != null) return "srt"
+    return null
+}
+
+internal fun isHtmlOrCloudflarePayload(bytes: ByteArray, contentType: String? = null): Boolean {
+    val mime = contentType?.substringBefore(';')?.trim()?.lowercase(Locale.ROOT).orEmpty()
+    if (mime == "text/html" || mime == "application/xhtml+xml") return true
+    val head = runCatching {
+        String(bytes, 0, minOf(bytes.size, 4096), Charsets.UTF_8)
+    }.getOrDefault("")
+        .replace("\u0000", "")
+        .trimStart('\uFEFF', ' ', '\t', '\n', '\r')
+        .lowercase(Locale.ROOT)
+    if (head.startsWith("<!doctype html") ||
+        head.startsWith("<html") ||
+        head.startsWith("<head") ||
+        head.startsWith("<body") ||
+        head.startsWith("<script")
+    ) return true
+    val looksLikeCloudflareChallenge = head.contains("just a moment...") ||
+        head.contains("cf-browser-verification") ||
+        head.contains("attention required! | cloudflare") ||
+        head.contains("enable javascript and cookies to continue")
+    if (!looksLikeCloudflareChallenge) return false
+    // Real English subtitles can contain "Just a moment..." in early dialogue lines.
+    // Only reject as Cloudflare when no subtitle timing/dialogue structure exists.
+    return !hasSubtitleTimestampLine(head) && !isAssDialogueText(head)
+}
+
+internal fun validateSubtitleDownloadResponse(
+    contentType: String?,
+    bytes: ByteArray,
+    providerName: String = "مزود الترجمة"
+) {
+    require(bytes.isNotEmpty()) { "ملف الترجمة فارغ" }
+    unsupportedArchiveTypeMessage(bytes)?.let { error(it) }
+    val mime = contentType?.substringBefore(';')?.trim()?.lowercase(Locale.ROOT).orEmpty()
+    if (isHtmlOrCloudflarePayload(bytes, mime)) {
+        error(
+            "تم حجب تنزيل الترجمة من $providerName بواسطة حماية Cloudflare أو صفحة HTML غير صالحة. جرّب نتيجة أخرى أو تحقّق من مفتاح API."
+        )
+    }
+    val trimmedHead = runCatching {
+        String(bytes, 0, minOf(bytes.size, 2048), Charsets.UTF_8)
+    }.getOrDefault("").trimStart('\uFEFF', ' ', '\t', '\n', '\r')
+    if (mime.contains("json") || (trimmedHead.startsWith("{") && !trimmedHead.startsWith("{1}"))) {
+        val text = runCatching { String(bytes, Charsets.UTF_8) }.getOrDefault("")
+        val apiObj = runCatching { JSONObject(text) }.getOrNull()
+        if (apiObj != null && (mime.contains("json") || apiObj.has("error") || apiObj.has("message") || apiObj.has("status"))) {
+            val apiMsg = apiObj.optString("error").ifBlank { apiObj.optString("message") }
+                .takeIf { it.isNotBlank() }
+            error(apiMsg ?: "أعاد $providerName استجابة JSON بدلاً من ملف الترجمة.")
+        }
+    }
+    val looksZip = bytes.size > 3 && bytes[0] == 0x50.toByte() && bytes[1] == 0x4b.toByte()
+    val looksGzip = bytes.size > 2 && bytes[0] == 0x1f.toByte() && bytes[1] == 0x8b.toByte()
+    if (mime.isNotBlank()) {
+        val allowedMime = mime == "application/zip" ||
+            mime == "application/x-zip-compressed" ||
+            mime == "application/x-zip" ||
+            mime == "application/x-gzip" ||
+            mime == "application/gzip" ||
+            mime == "application/x-subrip" ||
+            mime == "application/srt" ||
+            mime == "application/x-subtitles" ||
+            mime == "application/octet-stream" ||
+            mime.startsWith("text/") ||
+            mime.contains("subrip") ||
+            mime.contains("subtitle")
+        if (!allowedMime && !looksZip && !looksGzip) {
+            error("نوع استجابة التنزيل من $providerName غير صالح ($mime).")
+        }
+        if ((mime == "application/zip" || mime == "application/x-zip-compressed" || mime == "application/x-zip") &&
+            !looksZip &&
+            !looksGzip &&
+            detectSubtitleFormat(bytes, preferArabicLegacy = true) == null &&
+            detectSubtitleFormat(bytes, preferArabicLegacy = false) == null
+        ) {
+            error("أعاد $providerName نوع application/zip لكن محتوى الأرشيف غير صالح.")
+        }
+    }
+}
+
 /** Strict content/extension check shared by the cache writer and unit tests. */
-internal fun isValidSubtitlePayload(bytes: ByteArray, extension: String): Boolean {
+internal fun isValidSubtitlePayload(
+    bytes: ByteArray,
+    extension: String,
+    preferArabicLegacy: Boolean = false
+): Boolean {
     if (extension !in setOf("srt", "ass", "ssa", "vtt") ||
         bytes.isEmpty() || bytes.size > 8 * 1024 * 1024
     ) return false
+    if (isHtmlOrCloudflarePayload(bytes)) return false
 
-    val decodedText = runCatching { SrtSubtitleParser.decode(bytes) }.getOrNull() ?: return false
-    val text = decodedText.trimStart('\uFEFF', ' ', '\t', '\n', '\r')
-    val timestamp = """(?:\d{1,2}:)?\d{1,2}:\d{2}[,.]\d{3}"""
-    val arrowCue = Regex(
-        """(?m)^\s*$timestamp\s+-->\s*$timestamp(?:\s+.*)?$"""
-    ).containsMatchIn(text)
-    val assCue = text.contains("[Script Info]", ignoreCase = true) &&
-        text.contains("[Events]", ignoreCase = true) &&
-        text.lineSequence().any { it.trimStart().startsWith("Dialogue:", ignoreCase = true) }
-    val detected = when {
-        text.startsWith("WEBVTT", ignoreCase = true) && arrowCue -> "vtt"
-        assCue -> "ass"
-        arrowCue -> "srt"
-        else -> return false
-    }
-    return if (extension == "ssa") detected == "ass" else detected == extension
+    val detected = detectSubtitleFormat(bytes, preferArabicLegacy) ?: return false
+    return detected == extension
 }
 
-class OnlineSubtitleRepository(context: Context, private val vault: NetworkCredentialVault) {
+/**
+ * Extracts timestamped cue lines for preview; blocks lacking a valid timing line
+ * (such as headers, notes, or stray text) are strictly excluded.
+ */
+internal fun extractPreviewLines(
+    bytes: ByteArray,
+    extension: String,
+    maxCues: Int = 5,
+    preferArabicLegacy: Boolean = false
+): List<String> {
+    val decoded = decodeSubtitleBytes(bytes, preferArabicLegacy)
+    val blocks = SrtSubtitleParser.splitBlocks(decoded, extension)
+    val markup = Regex("""<[^>]+>|\{\\[^}]*}|\\[NnHh]""")
+    return blocks.asSequence()
+        .mapNotNull { block ->
+            val lines = block.lines().map { it.trim() }.filter { it.isNotEmpty() }
+            val timingIdx = SrtSubtitleParser.timingLineIndex(lines)
+            if (timingIdx < 0) return@mapNotNull null
+            val timing = SrtSubtitleParser.cleanTimingLine(lines[timingIdx])
+                .substringBefore("-->")
+                .trim()
+            val text = lines.drop(timingIdx + 1)
+                .joinToString(" ") { line ->
+                    // ASS/SSA uses \\N for a dialogue line break and \\h for a
+                    // non-breaking space. Replace them before stripping override
+                    // blocks so adjacent words never collapse together.
+                    val readable = line
+                        .replace(Regex("""\\[Nn]"""), " ")
+                        .replace(Regex("""\\[Hh]"""), " ")
+                    markup.replace(readable, "").trim()
+                }
+                .trim()
+            if (text.isBlank()) null else "[$timing] $text"
+        }
+        .take(maxCues.coerceIn(1, 12))
+        .toList()
+}
+
+class OnlineSubtitleRepository internal constructor(
+    context: Context,
+    private val vault: NetworkCredentialVault,
+    private val client: OkHttpClient,
+    private val subf2mProvider: Subf2mSubtitleProvider
+) {
+    constructor(context: Context, vault: NetworkCredentialVault) : this(
+        context = context,
+        vault = vault,
+        client = defaultHttpClient(),
+        subf2mProvider = Subf2mSubtitleProvider()
+    )
+
     private val app = context.applicationContext
-    private val client = OkHttpClient.Builder()
-        // Provider API calls carry API keys/tokens; never follow redirects that
-        // could forward custom credential headers to another origin.
-        .followRedirects(false)
-        .followSslRedirects(false)
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .callTimeout(45, TimeUnit.SECONDS)
-        .build()
     // Download redirects are followed manually so every hop is checked before
     // connecting and credentials are never forwarded to a different host.
-    private val subf2mProvider = Subf2mSubtitleProvider()
     private val tvMazeEpisodeGuideProvider = TvMazeEpisodeGuideProvider()
     private val downloadClient = client.newBuilder()
         .followRedirects(false)
@@ -151,12 +500,39 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         !key.isNullOrBlank() && !user?.first.isNullOrBlank() && !user?.second.isNullOrBlank()
     }.getOrDefault(false)
 
+    fun hasSubdlKey(): Boolean = runCatching {
+        !vault.load(SUBDL_KEY_SLOT)?.first.isNullOrBlank()
+    }.getOrDefault(false)
+
+    fun hasWebsiteKey(): Boolean = runCatching {
+        !vault.load(WEBSITE_KEY_SLOT)?.first.isNullOrBlank()
+    }.getOrDefault(false)
+
     fun saveProviderApiKeys(subdlKey: String, websiteKey: String) {
         if (subdlKey.isNotBlank()) vault.save(SUBDL_KEY_SLOT, subdlKey.trim(), "api-key")
         if (websiteKey.isNotBlank()) vault.save(WEBSITE_KEY_SLOT, websiteKey.trim(), "api-key")
         automaticSearchCache.clear()
         publicSearchCache.clear()
     }
+
+    /** Downloads (or reuses cached) subtitle and extracts clean cue lines for quick preview. */
+    suspend fun previewSubtitleLines(subtitle: OnlineSubtitle, maxCues: Int = 5): List<String> =
+        withContext(Dispatchers.IO) {
+            val uri = download(subtitle)
+            val path = uri.path ?: error("تعذر الوصول إلى ملف المعاينة")
+            val file = File(path)
+            val preferArabic = SubtitleQueryCleaner.normalizeLanguage(subtitle.language) == "ar"
+            val lines = extractPreviewLines(
+                bytes = file.readBytes(),
+                extension = file.extension,
+                maxCues = maxCues,
+                preferArabicLegacy = preferArabic
+            )
+            if (lines.isEmpty()) {
+                error("تعذرت معاينة الترجمة: الملف لا يحتوي على مقاطع حوار بتوقيت صالح")
+            }
+            lines
+        }
 
     /**
      * Searches a public guest endpoint first. No account, API key, or setup is required
@@ -346,6 +722,18 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                     null -> "en"
                     else -> languageValue.toString()
                 }
+                val rawDownloadUrl = item.optString("download_url").trim()
+                    .takeIf { it.isNotBlank() }
+                    ?.let { raw ->
+                        when {
+                            raw.startsWith("https://") -> raw
+                            raw.startsWith("//") -> "https:$raw"
+                            raw.startsWith("/strapi/") -> "https://$PUBLIC_HOST$raw"
+                            raw.startsWith("/") -> "$PUBLIC_BASE$raw"
+                            else -> "$PUBLIC_BASE/${raw.trimStart('/')}"
+                        }
+                    }
+                    ?.takeIf { isSafeSubtitleDownloadUrl(it, PUBLIC_HOST) }
                 add(OnlineSubtitle(
                     fileId = 0L,
                     language = SubtitleProviderResultParser.language(languageCode),
@@ -355,7 +743,8 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                     downloads = SubtitleProviderResultParser.downloadCount(item.optInt("downloads")),
                     format = format,
                     sourceId = id,
-                    provider = PUBLIC_PROVIDER
+                    provider = PUBLIC_PROVIDER,
+                    downloadUrl = rawDownloadUrl
                 ))
             }
         }.distinctBy { it.sourceId }.take(40)
@@ -386,9 +775,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         }
         val dir = File(app.cacheDir, "online-subtitles").apply { mkdirs() }
         val cachePrefix = "subtitle-public-${subtitleCacheToken(subtitle.sourceId)}"
-        dir.listFiles()?.firstOrNull {
-            it.name.startsWith("$cachePrefix.") && isValidCachedSubtitle(it)
-        }?.let { return Uri.fromFile(it) }
+        findReusableCachedSubtitle(dir, cachePrefix)?.let { return Uri.fromFile(it) }
 
         val endpoint = "$PUBLIC_API/search/download/${subtitle.sourceId}"
         val request = Request.Builder().url(endpoint)
@@ -398,17 +785,37 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                 val bearer = vault.load(WEBSITE_KEY_SLOT)?.first
                 if (!bearer.isNullOrBlank()) header("Authorization", "Bearer $bearer")
             }.get().build()
-        val downloadPath = executeDownloadApi(request).optString("download_url")
-            .takeIf { it.isNotBlank() } ?: error("لم توفر الخدمة رابط تنزيل للترجمة")
+        val apiPayload = try {
+            executeDownloadApi(request)
+        } catch (apiFailure: Exception) {
+            val fallbackUrl = subtitle.downloadUrl?.takeIf { isSafeSubtitleDownloadUrl(it, PUBLIC_HOST) }
+            val isQuotaOrAuth = apiFailure is SubtitleHttpException &&
+                apiFailure.statusCode in setOf(401, 403, 429)
+            if (fallbackUrl == null || isQuotaOrAuth) throw apiFailure
+            null
+        }
+        val downloadPath = if (apiPayload != null) {
+            apiPayload.optString("download_url")
+                .ifBlank { apiPayload.optJSONObject("data")?.optString("download_url").orEmpty() }
+                .ifBlank { apiPayload.optString("url") }
+                .ifBlank { apiPayload.optString("link") }
+                .takeIf { it.isNotBlank() } ?: error("لم توفر الخدمة رابط تنزيل للترجمة")
+        } else {
+            requireNotNull(subtitle.downloadUrl)
+        }
         val downloadUri = when {
             downloadPath.startsWith("https://") -> Uri.parse(downloadPath)
+            downloadPath.startsWith("//") -> Uri.parse("https:$downloadPath")
             downloadPath.startsWith("/strapi/") -> Uri.parse("https://$PUBLIC_HOST$downloadPath")
+            downloadPath.startsWith("/") -> Uri.parse("$PUBLIC_BASE$downloadPath")
             else -> Uri.parse("$PUBLIC_BASE/${downloadPath.trimStart('/')}")
         }
         require(isTrustedHttpsHost(downloadUri, PUBLIC_HOST)) {
             "رابط تنزيل الترجمة غير آمن"
         }
         val downloadRequest = Request.Builder().url(downloadUri.toString())
+            .header("User-Agent", AGENT)
+            .header("Accept", "*/*")
             .apply {
                 val bearer = vault.load(WEBSITE_KEY_SLOT)?.first
                 if (!bearer.isNullOrBlank()) header("Authorization", "Bearer $bearer")
@@ -417,15 +824,24 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
             require(isTrustedHttpsUrl(response.request.url.toString(), PUBLIC_HOST)) {
                 "حوّل مزود الترجمة التنزيل إلى نطاق غير موثوق"
             }
-            if (!response.isSuccessful) error("تعذر تنزيل الترجمة (HTTP ${response.code})")
-            val bytes = response.body?.byteStream()?.use(::readBounded) ?: error("ملف الترجمة فارغ")
-            require(bytes.isNotEmpty()) { "ملف الترجمة فارغ" }
+            val contentType = response.header("Content-Type")
+            val rawBytes = response.body?.byteStream()?.use(::readBounded) ?: byteArrayOf()
+            if (!response.isSuccessful) {
+                if (isHtmlOrCloudflarePayload(rawBytes, contentType)) {
+                    error("تم حجب تنزيل الترجمة بواسطة حماية Cloudflare (HTTP ${response.code}).")
+                }
+                error("تعذر تنزيل الترجمة (HTTP ${response.code})")
+            }
+            val bytes = unwrapGzipIfNeeded(rawBytes)
+            validateSubtitleDownloadResponse(contentType, bytes, "subtitles.website")
+            val preferArabic = SubtitleQueryCleaner.normalizeLanguage(subtitle.language) == "ar"
             val target = if (bytes.isZip()) {
-                extract(bytes, dir, 0L, cachePrefix)
+                extract(bytes, dir, 0L, cachePrefix, subtitle.format, preferArabic)
             } else {
-                val ext = detect(bytes) ?: subtitle.format.takeIf { it in FORMATS }
-                    ?: error("صيغة ملف الترجمة غير مدعومة")
-                writeSubtitleAtomically(dir, "$cachePrefix.$ext", bytes)
+                val ext = detect(bytes, preferArabic)
+                    ?: error("محتوى ملف الترجمة غير صالح: لا يحتوي على أسطر توقيت صالحة")
+                val normalized = normalizeSubtitleForStorage(bytes, ext, preferArabic)
+                writeSubtitleAtomically(dir, "$cachePrefix.$ext", normalized, preferArabic)
             }
             require(target.length() in 1..MAX_BYTES.toLong()) { "حجم ملف الترجمة غير صالح" }
             Uri.fromFile(target)
@@ -462,15 +878,21 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         val detailUrl = subtitle.downloadUrl ?: error("رابط صفحة SubF2M غير متوفر؛ أعد البحث")
         val directory = File(app.cacheDir, "online-subtitles").apply { mkdirs() }
         val prefix = "subtitle-subf2m-${subtitleCacheToken(subtitle.sourceId)}"
-        directory.listFiles()?.firstOrNull {
-            it.name.startsWith("$prefix.") && isValidCachedSubtitle(it)
-        }?.let { return Uri.fromFile(it) }
-        val bytes = subf2mProvider.download(detailUrl)
+        findReusableCachedSubtitle(directory, prefix)?.let { return Uri.fromFile(it) }
+        val rawBytes = subf2mProvider.download(detailUrl)
+        val bytes = unwrapGzipIfNeeded(rawBytes)
+        validateSubtitleDownloadResponse(null, bytes, "SubF2M")
+        val preferArabic = SubtitleQueryCleaner.normalizeLanguage(subtitle.language) == "ar"
         val target = if (bytes.isZip()) {
-            extract(bytes, directory, 0L, prefix)
+            extract(
+                bytes, directory, 0L, prefix, subtitle.format, preferArabic,
+                subtitle.seasonNumber, subtitle.episodeNumber
+            )
         } else {
-            val extension = detect(bytes) ?: error("صيغة ملف ترجمة SubF2M غير مدعومة")
-            writeSubtitleAtomically(directory, "$prefix.$extension", bytes)
+            val extension = detect(bytes, preferArabic)
+                ?: error("محتوى ملف الترجمة غير صالح: لا يحتوي على أسطر توقيت صالحة")
+            val normalized = normalizeSubtitleForStorage(bytes, extension, preferArabic)
+            writeSubtitleAtomically(directory, "$prefix.$extension", normalized, preferArabic)
         }
         require(target.length() in 1..MAX_BYTES.toLong()) { "حجم ملف الترجمة غير صالح" }
         return Uri.fromFile(target)
@@ -631,23 +1053,23 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
     }
 
     private suspend fun downloadSubDl(subtitle: OnlineSubtitle): Uri {
-        val path = subtitle.sourceId
+        val rawPath = subtitle.sourceId.trim().replace(" ", "%20")
         val downloadUri = when {
-            path.startsWith("https://") -> Uri.parse(path)
-            path.startsWith("//") -> Uri.parse("https:$path")
-            path.startsWith("/") -> Uri.parse("https://dl.subdl.com$path")
-            else -> Uri.parse("https://dl.subdl.com/$path")
+            rawPath.startsWith("https://") -> Uri.parse(rawPath)
+            rawPath.startsWith("//") -> Uri.parse("https:$rawPath")
+            rawPath.startsWith("/") -> Uri.parse("https://dl.subdl.com$rawPath")
+            else -> Uri.parse("https://dl.subdl.com/$rawPath")
         }
         require(isTrustedHttpsHost(downloadUri, "subdl.com")) {
             "رابط تنزيل ترجمة SubDL غير آمن"
         }
         val directory = File(app.cacheDir, "online-subtitles").apply { mkdirs() }
         val prefix = "subtitle-subdl-${subtitleCacheToken(subtitle.sourceId)}"
-        directory.listFiles()?.firstOrNull {
-            it.name.startsWith("$prefix.") && isValidCachedSubtitle(it)
-        }?.let { return Uri.fromFile(it) }
+        findReusableCachedSubtitle(directory, prefix)?.let { return Uri.fromFile(it) }
 
         val downloadRequest = Request.Builder().url(downloadUri.toString())
+            .header("User-Agent", AGENT)
+            .header("Accept", "*/*")
             .apply {
                 val key = vault.load(SUBDL_KEY_SLOT)?.first
                 if (!key.isNullOrBlank()) header("x-api-key", key)
@@ -656,12 +1078,27 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
             require(isTrustedHttpsUrl(response.request.url.toString(), "subdl.com")) {
                 "حوّل SubDL التنزيل إلى نطاق غير موثوق"
             }
-            if (!response.isSuccessful) error("تعذر تنزيل ترجمة SubDL (HTTP ${response.code})")
-            val bytes = response.body?.byteStream()?.use(::readBounded) ?: error("ملف الترجمة فارغ")
-            val target = if (bytes.isZip()) extract(bytes, directory, 0L, prefix)
-            else {
-                val ext = detect(bytes) ?: subtitle.format
-                writeSubtitleAtomically(directory, "$prefix.$ext", bytes)
+            val contentType = response.header("Content-Type")
+            val rawBytes = response.body?.byteStream()?.use(::readBounded) ?: byteArrayOf()
+            if (!response.isSuccessful) {
+                if (isHtmlOrCloudflarePayload(rawBytes, contentType)) {
+                    error("تم حجب تنزيل الترجمة من SubDL بواسطة حماية Cloudflare (HTTP ${response.code}). جرّب نتيجة أخرى أو أضف مفتاح SubDL API.")
+                }
+                error("تعذر تنزيل ترجمة SubDL (HTTP ${response.code})")
+            }
+            val bytes = unwrapGzipIfNeeded(rawBytes)
+            validateSubtitleDownloadResponse(contentType, bytes, "SubDL")
+            val preferArabic = SubtitleQueryCleaner.normalizeLanguage(subtitle.language) == "ar"
+            val target = if (bytes.isZip()) {
+                extract(
+                    bytes, directory, 0L, prefix, subtitle.format, preferArabic,
+                    subtitle.seasonNumber, subtitle.episodeNumber
+                )
+            } else {
+                val ext = detect(bytes, preferArabic)
+                    ?: error("محتوى ملف الترجمة غير صالح: لا يحتوي على أسطر توقيت صالحة")
+                val normalized = normalizeSubtitleForStorage(bytes, ext, preferArabic)
+                writeSubtitleAtomically(directory, "$prefix.$ext", normalized, preferArabic)
             }
             require(target.length() in 1..MAX_BYTES.toLong()) { "حجم ملف الترجمة غير صالح" }
             Uri.fromFile(target)
@@ -728,12 +1165,10 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         }.distinctBy { it.fileId }.take(40)
     }
 
-    private suspend fun downloadOpenSubtitles(fileId: Long): Uri {
+    private suspend fun downloadOpenSubtitles(fileId: Long, preferArabic: Boolean = false): Uri {
         require(fileId > 0)
         val dir = File(app.cacheDir, "online-subtitles").apply { mkdirs() }
-        dir.listFiles()?.firstOrNull {
-            it.name.startsWith("subtitle-$fileId.") && isValidCachedSubtitle(it)
-        }?.let { return Uri.fromFile(it) }
+        findReusableCachedSubtitle(dir, "subtitle-$fileId")?.let { return Uri.fromFile(it) }
         val (key, account) = credentials()
         suspend fun downloadLink(token: String): String {
             val body = JSONObject().put("file_id", fileId).toString().toRequestBody(JSON)
@@ -759,50 +1194,174 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                 response.request.url.password.isNotEmpty()
             ) error("حوّل OpenSubtitles التنزيل إلى رابط غير آمن")
             if (!response.isSuccessful) error("تعذر تنزيل الترجمة (HTTP ${response.code})")
-            val bytes = response.body?.byteStream()?.use(::readBounded) ?: error("ملف الترجمة فارغ")
+            val rawBytes = response.body?.byteStream()?.use(::readBounded) ?: error("ملف الترجمة فارغ")
+            val bytes = unwrapGzipIfNeeded(rawBytes)
             require(bytes.isNotEmpty() && bytes.size <= MAX_BYTES) { "حجم ملف الترجمة غير صالح" }
-            val target = if (bytes.isZip()) extract(bytes, dir, fileId) else {
-                val ext = detect(bytes) ?: error("صيغة ملف الترجمة غير مدعومة")
-                writeSubtitleAtomically(dir, "subtitle-$fileId.$ext", bytes)
+            val target = if (bytes.isZip()) extract(bytes, dir, fileId, preferArabicLegacy = preferArabic) else {
+                val ext = detect(bytes, preferArabic) ?: error("محتوى ملف الترجمة غير صالح: لا يحتوي على أسطر توقيت صالحة")
+                val normalized = normalizeSubtitleForStorage(bytes, ext, preferArabic)
+                writeSubtitleAtomically(dir, "subtitle-$fileId.$ext", normalized)
             }
             require(target.length() in 1..MAX_BYTES.toLong())
             Uri.fromFile(target)
         }
     }
 
-    private fun extract(bytes: ByteArray, dir: File, id: Long, outputPrefix: String = "subtitle-$id"): File {
-        ZipInputStream(bytes.inputStream()).use { zip ->
-            var entry = zip.nextEntry
-            while (entry != null) {
-                val ext = entry.name.substringAfterLast('.', "").lowercase(Locale.ROOT)
-                if (!entry.isDirectory && ext in FORMATS) {
-                    val output = ByteArrayOutputStream()
-                    val buffer = ByteArray(8192)
-                    var total = 0
-                    while (true) {
-                        val n = readStreamWithProgress(zip, buffer)
-                        if (n < 0) break
-                        total += n
-                        require(total <= MAX_BYTES) { "ملف الترجمة كبير جدًا" }
-                        output.write(buffer, 0, n)
-                    }
-                    val payload = output.toByteArray()
-                    require(isValidSubtitlePayload(payload, ext)) { "محتوى ملف الترجمة غير صالح" }
-                    return writeSubtitleAtomically(dir, "$outputPrefix.$ext", payload)
-                }
-                zip.closeEntry(); entry = zip.nextEntry
+    internal fun extract(
+        bytes: ByteArray,
+        dir: File,
+        id: Long,
+        outputPrefix: String = "subtitle-$id",
+        preferredFormat: String? = null,
+        preferArabicLegacy: Boolean = false,
+        seasonNumber: Int? = null,
+        episodeNumber: Int? = null
+    ): File {
+        var bestCandidate: Triple<String, ByteArray, Int>? = null
+        var sawSupportedExtensionEntry = false
+        val episodeMatchRegex = if (seasonNumber != null && episodeNumber != null) {
+            Regex("(?i)(?:\\bs0*${seasonNumber}\\s*e0*${episodeNumber}\\b|\\b0*${seasonNumber}x0*${episodeNumber}\\b)")
+        } else null
+
+        val charsetsToTry: List<Charset?> = buildList {
+            add(null) // UTF-8 default
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                runCatching { Charset.forName("windows-1256") }.getOrNull()?.let(::add)
+                add(Charsets.ISO_8859_1)
             }
+        }
+
+        var lastArchiveError: Throwable? = null
+        for (entryCharset in charsetsToTry) {
+            val zipStream = try {
+                if (entryCharset != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    ZipInputStream(bytes.inputStream(), entryCharset)
+                } else {
+                    ZipInputStream(bytes.inputStream())
+                }
+            } catch (t: Throwable) {
+                lastArchiveError = t
+                continue
+            }
+            val attemptResult = runCatching {
+                zipStream.use { zip ->
+                    var entry = zip.nextEntry
+                    while (entry != null) {
+                        val entryName = entry.name.orEmpty()
+                        val baseName = entryName.substringAfterLast('/').trim()
+                        val isSystemNoise = entry.isDirectory ||
+                            entryName.startsWith("__MACOSX/", ignoreCase = true) ||
+                            baseName.startsWith("._")
+                        if (!isSystemNoise) {
+                            val entryExt = baseName.substringAfterLast('.', "").lowercase(Locale.ROOT)
+                            val knownCandidate = entryExt in FORMATS ||
+                                entryExt == "txt" ||
+                                entryExt == "sub" ||
+                                entryExt == "sbv" ||
+                                baseName == entryExt
+                            val nonSubtitleAsset = entryExt in NON_SUBTITLE_EXTENSIONS
+                            if (knownCandidate || (!nonSubtitleAsset && bestCandidate == null)) {
+                                val output = ByteArrayOutputStream()
+                                val buffer = ByteArray(8192)
+                                var total = 0
+                                while (true) {
+                                    val n = readStreamWithProgress(zip, buffer)
+                                    if (n < 0) break
+                                    total += n
+                                    require(total <= MAX_BYTES) { "ملف الترجمة كبير جدًا" }
+                                    output.write(buffer, 0, n)
+                                }
+                                val rawPayload = unwrapGzipIfNeeded(output.toByteArray())
+                                if (rawPayload.isNotEmpty()) {
+                                    val detectedExt = detect(rawPayload, preferArabicLegacy)
+                                        ?: entryExt.takeIf { it in FORMATS }
+                                    if (detectedExt != null && detectedExt in FORMATS) {
+                                        sawSupportedExtensionEntry = true
+                                        val normalizedPayload = runCatching {
+                                            normalizeSubtitleForStorage(
+                                                rawPayload,
+                                                detectedExt,
+                                                preferArabicLegacy
+                                            )
+                                        }.getOrNull()
+                                        if (normalizedPayload != null &&
+                                            isValidSubtitlePayload(normalizedPayload, detectedExt, preferArabicLegacy)
+                                        ) {
+                                            var score = 0
+                                            if (episodeMatchRegex != null && episodeMatchRegex.containsMatchIn(entryName)) {
+                                                score += 100
+                                            }
+                                            val decodedSample = runCatching {
+                                                String(normalizedPayload, 0, minOf(normalizedPayload.size, 8192), Charsets.UTF_8)
+                                            }.getOrDefault("")
+                                            val arabicCharCount = decodedSample.count { it in '\u0600'..'\u06FF' }
+                                            val lowerName = entryName.lowercase(Locale.ROOT)
+                                            val looksArabicName = Regex("""(?:^|[._\-\s/])(?:ar|ara|arabic)(?:[._\-\s/]|$)|عرب""").containsMatchIn(lowerName)
+                                            val looksEnglishName = Regex("""(?:^|[._\-\s/])(?:en|eng|english)(?:[._\-\s/]|$)""").containsMatchIn(lowerName)
+                                            if (preferArabicLegacy) {
+                                                if (looksArabicName || arabicCharCount >= 8) score += 50
+                                                else if (looksEnglishName) score -= 20
+                                            } else {
+                                                if (looksEnglishName || (arabicCharCount == 0 && !looksArabicName)) score += 30
+                                                else if (looksArabicName || arabicCharCount >= 8) score -= 20
+                                            }
+                                            if (preferredFormat != null && detectedExt.equals(preferredFormat, ignoreCase = true)) {
+                                                score += 20
+                                            } else if (detectedExt == "srt") {
+                                                score += 10
+                                            }
+                                            val currentBest = bestCandidate
+                                            if (currentBest == null ||
+                                                score > currentBest.third ||
+                                                (score == currentBest.third && normalizedPayload.size > currentBest.second.size)
+                                            ) {
+                                                bestCandidate = Triple(detectedExt, normalizedPayload, score)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        zip.closeEntry()
+                        entry = zip.nextEntry
+                    }
+                }
+            }
+            if (attemptResult.isSuccess) {
+                lastArchiveError = null
+                break
+            }
+            val err = attemptResult.exceptionOrNull()
+            lastArchiveError = err
+            // Retry with legacy filename charsets when non-UTF-8 entry names trigger
+            // IllegalArgumentException ("MALFORMED") in ZipInputStream.
+            if (err !is IllegalArgumentException) {
+                throw err ?: IOException("تعذر قراءة أرشيف الترجمة")
+            }
+        }
+        if (bestCandidate == null && lastArchiveError != null) {
+            throw lastArchiveError
+        }
+        val chosen = bestCandidate
+        if (chosen != null) {
+            return writeSubtitleAtomically(
+                dir,
+                "$outputPrefix.${chosen.first}",
+                chosen.second,
+                preferArabicLegacy
+            )
+        }
+        if (sawSupportedExtensionEntry) {
+            error("محتوى ملف الترجمة غير صالح: لا يحتوي على أسطر توقيت صالحة")
         }
         error("الأرشيف لا يحتوي على ملف ترجمة مدعوم")
     }
 
 
     /**
-     * Manually follows bounded HTTPS redirects. The active call remains registered
-     * with the coroutine until the response body is consumed, so cancellation closes
-     * blocked network reads instead of waiting for the socket timeout.
+     * Manually follows bounded HTTPS redirects using cancellable enqueue so cancelling
+     * the coroutine immediately aborts in-flight network I/O without internal coroutine APIs.
      */
-    @OptIn(InternalCoroutinesApi::class)
     private suspend fun <T> withDownloadResponse(
         request: Request,
         allowedDomain: String? = null,
@@ -810,38 +1369,33 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
     ): T {
         var current = request
         repeat(MAX_DOWNLOAD_REDIRECTS + 1) { hop ->
-            val call = downloadClient.newCall(current)
-            val job = currentCoroutineContext()[Job]
-            val cancellationHandle = job?.invokeOnCompletion(
-                onCancelling = true,
-                invokeImmediately = true
-            ) { cause ->
-                if (cause != null) call.cancel()
-            }
-            val response = try {
-                call.execute()
-            } catch (failure: Throwable) {
-                cancellationHandle?.dispose()
-                throw failure
+            val response = suspendCancellableCoroutine<okhttp3.Response> { cont ->
+                val call = downloadClient.newCall(current)
+                cont.invokeOnCancellation { call.cancel() }
+                call.enqueue(object : Callback {
+                    override fun onFailure(call: Call, e: IOException) {
+                        if (cont.isActive) cont.resumeWithException(e)
+                    }
+
+                    override fun onResponse(call: Call, response: okhttp3.Response) {
+                        if (cont.isActive) {
+                            cont.resume(response)
+                        } else {
+                            response.close()
+                        }
+                    }
+                })
             }
 
             if (response.code !in 300..399) {
-                return try {
-                    currentCoroutineContext().ensureActive()
-                    consume(response)
-                } finally {
-                    response.close()
-                    cancellationHandle?.dispose()
+                return response.use { res ->
+                    consume(res)
                 }
             }
 
             val location = response.header("Location")
             val nextUrl = location?.let { current.url.resolve(it) }
-            try {
-                response.close()
-            } finally {
-                cancellationHandle?.dispose()
-            }
+            response.close()
             require(nextUrl != null) { "أعاد مزود الترجمة تحويلاً دون وجهة صالحة" }
             require(current.method == "GET") {
                 "رُفض تحويل طلب POST حفاظاً على سلامة بيانات الدخول"
@@ -913,8 +1467,10 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
 
     /** Cancellable JSON request used by the download flow, including its API-key headers. */
     private suspend fun executeDownloadApi(request: Request): JSONObject =
-        withDownloadResponse(request) { response ->
-            val body = response.body?.string().orEmpty()
+        withDownloadResponse(request, request.url.host) { response ->
+            val contentType = response.header("Content-Type")
+            val rawBytes = response.body?.byteStream()?.use(::readBounded) ?: byteArrayOf()
+            val body = runCatching { String(rawBytes, Charsets.UTF_8) }.getOrDefault("")
             if (!response.isSuccessful) {
                 if (response.code == 429) {
                     if (request.url.host == PUBLIC_HOST) {
@@ -934,6 +1490,12 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                         "مفتاح خدمة الترجمة غير صالح أو انتهت صلاحية جلسة الدخول."
                     )
                 }
+                if (isHtmlOrCloudflarePayload(rawBytes, contentType)) {
+                    throw SubtitleHttpException(
+                        response.code,
+                        "تعذر الوصول إلى مزود الترجمة بسبب حماية Cloudflare أو صفحة ويب مؤقتة (HTTP ${response.code})."
+                    )
+                }
                 val message = runCatching { JSONObject(body).optString("message") }
                     .getOrNull()?.takeIf(String::isNotBlank)
                 throw SubtitleHttpException(
@@ -941,13 +1503,20 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                     message ?: "خدمة الترجمة أعادت خطأ (HTTP ${response.code})"
                 )
             }
-            JSONObject(body)
+            if (isHtmlOrCloudflarePayload(rawBytes, contentType)) {
+                error("تعذر إتمام تنزيل الترجمة بسبب حماية Cloudflare أو استجابة HTML غير متوقعة.")
+            }
+            runCatching { JSONObject(body) }.getOrElse {
+                error("أعاد مزود الترجمة استجابة غير مفهومة أثناء تجهيز رابط التنزيل.")
+            }
         }
 
     private fun execute(request: Request): JSONObject {
         val response = client.newCall(request).execute()
         response.use {
-            val text = it.body?.string().orEmpty()
+            val contentType = it.header("Content-Type")
+            val rawBytes = it.body?.byteStream()?.use(::readBounded) ?: byteArrayOf()
+            val text = runCatching { String(rawBytes, Charsets.UTF_8) }.getOrDefault("")
             if (!it.isSuccessful) {
                 if (it.code == 429) {
                     if (request.url.host == PUBLIC_HOST) {
@@ -962,13 +1531,24 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                 if (it.code == 401 || it.code == 403) {
                     throw SubtitleHttpException(it.code, "مفتاح خدمة الترجمة غير صالح أو انتهت صلاحية جلسة الدخول.")
                 }
+                if (isHtmlOrCloudflarePayload(rawBytes, contentType)) {
+                    throw SubtitleHttpException(
+                        it.code,
+                        "تعذر البحث في مزود الترجمة بسبب حماية Cloudflare أو صفحة HTML مؤقتة (HTTP ${it.code})."
+                    )
+                }
                 val message = runCatching { JSONObject(text).optString("message") }.getOrNull()
                 throw SubtitleHttpException(
                     it.code,
                     message?.takeIf(String::isNotBlank) ?: "خدمة الترجمة أعادت خطأ (HTTP " + it.code + ")"
                 )
             }
-            return JSONObject(text)
+            if (isHtmlOrCloudflarePayload(rawBytes, contentType)) {
+                error("تعذر البحث لأن مزود الترجمة أعاد صفحة HTML أو حماية Cloudflare بدلاً من النتائج.")
+            }
+            return runCatching { JSONObject(text) }.getOrElse {
+                error("أعاد مزود الترجمة استجابة بحث غير صالحة.")
+            }
         }
     }
 
@@ -990,17 +1570,48 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         return output.toByteArray()
     }
 
+    private fun findReusableCachedSubtitle(dir: File, prefix: String): File? {
+        val candidates = dir.listFiles()?.filter { it.name.startsWith("$prefix.") }.orEmpty()
+        var valid: File? = null
+        for (file in candidates) {
+            if (valid == null && isValidCachedSubtitle(file)) {
+                valid = file
+            } else if (file.isFile) {
+                runCatching { file.delete() }
+            }
+        }
+        return valid
+    }
+
     private fun isValidCachedSubtitle(file: File): Boolean {
         if (!file.isFile || file.length() !in 1..MAX_BYTES.toLong()) return false
         val ext = file.extension.lowercase(Locale.ROOT)
         if (ext !in FORMATS) return false
-        return runCatching { isValidSubtitlePayload(file.readBytes(), ext) }.getOrDefault(false)
+        val bytes = runCatching { file.readBytes() }.getOrNull() ?: return false
+        if (!isValidSubtitlePayload(bytes, ext)) return false
+        // Reject legacy non-UTF-8 cached files (e.g. UTF-16 or Windows-1256) so they are
+        // re-saved cleanly as UTF-8 for Media3 playback compatibility.
+        return runCatching {
+            val offset = if (bytes.size >= 3 &&
+                bytes[0] == 0xEF.toByte() && bytes[1] == 0xBB.toByte() && bytes[2] == 0xBF.toByte()
+            ) 3 else 0
+            Charsets.UTF_8.newDecoder()
+                .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+                .decode(java.nio.ByteBuffer.wrap(bytes, offset, bytes.size - offset))
+            true
+        }.getOrDefault(false)
     }
 
-    private fun writeSubtitleAtomically(dir: File, fileName: String, bytes: ByteArray): File {
+    private fun writeSubtitleAtomically(
+        dir: File,
+        fileName: String,
+        bytes: ByteArray,
+        preferArabicLegacy: Boolean = false
+    ): File {
         require(bytes.size in 1..MAX_BYTES) { "حجم ملف الترجمة غير صالح" }
         val ext = fileName.substringAfterLast('.', "").lowercase(Locale.ROOT)
-        require(isValidSubtitlePayload(bytes, ext)) { "محتوى ملف الترجمة غير صالح" }
+        require(isValidSubtitlePayload(bytes, ext, preferArabicLegacy)) { "محتوى ملف الترجمة غير صالح" }
         val target = File(dir, fileName)
         val temporary = File.createTempFile("subtitle-", ".part", dir)
         try {
@@ -1017,18 +1628,32 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
     }
 
     private fun ByteArray.isZip() = size > 3 && this[0] == 0x50.toByte() && this[1] == 0x4b.toByte()
-    private fun detect(bytes: ByteArray): String? {
-        val decodedText = runCatching { SrtSubtitleParser.decode(bytes) }.getOrNull() ?: return null
-        val text = decodedText.trimStart('\uFEFF', ' ', '\n', '\r')
-        return when {
-            text.startsWith("WEBVTT", true) -> "vtt"
-            text.contains("-->") -> "srt"
-            text.startsWith("[Script Info]", true) || text.contains("[Events]", true) -> "ass"
-            else -> null
-        }
+
+    private fun unwrapGzipIfNeeded(bytes: ByteArray): ByteArray {
+        val isGzip = bytes.size > 3 &&
+            bytes[0] == 0x1f.toByte() &&
+            bytes[1] == 0x8b.toByte() &&
+            bytes[2] == 0x08.toByte()
+        if (!isGzip) return bytes
+        return runCatching {
+            GZIPInputStream(bytes.inputStream()).use(::readBounded)
+        }.getOrDefault(bytes)
     }
 
+    private fun detect(bytes: ByteArray, preferArabicLegacy: Boolean = false): String? =
+        detectSubtitleFormat(bytes, preferArabicLegacy)
+
     private companion object {
+        fun defaultHttpClient(): OkHttpClient = OkHttpClient.Builder()
+            // Provider API calls carry API keys/tokens; never follow redirects that
+            // could forward custom credential headers to another origin.
+            .followRedirects(false)
+            .followSslRedirects(false)
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .callTimeout(45, TimeUnit.SECONDS)
+            .build()
+
         const val BASE = "https://api.opensubtitles.com/api/v1"
         const val PUBLIC_HOST = "subtitles.website"
         const val PUBLIC_BASE = "https://subtitles.website/strapi"
@@ -1051,5 +1676,10 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         const val MAX_DOWNLOAD_REDIRECTS = 5
         val JSON = "application/json; charset=utf-8".toMediaType()
         val FORMATS = setOf("srt", "ass", "ssa", "vtt")
+        val NON_SUBTITLE_EXTENSIONS = setOf(
+            "jpg", "jpeg", "png", "gif", "webp", "bmp", "ico", "svg",
+            "nfo", "url", "lnk", "exe", "dll", "bat", "sh", "zip", "rar", "7z",
+            "pdf", "html", "htm", "css", "js", "json", "xml", "ds_store"
+        )
     }
 }

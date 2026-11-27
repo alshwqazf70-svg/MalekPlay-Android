@@ -1,9 +1,11 @@
 package com.malekplay.ui.player.audio
 
-import android.Manifest
 import android.util.Size
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -23,11 +25,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.GraphicEq
@@ -72,10 +78,13 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size as CanvasSize
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
@@ -86,12 +95,15 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import com.malekplay.R
+import com.malekplay.core.ui.theme.contrastingOnColor
 import com.malekplay.core.ui.util.formatDuration
 import com.malekplay.core.ui.util.formatSpeed
 import com.malekplay.core.ui.util.titleWithoutExtension
 import com.malekplay.domain.model.EqualizerPreset
 import com.malekplay.domain.model.MediaItem as DomainMedia
+import com.malekplay.ui.components.AmbientArtworkPalette
 import com.malekplay.ui.components.MediaThumbnail
+import com.malekplay.ui.components.loadAmbientArtworkPalette
 import com.malekplay.ui.player.PlayerViewModel
 import com.malekplay.safety.ParentalControlManager
 import com.malekplay.ui.player.components.EqualizerSheet
@@ -99,6 +111,9 @@ import com.malekplay.ui.player.components.SleepTimerDialog
 import com.malekplay.ui.player.components.SpeedPickerDialog
 import com.malekplay.ui.player.components.StatsSheet
 import com.malekplay.ui.settings.SettingsViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withContext
 
 @UnstableApi
 @Composable
@@ -137,6 +152,7 @@ fun AudioPlayerScreen(
         else -> "لم تصل إطارات صوتية إلى معالج المؤثرات حتى الآن."
     }
     val waveform by viewModel.audioEffects.waveform.collectAsStateWithLifecycle()
+    val pcmSpectrum by viewModel.audioEffects.pcmSpectrum.collectAsStateWithLifecycle()
 
     var media by remember { mutableStateOf<DomainMedia?>(null) }
     var title by remember { mutableStateOf("") }
@@ -157,7 +173,15 @@ fun AudioPlayerScreen(
     }
 
     LaunchedEffect(resolved, controller) {
-        if (!resolved || controller == null) return@LaunchedEffect
+        val activeController = controller ?: return@LaunchedEffect
+        if (!resolved) return@LaunchedEffect
+        // If returning from the MiniPlayer for the track already active in Media3,
+        // keep current playback position and queue intact instead of restarting.
+        if (activeController.currentMediaItem?.mediaId == mediaId &&
+            activeController.playbackState != Player.STATE_IDLE
+        ) {
+            return@LaunchedEffect
+        }
         val item = media
         if (item != null) {
             // Keep the entire music library in the service queue. Media3 then
@@ -206,31 +230,20 @@ fun AudioPlayerScreen(
     var showStats by remember { mutableStateOf(false) }
     var showQueue by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
-    var visualizerOn by remember { mutableStateOf(false) }
+    var visualizerOn by remember { mutableStateOf(true) }
+    var vinylMode by remember { mutableStateOf(true) }
 
-    // The visualizer needs RECORD_AUDIO; ask only when the user turns it on.
-    val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (granted) {
-            visualizerOn = true
-            viewModel.audioEffects.startVisualizer()
+    DisposableEffect(Unit) {
+        viewModel.audioEffects.setPcmSpectrumEnabled(true)
+        onDispose {
+            viewModel.audioEffects.setPcmSpectrumEnabled(false)
+            viewModel.audioEffects.stopVisualizer()
         }
     }
 
     fun toggleVisualizer() {
-        if (visualizerOn) {
-            visualizerOn = false
-            viewModel.audioEffects.stopVisualizer()
-        } else {
-            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-        }
-    }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            if (visualizerOn) viewModel.audioEffects.stopVisualizer()
-        }
+        visualizerOn = !visualizerOn
+        viewModel.audioEffects.setPcmSpectrumEnabled(visualizerOn)
     }
 
     // Media3 updates currentIndex on every automatic or manual track change.
@@ -238,7 +251,57 @@ fun AudioPlayerScreen(
     val item = if (queue.any { it.id == mediaId }) queue.getOrNull(currentIndex) ?: media else media
     val displayTitle = item?.displayTitle ?: title
     val currentMediaId = item?.id ?: mediaId
-    val accent = MaterialTheme.colorScheme.primary
+
+    var artworkPalette by remember(currentMediaId) { mutableStateOf<AmbientArtworkPalette?>(null) }
+    LaunchedEffect(currentMediaId, item?.artworkUri, item?.uri) {
+        artworkPalette = withContext(Dispatchers.IO) {
+            loadAmbientArtworkPalette(
+                context = context,
+                artworkUri = item?.artworkUri,
+                mediaUri = item?.uri,
+                cacheKey = currentMediaId
+            )
+        }
+    }
+
+    val themePrimary = MaterialTheme.colorScheme.primary
+    val themeTertiary = MaterialTheme.colorScheme.tertiary
+    val accent by animateColorAsState(
+        targetValue = artworkPalette?.let { Color(it.primaryArgb) } ?: themePrimary,
+        animationSpec = tween(750),
+        label = "audio-ambient-primary"
+    )
+    val secondaryGlow by animateColorAsState(
+        targetValue = artworkPalette?.let { Color(it.secondaryArgb) } ?: themeTertiary,
+        animationSpec = tween(750),
+        label = "audio-ambient-secondary"
+    )
+
+    val activeSpectrum = remember(pcmSpectrum, waveform) {
+        if (pcmSpectrum.any { it > 0.005f }) pcmSpectrum else waveform
+    }
+    val bassEnergy = remember(activeSpectrum, isPlaying) {
+        if (!isPlaying) 0f
+        else (activeSpectrum.take(6).sum() / 6f).coerceIn(0f, 1f)
+    }
+    val pulseScale by animateFloatAsState(
+        targetValue = if (isPlaying) 1f + bassEnergy * 0.08f else 0.98f,
+        animationSpec = tween(140),
+        label = "audio-bass-pulse"
+    )
+    val vinylRotation = remember { Animatable(0f) }
+    LaunchedEffect(isPlaying, vinylMode) {
+        if (isPlaying && vinylMode) {
+            while (isActive) {
+                val target = vinylRotation.value + 360f
+                vinylRotation.animateTo(
+                    targetValue = target,
+                    animationSpec = tween(durationMillis = 9_500, easing = LinearEasing)
+                )
+            }
+        }
+    }
+
     val subtitle = buildList {
         item?.artist?.takeIf { it.isNotBlank() }?.let { add(it) }
         item?.album?.takeIf { it.isNotBlank() }?.let { add(it) }
@@ -251,12 +314,34 @@ fun AudioPlayerScreen(
             .background(
                 Brush.verticalGradient(
                     listOf(
+                        accent.copy(alpha = 0.42f),
+                        secondaryGlow.copy(alpha = 0.20f),
                         MaterialTheme.colorScheme.surfaceContainerHigh,
-                        MaterialTheme.colorScheme.surface
+                        MaterialTheme.colorScheme.background
                     )
                 )
             )
     ) {
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 24.dp)
+                .size(320.dp)
+                .graphicsLayer {
+                    scaleX = pulseScale
+                    scaleY = pulseScale
+                }
+                .background(
+                    Brush.radialGradient(
+                        listOf(
+                            accent.copy(alpha = 0.34f + bassEnergy * 0.22f),
+                            secondaryGlow.copy(alpha = 0.16f),
+                            Color.Transparent
+                        )
+                    ),
+                    CircleShape
+                )
+        )
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -277,11 +362,30 @@ fun AudioPlayerScreen(
                     )
                 }
                 Spacer(Modifier.weight(1f))
-                Text(
-                    text = stringResource(R.string.nav_music),
-                    style = MaterialTheme.typography.labelLarge,
-                    maxLines = 1
-                )
+                Surface(
+                    onClick = { vinylMode = !vinylMode },
+                    shape = CircleShape,
+                    color = accent.copy(alpha = 0.18f),
+                    modifier = Modifier.border(1.dp, accent.copy(alpha = 0.45f), CircleShape)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (vinylMode) Icons.Filled.Album else Icons.Filled.GraphicEq,
+                            contentDescription = null,
+                            tint = accent,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = if (vinylMode) "قرص فينيل" else "غلاف زجاجي",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
                 Spacer(Modifier.weight(1f))
                 IconButton(onClick = { showMenu = true }) {
                     Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.player_more))
@@ -289,77 +393,157 @@ fun AudioPlayerScreen(
             }
             }
 
+            Spacer(Modifier.height(14.dp))
 
-            Spacer(Modifier.height(12.dp))
-
-            Surface(
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 240.dp)
-                    .aspectRatio(1f)
-                    .shadow(
-                        elevation = 24.dp,
-                        shape = RoundedCornerShape(26.dp),
-                        ambientColor = accent.copy(alpha = 0.28f),
-                        spotColor = accent.copy(alpha = 0.18f)
-                    )
-                    .border(
-                        width = 1.dp,
-                        brush = Brush.linearGradient(
-                            listOf(
-                                Color.White.copy(alpha = 0.48f),
-                                accent.copy(alpha = 0.62f),
-                                Color.White.copy(alpha = 0.10f)
-                            )
-                        ),
-                        shape = RoundedCornerShape(26.dp)
-                    ),
-                shape = RoundedCornerShape(26.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                tonalElevation = 4.dp
+                    .heightIn(max = 248.dp),
+                contentAlignment = Alignment.Center
             ) {
-                if (item != null) {
-                    MediaThumbnail(
-                        media = item,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clip(RoundedCornerShape(26.dp)),
-                        targetSize = Size(720, 720),
-                        cornerRadius = 26.dp,
-                        contentScale = ContentScale.Fit
-                    )
-                } else {
+                if (vinylMode) {
                     Box(
                         modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.radialGradient(
-                                    listOf(
-                                        accent.copy(alpha = 0.24f),
-                                        MaterialTheme.colorScheme.surfaceContainerHighest
-                                    )
-                                )
-                            ),
+                            .size(236.dp)
+                            .graphicsLayer {
+                                scaleX = pulseScale
+                                scaleY = pulseScale
+                                rotationZ = vinylRotation.value
+                            }
+                            .shadow(
+                                elevation = 28.dp,
+                                shape = CircleShape,
+                                ambientColor = accent.copy(alpha = 0.45f),
+                                spotColor = secondaryGlow.copy(alpha = 0.35f)
+                            )
+                            .clip(CircleShape)
+                            .background(Color(0xFF100E16))
+                            .clickable { vinylMode = false },
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            Icons.Filled.GraphicEq,
-                            contentDescription = null,
-                            tint = accent,
-                            modifier = Modifier.size(88.dp)
+                        Canvas(modifier = Modifier.fillMaxSize()) {
+                            val r = size.minDimension / 2f
+                            for (ring in 1..6) {
+                                drawCircle(
+                                    color = Color.White.copy(alpha = if (ring % 2 == 0) 0.06f else 0.03f),
+                                    radius = r * (0.48f + ring * 0.075f),
+                                    style = Stroke(width = 1.5f)
+                                )
+                            }
+                        }
+                        Box(
+                            modifier = Modifier
+                                .size(154.dp)
+                                .clip(CircleShape)
+                                .border(2.dp, accent.copy(alpha = 0.72f), CircleShape)
+                        ) {
+                            if (item != null) {
+                                MediaThumbnail(
+                                    media = item,
+                                    modifier = Modifier.fillMaxSize(),
+                                    targetSize = Size(512, 512),
+                                    cornerRadius = 77.dp,
+                                    contentScale = ContentScale.Crop
+                                )
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(accent.copy(alpha = 0.25f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        Icons.Filled.GraphicEq,
+                                        contentDescription = null,
+                                        tint = accent,
+                                        modifier = Modifier.size(64.dp)
+                                    )
+                                }
+                            }
+                        }
+                        Box(
+                            modifier = Modifier
+                                .size(24.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF0A0810))
+                                .border(2.dp, accent.copy(alpha = 0.85f), CircleShape)
                         )
+                    }
+                } else {
+                    Surface(
+                        modifier = Modifier
+                            .size(236.dp)
+                            .graphicsLayer {
+                                scaleX = pulseScale
+                                scaleY = pulseScale
+                            }
+                            .shadow(
+                                elevation = 26.dp,
+                                shape = RoundedCornerShape(28.dp),
+                                ambientColor = accent.copy(alpha = 0.38f),
+                                spotColor = secondaryGlow.copy(alpha = 0.28f)
+                            )
+                            .border(
+                                width = 1.dp,
+                                brush = Brush.linearGradient(
+                                    listOf(
+                                        Color.White.copy(alpha = 0.52f),
+                                        accent.copy(alpha = 0.72f),
+                                        secondaryGlow.copy(alpha = 0.32f)
+                                    )
+                                ),
+                                shape = RoundedCornerShape(28.dp)
+                            )
+                            .clickable { vinylMode = true },
+                        shape = RoundedCornerShape(28.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        tonalElevation = 4.dp
+                    ) {
+                        if (item != null) {
+                            MediaThumbnail(
+                                media = item,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clip(RoundedCornerShape(28.dp)),
+                                targetSize = Size(720, 720),
+                                cornerRadius = 28.dp,
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(
+                                        Brush.radialGradient(
+                                            listOf(
+                                                accent.copy(alpha = 0.24f),
+                                                MaterialTheme.colorScheme.surfaceContainerHighest
+                                            )
+                                        )
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Filled.GraphicEq,
+                                    contentDescription = null,
+                                    tint = accent,
+                                    modifier = Modifier.size(88.dp)
+                                )
+                            }
+                        }
                     }
                 }
             }
 
             if (visualizerOn) {
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(14.dp))
                 VisualizerBars(
-                    waveform = waveform,
-                    color = accent,
+                    waveform = activeSpectrum,
+                    primaryColor = accent,
+                    secondaryColor = secondaryGlow,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(56.dp)
+                        .height(54.dp)
                 )
             }
 
@@ -464,7 +648,7 @@ fun AudioPlayerScreen(
                             contentDescription = stringResource(
                                 if (isPlaying) R.string.player_pause else R.string.player_play
                             ),
-                            tint = MaterialTheme.colorScheme.onPrimary,
+                            tint = contrastingOnColor(accent),
                             modifier = Modifier.size(38.dp)
                         )
                     }
@@ -652,30 +836,34 @@ fun AudioPlayerScreen(
     }
 }
 
-/** Live 32-bar spectrum fed by the platform Visualizer. */
+/** Mirrored live spectrum powered directly by the PCM equalizer tap (with platform Visualizer fallback). */
 @Composable
 private fun VisualizerBars(
     waveform: FloatArray,
-    color: Color,
+    primaryColor: Color,
+    secondaryColor: Color,
     modifier: Modifier = Modifier
 ) {
     Canvas(modifier = modifier) {
         val count = waveform.size
         if (count == 0) return@Canvas
         val slot = size.width / count
-        val barWidth = (slot * 0.6f).coerceAtLeast(1f)
+        val barWidth = (slot * 0.58f).coerceAtLeast(2f)
         val offset = (slot - barWidth) / 2f
+        val midY = size.height / 2f
+        val gradient = Brush.verticalGradient(listOf(primaryColor, secondaryColor, primaryColor))
         waveform.forEachIndexed { index, value ->
-            val barHeight = (value * size.height).coerceIn(2f, size.height)
+            val clamped = value.coerceIn(0.04f, 1f)
+            val halfHeight = (clamped * midY).coerceAtLeast(3f)
             drawRoundRect(
-                color = color,
+                brush = gradient,
                 topLeft = Offset(
                     x = index * slot + offset,
-                    y = size.height - barHeight
+                    y = midY - halfHeight
                 ),
-                size = CanvasSize(barWidth, barHeight),
+                size = CanvasSize(barWidth, halfHeight * 2f),
                 cornerRadius = CornerRadius(barWidth / 2f, barWidth / 2f),
-                alpha = 0.35f + value * 0.65f
+                alpha = 0.35f + clamped * 0.65f
             )
         }
     }
@@ -706,21 +894,35 @@ private fun AudioQueueSheet(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             } else {
-                items.forEachIndexed { index, item ->
+                LazyColumn(
+                    modifier = Modifier.heightIn(max = 420.dp)
+                ) {
+                    itemsIndexed(items, key = { idx, it -> "${it.id}_$idx" }) { index, item ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(
+                                    if (index == currentIndex) MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+                                    else Color.Transparent
+                                )
                                 .clickable { onSelect(index) }
-                                .padding(vertical = 12.dp),
+                                .padding(horizontal = 10.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("${index + 1}", fontSize = 12.sp)
+                            Text(
+                                "${index + 1}",
+                                fontSize = 12.sp,
+                                color = if (index == currentIndex) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                             Spacer(Modifier.width(12.dp))
                             Text(
                                 item.displayTitle,
                                 modifier = Modifier.weight(1f),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
+                                fontWeight = if (index == currentIndex) FontWeight.Bold else FontWeight.Normal,
                                 color = if (index == currentIndex) MaterialTheme.colorScheme.primary
                                 else MaterialTheme.colorScheme.onSurface
                             )
@@ -730,6 +932,7 @@ private fun AudioQueueSheet(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
+                    }
                 }
             }
         }

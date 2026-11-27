@@ -171,11 +171,18 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
-    /** Reconcile MediaStore, then remove moved source IDs from all library-derived views. */
+    /** Remove moved source IDs immediately from all library-derived views, then reconcile MediaStore. */
     fun reconcileMovedMediaUris(uris: Collection<String>) {
         if (uris.isEmpty()) return
         viewModelScope.launch {
-            runCatching { mediaRepository.refresh() }
+            mediaRepository.removeMediaUris(uris)
+            try {
+                mediaRepository.refresh()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // Keep immediate removal even if a background MediaStore refresh throws transiently.
+            }
             mediaRepository.removeMediaUris(uris)
         }
     }
@@ -232,6 +239,22 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
+    fun stepManualItem(mediaId: String, delta: Int, currentItems: List<LibraryItem>) {
+        val currentIndex = currentItems.indexOfFirst { it.media.id == mediaId }
+        if (currentIndex < 0) return
+        val targetIndex = (currentIndex + delta).coerceIn(0, currentItems.lastIndex)
+        if (targetIndex == currentIndex) return
+        moveManualItem(mediaId, targetIndex, currentItems)
+    }
+
+    fun resetManualSortOrder() {
+        viewModelScope.launch {
+            settingsRepository.update { current ->
+                current.copy(manualSortOrder = emptyList())
+            }
+        }
+    }
+
     fun setViewMode(mode: ViewMode) {
         viewModelScope.launch { settingsRepository.update { it.copy(viewMode = mode) } }
     }
@@ -271,7 +294,7 @@ class LibraryViewModel @Inject constructor(
             SortMode.NEWEST, SortMode.OLDEST, SortMode.LAST_PLAYED -> items.sortedBy { it.lastAddedMs }
             SortMode.DURATION -> items.sortedBy { it.itemCount }
             SortMode.TYPE -> items.sortedBy { it.name.lowercase(Locale.ROOT) }
-            SortMode.MANUAL -> items
+            SortMode.MANUAL -> items.sortedBy { it.name.lowercase(Locale.ROOT) }
         }
         val forward = when (mode) {
             SortMode.NEWEST -> false

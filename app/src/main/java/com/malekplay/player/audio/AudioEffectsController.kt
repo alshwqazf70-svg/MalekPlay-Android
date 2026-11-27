@@ -47,6 +47,13 @@ class AudioEffectsController {
     val processingMetrics: StateFlow<TenBandEqualizerAudioProcessor.Metrics> =
         softwareEqualizerProcessor.metrics
 
+    /** Real-time 32-band PCM energy spectrum captured directly from decoded audio (no mic permission required). */
+    val pcmSpectrum: StateFlow<FloatArray> = softwareEqualizerProcessor.pcmSpectrum
+
+    fun setPcmSpectrumEnabled(enabled: Boolean) {
+        softwareEqualizerProcessor.setSpectrumCaptureEnabled(enabled)
+    }
+
     /** 0..1 per band, refreshed at ~10 Hz for the visualizer bars. */
     private val _waveform = MutableStateFlow(FloatArray(32))
     val waveform: StateFlow<FloatArray> = _waveform.asStateFlow()

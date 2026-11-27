@@ -180,8 +180,19 @@ class SubtitleTranslationEngine @Inject constructor(
                 batch.forEachIndexed { index, cue ->
                     currentCoroutineContext().ensureActive()
                     val restoredText = SrtSubtitleParser.restoreMarkup(batchResult[index], cue.markup)
+                    val srtReadyText = if (extension == "ass" || extension == "ssa") {
+                        restoredText
+                            .replace(Regex("""\{\\[^}]*}"""), "")
+                            .replace(Regex("""\\[Nn]"""), "\n")
+                            .replace(Regex("""\\[Hh]"""), " ")
+                            .lines()
+                            .joinToString("\n") { it.trim() }
+                            .trim()
+                    } else {
+                        restoredText
+                    }
                     translatedCues[cue.originalIndex] =
-                        (cue.lines.take(cue.textStart) + restoredText.split('\n')).joinToString("\n")
+                        (cue.lines.take(cue.textStart) + srtReadyText.split('\n')).joinToString("\n")
                 }
                 completedCues += batch.size
                 onProgress(completedCues.coerceAtMost(pending.size), pending.size)
@@ -192,7 +203,8 @@ class SubtitleTranslationEngine @Inject constructor(
                 TranslatedSubtitleCache.pruneExpired(context.cacheDir)
                 val temporary = File.createTempFile("malekplay-ar-", ".part", context.cacheDir)
                 try {
-                    temporary.writeText(translated, StandardCharsets.UTF_8)
+                    val utf8Bom = byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte())
+                    temporary.writeBytes(utf8Bom + translated.toByteArray(StandardCharsets.UTF_8))
                     // Same-directory rename is atomic on the app filesystem. Do not
                     // delete an existing cache entry first: another playback job may
                     // have completed the identical translation concurrently.
@@ -253,14 +265,14 @@ class SubtitleTranslationEngine @Inject constructor(
             normalized.startsWith("WEBVTT", ignoreCase = true) -> "vtt"
             normalized.contains("[Events]", ignoreCase = true) &&
                 normalized.lineSequence().any { it.trimStart().startsWith("Dialogue:", ignoreCase = true) } -> "ass"
-            normalized.contains("-->") -> "srt"
+            normalized.lineSequence().any { SrtSubtitleParser.timingLineIndex(listOf(it)) == 0 } -> "srt"
             else -> null
         }
     }
 
     private companion object {
         val SUPPORTED_FORMATS = setOf("srt", "vtt", "ass", "ssa")
-        const val MAX_SUBTITLE_BYTES = 5_000_000
+        const val MAX_SUBTITLE_BYTES = 8 * 1024 * 1024
     }
 
     private suspend fun <T> Task<T>.awaitResult(): T =

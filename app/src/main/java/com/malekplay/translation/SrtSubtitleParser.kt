@@ -7,11 +7,27 @@ import java.nio.charset.StandardCharsets
 
 /** Small, deterministic SRT parser helpers kept independent from ML Kit for unit testing. */
 internal object SrtSubtitleParser {
-    private val timingPattern = Regex("""^\s*(?:\d{1,}:)?\d{2}:\d{2}[,.]\d{3}\s*-->\s*(?:\d{1,}:)?\d{2}:\d{2}[,.]\d{3}(?:\s+.*)?\s*$""")
-    private val vttTimestampPattern = Regex("""((?:\d{1,}:)?\d{2}:\d{2})\.(\d{3})""")
+    private val timingPattern = Regex("""^\s*(?:\d{1,3}:)?\d{1,2}:\d{1,2}(?:[,.]\d{1,4}|:\d{1,2})?\s*-->\s*(?:\d{1,3}:)?\d{1,2}:\d{1,2}(?:[,.]\d{1,4}|:\d{1,2})?(?:\s+.*)?\s*$""")
+    private val invisibleDirectionMarks = Regex("""[\u0000\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF\u00A0]""")
+    private val vttTimestampPattern = Regex("""((?:\d{1,3}:)?\d{1,2}:\d{1,2})\.(\d{1,4})""")
     private val markupPattern = Regex("""<[^>]+>""")
     private val assOverridePattern = Regex("""\{\\[^}]*}""")
     private val assTimestampPattern = Regex("""^(\d+):(\d{2}):(\d{2})[.](\d{1,2})$""")
+
+    fun cleanTimingLine(line: String): String =
+        invisibleDirectionMarks.replace(line, " ").map { char ->
+            when (char) {
+                in '\u0660'..'\u0669' -> ('0'.code + char.code - '\u0660'.code).toChar()
+                in '\u06F0'..'\u06F9' -> ('0'.code + char.code - '\u06F0'.code).toChar()
+                else -> char
+            }
+        }.joinToString("").trim()
+
+    fun isTimingLine(line: String): Boolean =
+        line.contains("-->") && timingPattern.matches(cleanTimingLine(line))
+
+    fun hasTimingLine(text: String): Boolean =
+        text.lineSequence().any(::isTimingLine)
 
     fun decode(bytes: ByteArray): String {
         require(bytes.isNotEmpty()) { "ملف الترجمة فارغ" }
@@ -74,14 +90,16 @@ internal object SrtSubtitleParser {
     /** Detects a clear content signature before trusting a provider's filename or MIME hint. */
     fun detectFormat(text: String): String? {
         val normalized = text.removePrefix("\uFEFF").trimStart()
-        if (normalized.startsWith("WEBVTT", ignoreCase = true)) return "vtt"
         if (normalized.contains("[Events]", ignoreCase = true) &&
             normalized.lineSequence().any { it.trimStart().startsWith("Dialogue:", ignoreCase = true) }
-        ) return "ass"
-        val hasArrow = normalized.contains("-->")
-        if (!hasArrow) return null
-        val vttTiming = Regex("""(?m)^\s*(?:\d{1,2}:)?\d{1,2}:\d{2}\.\d{3}\s+-->""")
-        return if (vttTiming.containsMatchIn(normalized)) "vtt" else "srt"
+        ) {
+            val isLegacySsa = Regex("""(?im)^\s*ScriptType:\s*v4\.00\s*$""").containsMatchIn(normalized)
+            return if (isLegacySsa) "ssa" else "ass"
+        }
+        if (!hasTimingLine(normalized)) return null
+        if (normalized.startsWith("WEBVTT", ignoreCase = true)) return "vtt"
+        val vttDotTiming = Regex("""(?m)^\s*(?:\d{1,2}:)?\d{1,2}:\d{2}\.\d{3}\s*-->""")
+        return if (vttDotTiming.containsMatchIn(normalized)) "vtt" else "srt"
     }
 
     fun splitBlocks(text: String, formatHint: String? = null): List<String> {
@@ -97,10 +115,11 @@ internal object SrtSubtitleParser {
         val isWebVtt = blocks.firstOrNull()?.lineSequence()?.firstOrNull()
             ?.trim()?.startsWith("WEBVTT", ignoreCase = true) == true
 
-        return blocks.mapIndexedNotNull { index, rawBlock ->
+        val resultBlocks = mutableListOf<String>()
+        blocks.forEachIndexed { index, rawBlock ->
             val firstLine = rawBlock.lineSequence().firstOrNull()?.trim().orEmpty()
             if (isWebVtt && index == 0) {
-                return@mapIndexedNotNull null
+                return@forEachIndexed
             }
             if (isWebVtt && (
                 firstLine.startsWith("NOTE", ignoreCase = true) ||
@@ -108,17 +127,49 @@ internal object SrtSubtitleParser {
                     firstLine.equals("REGION", ignoreCase = true)
                 )
             ) {
-                return@mapIndexedNotNull null
+                return@forEachIndexed
             }
 
-            rawBlock.lineSequence().map { line ->
+            val normalizedLines = rawBlock.lineSequence().map { line ->
                 if (line.contains("-->")) {
-                    vttTimestampPattern.replace(line, "\$1,\$2")
+                    vttTimestampPattern.replace(line) { match ->
+                        val hms = match.groupValues[1]
+                        val frac = match.groupValues[2].padEnd(3, '0').take(3)
+                        "$hms,$frac"
+                    }
                 } else {
                     line
                 }
-            }.joinToString("\n")
+            }.toList()
+
+            val timingIndices = normalizedLines.indices.filter { idx ->
+                isTimingLine(normalizedLines[idx])
+            }
+            if (timingIndices.size <= 1) {
+                resultBlocks += normalizedLines.joinToString("\n")
+            } else {
+                // Split adjacent cues that lack blank separator lines.
+                var start = 0
+                for (tPos in timingIndices.indices) {
+                    val timingIdx = timingIndices[tPos]
+                    val nextTimingIdx = timingIndices.getOrNull(tPos + 1)
+                    val end = if (nextTimingIdx == null) {
+                        normalizedLines.size
+                    } else if (nextTimingIdx - 1 > timingIdx &&
+                        normalizedLines[nextTimingIdx - 1].trim().all(Char::isDigit)
+                    ) {
+                        nextTimingIdx - 1
+                    } else {
+                        nextTimingIdx
+                    }
+                    if (end > start) {
+                        resultBlocks += normalizedLines.subList(start, end).joinToString("\n")
+                    }
+                    start = end
+                }
+            }
         }
+        return resultBlocks
     }
 
 
@@ -159,9 +210,6 @@ internal object SrtSubtitleParser {
             val start = assTimeToSrt(values[startIndex]) ?: return@forEach
             val end = assTimeToSrt(values[endIndex]) ?: return@forEach
             val dialogue = values[textIndex]
-                .replace(assOverridePattern, "")
-                .replace(Regex("""\\[Nn]"""), "\n")
-                .replace(Regex("""\\h"""), " ")
                 .replace(Regex("""<[^>]*>"""), "")
                 .trim()
             if (dialogue.isBlank()) return@forEach
@@ -202,11 +250,12 @@ internal object SrtSubtitleParser {
     }
 
     fun timingLineIndex(lines: List<String>): Int =
-        lines.indexOfFirst { timingPattern.matches(it) }
+        lines.indexOfFirst(::isTimingLine)
 
     fun maskMarkup(text: String): Pair<String, List<String>> {
         val tags = mutableListOf<String>()
-        val masked = markupPattern.replace(text) { match ->
+        val protectedMarkup = Regex("""<[^>]+>|\{\\[^}]*}|\\[NnHh]""")
+        val masked = protectedMarkup.replace(text) { match ->
             val index = tags.size
             tags += match.value
             "§T$index§"
@@ -217,7 +266,8 @@ internal object SrtSubtitleParser {
     fun restoreMarkup(text: String, tags: List<String>): String {
         var restored = text
         tags.forEachIndexed { index, tag ->
-            restored = Regex("""§\s*T\s*$index\s*§""", RegexOption.IGNORE_CASE).replace(restored, tag)
+            val safeReplacement = Regex.escapeReplacement(tag)
+            restored = Regex("""§\s*T\s*$index\s*§""", RegexOption.IGNORE_CASE).replace(restored, safeReplacement)
         }
         return restored
     }

@@ -150,7 +150,9 @@ Dialogue: 0,0:00:04.00,0:00:05.25,Default,,0,0,0,,Another cue
         val cues = SrtSubtitleParser.splitBlocks(ass, "ass")
         assertEquals(2, cues.size)
         assertEquals("00:00:01,250 --> 00:00:03,500", cues[0].lines()[1])
-        assertEquals("Hello, world\nsecond line", cues[0].lines().drop(2).joinToString("\n"))
+        // Keep ASS override tags and line-break markers intact for the translation
+        // pipeline; preview rendering strips them separately without joining words.
+        assertEquals("""{\i1}Hello, world\Nsecond line""", cues[0].lines().drop(2).joinToString("\n"))
         assertEquals("00:00:04,000 --> 00:00:05,250", cues[1].lines()[1])
         assertEquals(1, SrtSubtitleParser.timingLineIndex(cues[0].lines()))
     }
@@ -170,6 +172,28 @@ Dialogue: 0,0:00:04.00,0:00:05.25,Default,,0,0,0,,Another cue
             "ass",
             SrtSubtitleParser.detectFormat("[Script Info]\n[Events]\nDialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,Hello")
         )
+    }
+
+    @Test
+    fun splitsCompactSrtCuesWithoutBlankLinesAndRestoresDollarTagsSafely() {
+        val compact = "1\n00:00:01,000 --> 00:00:02,000\nFirst line\n2\n00:00:03,000 --> 00:00:04,000\nSecond line"
+        val cues = SrtSubtitleParser.splitBlocks(compact)
+        assertEquals(2, cues.size)
+        assertTrue(cues[0].contains("First line"))
+        assertTrue(cues[1].contains("Second line"))
+
+        val (masked, tags) = SrtSubtitleParser.maskMarkup("""<font color="$100\">Hello</font>""")
+        assertEquals("""<font color="$100\">مرحبا</font>""", SrtSubtitleParser.restoreMarkup(
+            masked.replace("Hello", "مرحبا"), tags
+        ))
+    }
+
+    @Test
+    fun normalizesShortDotSubsecondTimestampsIntoThreeDigitSrtMillis() {
+        val vtt = "WEBVTT\n\n0:1:5.25 --> 0:1:8.5\nShort dot cue"
+        val cues = SrtSubtitleParser.splitBlocks(vtt, "vtt")
+        assertEquals(1, cues.size)
+        assertEquals("0:1:5,250 --> 0:1:8,500", cues.single().lines()[0])
     }
 
 }

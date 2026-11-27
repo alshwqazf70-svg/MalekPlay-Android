@@ -13,14 +13,16 @@ internal object VideoKindClassifier {
         Regex("""(?i)(\d{1,2})\s*x\s*(\d{1,3})"""),
         Regex("""(?i)season\s*(\d{1,2})[ ._-]*(?:episode|ep)\s*(\d{1,3})"""),
         Regex("""(?i)(?:episode|ep)\s*[-_. ]?(\d{1,3})"""),
-        Regex("""الحلقة\s*([0-9]{1,3})""")
+        Regex("""(?:ج|موسم|الموسم)\s*(\d{1,2})\s*[ ._-]*(?:ح|حلقة|الحلقة)\s*(\d{1,3})"""),
+        Regex("""(?:الحلقة|حلقة)\s*[-_. ]?([0-9]{1,3})"""),
+        Regex("""(?:^|[\s._-])ح\s*([0-9]{1,3})(?=$|[\s._-])""")
     )
     private val seriesPatterns = listOf(
         Regex("""(?i)\bs\d{1,2}[ ._-]*e\d{1,3}\b"""),
         Regex("""(?i)\b\d{1,2}\s*x\s*\d{1,3}\b"""),
         Regex("""(?i)\b(?:season|episode|ep)\s*[-_. ]?\d{1,3}\b"""),
         Regex("""(?i)\b(?:tv\s*series|web\s*series|series)\b"""),
-        Regex("""الحلقة\s*\d*|الموسم\s*\d*|مسلسل|مسلسلات""")
+        Regex("""(?:الحلقة|حلقة)\s*\d*|(?:الموسم|موسم)\s*\d*|مسلسل|مسلسلات|(?:^|[\s._-])ح\s*\d{1,3}(?=$|[\s._-])""")
     )
     private val moviePatterns = listOf(
         Regex("""(?i)\b(?:movie|film|feature\s*film)\b"""),
@@ -48,6 +50,23 @@ internal object VideoKindClassifier {
             .replace(Regex("""\.(mkv|mp4|avi|mov|webm|m4v|ts|3gp)$"""), "")
             .replace(Regex("""[._\-\[\]()]+"""), " ")
             .replace(Regex("""\s+"""), " ").trim()
+
+    fun formatSeriesDisplayName(rawKey: String): String {
+        val cleaned = rawKey
+            .replace(Regex("""(?i)\b(1080p|720p|2160p|480p|360p|4k|8k|hdr|hevc|x264|x265|h264|h265|10bit|web[ ._-]?dl|webrip|bluray|brrip|dvdrip|aac|ac3|mp4|mkv)\b"""), " ")
+            .replace('_', ' ')
+            .replace('.', ' ')
+            .replace(Regex("""\s+"""), " ")
+            .trim()
+        if (cleaned.isBlank()) return rawKey
+        return cleaned.split(' ').joinToString(" ") { word ->
+            if (word.any { it in 'a'..'z' }) {
+                word.replaceFirstChar { ch -> ch.titlecase(Locale.ROOT) }
+            } else {
+                word
+            }
+        }
+    }
 
     fun classify(title: String, folderName: String = "", folderPath: String = ""): VideoKind {
         val source = normalizeDigits("$title $folderName $folderPath")

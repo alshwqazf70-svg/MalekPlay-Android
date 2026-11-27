@@ -69,6 +69,19 @@ class SettingsRepository(private val context: Context) {
         val FOLDERS_FIRST = booleanPreferencesKey("folders_first")
         val MANUAL_SORT_ORDER = stringPreferencesKey("manual_sort_order")
         val VIEW_MODE = stringPreferencesKey("view_mode")
+
+        val REMEMBER_VIDEO_ENHANCEMENT = booleanPreferencesKey("remember_video_enhancement")
+        val VIDEO_ENHANCEMENT_ENABLED = booleanPreferencesKey("video_enhancement_enabled")
+        val VIDEO_ENHANCEMENT_PROFILE = stringPreferencesKey("video_enhancement_profile")
+        val VIDEO_ENHANCEMENT_CUSTOM = booleanPreferencesKey("video_enhancement_custom")
+        val VIDEO_ENHANCEMENT_UPSCALING = booleanPreferencesKey("video_enhancement_upscaling")
+        val VIDEO_ENHANCEMENT_DENOISE = booleanPreferencesKey("video_enhancement_denoise")
+        val VIDEO_ENHANCEMENT_VIBRANCE = booleanPreferencesKey("video_enhancement_vibrance")
+        val VIDEO_ENHANCEMENT_SMART_AI = booleanPreferencesKey("video_enhancement_smart_ai")
+        val VIDEO_ENHANCEMENT_DETAIL_STRENGTH = floatPreferencesKey("video_enhancement_detail_strength")
+        val VIDEO_ENHANCEMENT_DENOISE_STRENGTH = floatPreferencesKey("video_enhancement_denoise_strength")
+        val VIDEO_ENHANCEMENT_CONTRAST_BOOST = floatPreferencesKey("video_enhancement_contrast_boost")
+        val VIDEO_ENHANCEMENT_VIBRANCE_STRENGTH = floatPreferencesKey("video_enhancement_vibrance_strength")
     }
 
     val seenNewMediaIds: Flow<Set<String>> = context.malekPlayDataStore.data
@@ -172,7 +185,25 @@ class SettingsRepository(private val context: Context) {
         foldersFirst = this[Keys.FOLDERS_FIRST] ?: true,
         manualSortOrder = this[Keys.MANUAL_SORT_ORDER]?.split("\\n")?.filter { it.isNotBlank() } ?: emptyList(),
         viewMode = runCatching { ViewMode.valueOf(this[Keys.VIEW_MODE] ?: "GRID") }
-            .getOrDefault(ViewMode.GRID)
+            .getOrDefault(ViewMode.GRID),
+
+        rememberVideoEnhancement = this[Keys.REMEMBER_VIDEO_ENHANCEMENT] ?: false,
+        videoEnhancementEnabled = this[Keys.VIDEO_ENHANCEMENT_ENABLED] ?: false,
+        videoEnhancementProfile = this[Keys.VIDEO_ENHANCEMENT_PROFILE]
+            ?.takeIf { it in setOf("economy", "balanced", "ultra") } ?: "balanced",
+        videoEnhancementCustom = this[Keys.VIDEO_ENHANCEMENT_CUSTOM] ?: false,
+        videoEnhancementUpscaling = this[Keys.VIDEO_ENHANCEMENT_UPSCALING] ?: true,
+        videoEnhancementDenoise = this[Keys.VIDEO_ENHANCEMENT_DENOISE] ?: true,
+        videoEnhancementVibrance = this[Keys.VIDEO_ENHANCEMENT_VIBRANCE] ?: true,
+        videoEnhancementSmartAi = this[Keys.VIDEO_ENHANCEMENT_SMART_AI] ?: false,
+        videoEnhancementDetailStrength = (this[Keys.VIDEO_ENHANCEMENT_DETAIL_STRENGTH] ?: 0.90f)
+            .takeIf { it.isFinite() }?.coerceIn(0f, 1.20f) ?: 0.90f,
+        videoEnhancementDenoiseStrength = (this[Keys.VIDEO_ENHANCEMENT_DENOISE_STRENGTH] ?: 0.34f)
+            .takeIf { it.isFinite() }?.coerceIn(0f, 0.60f) ?: 0.34f,
+        videoEnhancementContrastBoost = (this[Keys.VIDEO_ENHANCEMENT_CONTRAST_BOOST] ?: 0.14f)
+            .takeIf { it.isFinite() }?.coerceIn(0f, 0.22f) ?: 0.14f,
+        videoEnhancementVibranceStrength = (this[Keys.VIDEO_ENHANCEMENT_VIBRANCE_STRENGTH] ?: 0.08f)
+            .takeIf { it.isFinite() }?.coerceIn(0f, 0.35f) ?: 0.08f
     )
 
     private fun androidx.datastore.preferences.core.MutablePreferences.writeFrom(s: PlayerSettings) {
@@ -211,6 +242,20 @@ class SettingsRepository(private val context: Context) {
         this[Keys.FOLDERS_FIRST] = s.foldersFirst
         this[Keys.MANUAL_SORT_ORDER] = s.manualSortOrder.distinct().joinToString("\\n")
         this[Keys.VIEW_MODE] = s.viewMode.name
+
+        this[Keys.REMEMBER_VIDEO_ENHANCEMENT] = s.rememberVideoEnhancement
+        this[Keys.VIDEO_ENHANCEMENT_ENABLED] = s.videoEnhancementEnabled
+        this[Keys.VIDEO_ENHANCEMENT_PROFILE] = s.videoEnhancementProfile
+            .takeIf { it in setOf("economy", "balanced", "ultra") } ?: "balanced"
+        this[Keys.VIDEO_ENHANCEMENT_CUSTOM] = s.videoEnhancementCustom
+        this[Keys.VIDEO_ENHANCEMENT_UPSCALING] = s.videoEnhancementUpscaling
+        this[Keys.VIDEO_ENHANCEMENT_DENOISE] = s.videoEnhancementDenoise
+        this[Keys.VIDEO_ENHANCEMENT_VIBRANCE] = s.videoEnhancementVibrance
+        this[Keys.VIDEO_ENHANCEMENT_SMART_AI] = s.videoEnhancementSmartAi
+        this[Keys.VIDEO_ENHANCEMENT_DETAIL_STRENGTH] = s.videoEnhancementDetailStrength.coerceIn(0f, 1.20f)
+        this[Keys.VIDEO_ENHANCEMENT_DENOISE_STRENGTH] = s.videoEnhancementDenoiseStrength.coerceIn(0f, 0.60f)
+        this[Keys.VIDEO_ENHANCEMENT_CONTRAST_BOOST] = s.videoEnhancementContrastBoost.coerceIn(0f, 0.22f)
+        this[Keys.VIDEO_ENHANCEMENT_VIBRANCE_STRENGTH] = s.videoEnhancementVibranceStrength.coerceIn(0f, 0.35f)
     }
 
     private fun parseBands(raw: String?): List<Int> {
