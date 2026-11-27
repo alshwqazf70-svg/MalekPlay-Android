@@ -1,6 +1,7 @@
 package com.malekplay.network
 
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.CompletableDeferred
@@ -182,7 +183,7 @@ class UltraShareMultiRecipientCoordinatorTest {
         val peerTwoStarted = CompletableDeferred<Unit>()
         val childJobs = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.Job>()
 
-        val batchDeferred = kotlinx.coroutines.async {
+        val batchDeferred = async {
             UltraShareMultiRecipientCoordinator.execute(
                 targets = threeTargets,
                 maxParallelPeers = 3,
