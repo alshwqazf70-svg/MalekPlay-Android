@@ -337,5 +337,7 @@ data class VaultImportBatchResult(
     val movedCount: Int,
     val copiedOnlyCount: Int,
     val deletedSourceMediaIds: List<String>,
-    val failures: List<String> = emptyList()
+    val failures: List<String> = emptyList(),
+    val succeededKeys: Set<String> = emptySet(),
+    val pendingSystemDeleteUris: List<String> = emptyList()
 )

@@ -630,6 +630,24 @@
     <string name="vault_archive_cancelled">تم إلغاء العملية بأمان.</string>
     <string name="vault_error_insufficient_storage">مساحة التخزين غير كافية لإتمام العملية.</string>
     <string name="vault_take_out_delete_failed">تم إخراج %1$d عنصر بنجاح، لكن النسخ المشفّرة لا تزال داخل الخزنة.</string>
+    <string name="vault_browser_folders_title">مجلدات الجهاز</string>
+    <string name="vault_browser_folders_subtitle">اختر مجلداً لتصفح ملفاته وإضافتها إلى الخزنة</string>
+    <string name="vault_browser_save_to_vault">حفظ (%1$d)</string>
+    <string name="vault_browser_already_saved_badge">محمي</string>
+    <string name="vault_browser_subfolder_count">%1$d مجلد فرعي</string>
+    <string name="vault_browser_refresh_folders">تحديث المجلدات</string>
+    <string name="vault_browser_saf_folder_option">تصفح مجلد تخزين آخر (SAF)</string>
+    <string name="vault_browser_saf_saved_folder">مجلد خارجي (SAF)</string>
+    <string name="vault_browser_grant_media_access">منح صلاحية الوسائط</string>
+    <string name="vault_browser_permission_banner">امنح صلاحية الوسائط لعرض مجلدات الجهاز مباشرة، أو تصفح مجلداً عبر النظام من الأسفل.</string>
+    <string name="vault_browser_save_result_banner">تم حفظ وحماية %1$d ملف في الخزنة. يمكنك متابعة التصفح أو الضغط على × للإنهاء.</string>
+    <string name="vault_browser_save_partial_banner">تمت حماية %1$d ملف وفشل %2$d؛ لم يُحذف أو يُسجل أي ملف فاشل.</string>
+    <string name="vault_browser_load_more">عرض المزيد (%1$d متبقٍ)</string>
+    <string name="vault_browser_current_folder">المجلد الحالي: %1$s</string>
+    <string name="vault_browser_pending_selected">المحدد: %1$d · %2$s</string>
+    <string name="vault_take_out_original_fallback_needed">المجلد الأصلي غير متاح لـ %1$d عنصر. اختر مجلداً لاستعادتها إليه.</string>
+    <string name="vault_browser_media_delete_pending">تم تشفير %1$d ملف. وافق على رسالة النظام لحذف الملفات الأصلية من الجهاز.</string>
+    <string name="vault_browser_media_delete_kept">تم تشفير وحفظ %1$d ملف بأمان في الخزنة؛ وبقيت الملفات الأصلية على الجهاز.</string>
 
     <!-- تحسينات أقسام الموسيقى والمسلسلات والأفلام -->
     <string name="music_search_hint">ابحث في الأغاني والألبومات والفنانين والأنواع</string>

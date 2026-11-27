@@ -12,6 +12,7 @@ import android.provider.OpenableColumns
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
@@ -111,14 +112,17 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.malekplay.R
 import com.malekplay.ui.library.LibraryViewModel
+import com.malekplay.vault.MediaStoreDeleteOutcome
 import com.malekplay.vault.PrivateVaultArchiveBrowser
+import com.malekplay.vault.PrivateVaultDeviceSource
 import com.malekplay.vault.PrivateVaultEntry
 import com.malekplay.vault.PrivateVaultRepository
 import com.malekplay.vault.PrivateVaultSession
 import com.malekplay.vault.PrivateVaultTreeSupport
-import com.malekplay.vault.SelectedVaultBrowserItem
+import com.malekplay.vault.VaultDeviceItem
 import com.malekplay.vault.VaultEntryFilter
 import com.malekplay.vault.VaultEntrySort
+import com.malekplay.vault.VaultImportBatchResult
 import com.malekplay.vault.VaultInsufficientStorageException
 import com.malekplay.vault.filterAndSortVaultEntries
 import kotlinx.coroutines.Dispatchers
@@ -143,6 +147,7 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val repository = remember(context) { PrivateVaultRepository(context) }
     val treeSupport = remember(context, repository) { PrivateVaultTreeSupport(context, repository) }
+    val deviceSource = remember(context) { PrivateVaultDeviceSource(context) }
     val archiveBrowser = remember(context, repository, treeSupport) {
         PrivateVaultArchiveBrowser(context, repository, treeSupport)
     }
@@ -184,6 +189,7 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
     var confirmOriginalRestoreRequest by remember { mutableStateOf<PendingTransferRequest?>(null) }
     var customDestTransferRequest by remember { mutableStateOf<PendingTransferRequest?>(null) }
     var pendingSingleCreateDocEntry by remember { mutableStateOf<PrivateVaultEntry?>(null) }
+    var pendingMediaDeleteUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var moveFolderSelection by remember { mutableStateOf(false) }
 
     val vaultPrefs = remember(context) {
@@ -193,6 +199,7 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
         mutableStateOf(vaultPrefs.getString("source_tree_uri", null)?.let(Uri::parse))
     }
     var browserOpen by remember { mutableStateOf(false) }
+    var browserRefreshKey by remember { mutableIntStateOf(0) }
 
     var importProgress by remember { mutableIntStateOf(0) }
     var importTotal by remember { mutableIntStateOf(0) }
@@ -218,6 +225,7 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
         confirmOriginalRestoreRequest = null
         customDestTransferRequest = null
         pendingSingleCreateDocEntry = null
+        pendingMediaDeleteUris = emptyList()
         selectedEntryIds.clear()
         browserOpen = false
         entries.clear()
@@ -556,6 +564,28 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
         }
     }
 
+    val mediaStoreDeleteLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { res ->
+        suppressNextBackgroundLock = false
+        touchActivity()
+        val urisToCheck = pendingMediaDeleteUris
+        pendingMediaDeleteUris = emptyList()
+        if (urisToCheck.isEmpty()) return@rememberLauncherForActivityResult
+        scope.launch {
+            val verifiedRemoved = withContext(Dispatchers.IO) {
+                urisToCheck.filter { uri -> deviceSource.verifyDeleted(uri) }
+            }
+            if (verifiedRemoved.isNotEmpty()) {
+                libraryViewModel.reconcileMovedMediaUris(verifiedRemoved.map { it.toString() })
+                browserRefreshKey++
+                message = context.getString(R.string.vault_browser_move_result_success, verifiedRemoved.size)
+            } else if (res.resultCode != Activity.RESULT_OK) {
+                message = context.getString(R.string.vault_browser_media_delete_kept, urisToCheck.size)
+            }
+        }
+    }
+
     fun openInternalBrowser() {
         touchActivity()
         scope.launch {
@@ -576,51 +606,86 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
     fun requestTransfer(targetEntries: List<PrivateVaultEntry>, removeFromVault: Boolean) {
         if (targetEntries.isEmpty()) return
         touchActivity()
+        if (removeFromVault && treeSupport.canRestoreAllToOriginalFolder(targetEntries)) {
+            // Direct MX-Player-style unlock/restore straight to each item's original folder without picker/prompts
+            executeRestoreBatch(
+                targetEntries = targetEntries,
+                destinationTree = null,
+                useOriginalFolder = true,
+                removeFromVault = true
+            )
+            return
+        }
         transferSheetRequest = PendingTransferRequest(
             entries = targetEntries,
             removeFromVault = removeFromVault
         )
     }
 
-    fun importBrowserItems(selected: List<SelectedVaultBrowserItem>, move: Boolean) {
-        val session = vaultSession ?: return
-        if (selected.isEmpty()) return
-        browserOpen = false
+    suspend fun importDeviceItems(selected: List<VaultDeviceItem>, move: Boolean): VaultImportBatchResult {
+        val session = vaultSession
+            ?: return VaultImportBatchResult(0, selected.size, 0, 0, emptyList())
+        if (selected.isEmpty()) {
+            return VaultImportBatchResult(0, 0, 0, 0, emptyList())
+        }
         val cancelFlag = AtomicBoolean(false)
         activeCancelFlag = cancelFlag
-        scope.launch {
-            busy = true
-            importProgress = 0
-            importTotal = selected.size
-            byteFraction = 0f
-            progressDetail = null
-            message = null
-            runCatching {
-                val result = withContext(Dispatchers.IO) {
-                    treeSupport.importBrowserSelection(
-                        items = selected,
-                        session = session,
-                        moveSource = move,
-                        isCancelled = { cancelFlag.get() },
-                        onItemProgress = { current, total, name ->
-                            importProgress = current
-                            importTotal = total
-                            progressDetail = name
-                            byteFraction = 0f
-                        },
-                        onBytesProgress = { done, total ->
-                            if (total > 0L) {
-                                byteFraction = (done.toFloat() / total.toFloat()).coerceIn(0f, 1f)
-                            }
+        busy = true
+        importProgress = 0
+        importTotal = selected.size
+        byteFraction = 0f
+        progressDetail = null
+        message = null
+        return try {
+            val result = withContext(Dispatchers.IO) {
+                treeSupport.importDeviceSelection(
+                    items = selected,
+                    session = session,
+                    moveSource = move,
+                    isCancelled = { cancelFlag.get() },
+                    onItemProgress = { current, total, name ->
+                        importProgress = current
+                        importTotal = total
+                        progressDetail = name
+                        byteFraction = 0f
+                    },
+                    onBytesProgress = { done, total ->
+                        if (total > 0L) {
+                            byteFraction = (done.toFloat() / total.toFloat()).coerceIn(0f, 1f)
                         }
-                    )
+                    }
+                )
+            }
+            if (move && result.deletedSourceMediaIds.isNotEmpty()) {
+                libraryViewModel.reconcileMovedMediaUris(result.deletedSourceMediaIds)
+            }
+            refreshEntries(session)
+
+            val pendingUris = result.pendingSystemDeleteUris.mapNotNull { raw ->
+                runCatching { Uri.parse(raw) }.getOrNull()
+            }
+            if (move && pendingUris.isNotEmpty()) {
+                val sender = deviceSource.createBatchDeleteIntentSender(pendingUris)
+                    ?: run {
+                        val firstOutcome = withContext(Dispatchers.IO) {
+                            deviceSource.deleteMediaStoreUriAndVerify(pendingUris.first())
+                        }
+                        when (firstOutcome) {
+                            is MediaStoreDeleteOutcome.NeedsRecoverableConsent -> firstOutcome.intentSender
+                            MediaStoreDeleteOutcome.NeedsBatchSystemConsent ->
+                                deviceSource.createBatchDeleteIntentSender(pendingUris)
+                            else -> null
+                        }
+                    }
+                if (sender != null) {
+                    pendingMediaDeleteUris = pendingUris
+                    suppressNextBackgroundLock = true
+                    mediaStoreDeleteLauncher.launch(IntentSenderRequest.Builder(sender).build())
+                    message = context.getString(R.string.vault_browser_media_delete_pending, result.importedCount)
+                } else {
+                    message = context.getString(R.string.vault_browser_media_delete_kept, result.importedCount)
                 }
-                if (move && result.deletedSourceMediaIds.isNotEmpty()) {
-                    libraryViewModel.reconcileMovedMediaUris(result.deletedSourceMediaIds)
-                }
-                refreshEntries(session)
-                result
-            }.onSuccess { result ->
+            } else {
                 message = if (move) {
                     if (result.copiedOnlyCount == 0 && result.failedCount == 0) {
                         context.getString(R.string.vault_browser_move_result_success, result.movedCount)
@@ -644,10 +709,21 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                         )
                     }
                 }
-            }.onFailure { err ->
-                runCatching { refreshEntries(session) }
-                message = err.localizedMessage ?: context.getString(R.string.vault_folder_import_failed)
             }
+            result
+        } catch (err: Throwable) {
+            runCatching { refreshEntries(session) }
+            val errMsg = err.localizedMessage ?: context.getString(R.string.vault_folder_import_failed)
+            message = errMsg
+            VaultImportBatchResult(
+                importedCount = 0,
+                failedCount = selected.size,
+                movedCount = 0,
+                copiedOnlyCount = 0,
+                deletedSourceMediaIds = emptyList(),
+                failures = listOf(errMsg)
+            )
+        } finally {
             activeCancelFlag = null
             importProgress = 0
             importTotal = 0
@@ -1468,11 +1544,17 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
     // Internal file browser modal (opened from + FAB or Browse button)
     if (browserOpen && vaultSession != null) {
         VaultInternalBrowserModal(
+            libraryViewModel = libraryViewModel,
             treeSupport = treeSupport,
             rootTreeUri = browserTreeUri,
             busy = busy,
+            importProgress = importProgress,
+            importTotal = importTotal,
+            progressDetail = progressDetail,
+            externalRefreshKey = browserRefreshKey,
             onTouchActivity = ::touchActivity,
-            onPickRootFolder = {
+            onSuppressNextBackgroundLock = { suppressNextBackgroundLock = it },
+            onPickSafRootFolder = {
                 suppressNextBackgroundLock = true
                 browserSourcePicker.launch(null)
             },
@@ -1481,8 +1563,8 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                 suppressNextBackgroundLock = true
                 systemPicker.launch(arrayOf("*/*"))
             },
-            onCopyOrMoveSelection = ::importBrowserItems,
-            onImportSubfolder = ::importSubfolderFromBrowser,
+            onSaveDeviceSelection = ::importDeviceItems,
+            onImportSafSubfolder = ::importSubfolderFromBrowser,
             onDismiss = { browserOpen = false }
         )
     }

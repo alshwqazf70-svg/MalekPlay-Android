@@ -349,6 +349,20 @@ internal fun VaultEncryptedFolderBrowserModal(
         )
     }
 
+    fun requestArchiveExtract(items: List<VaultArchiveListingItem>, removeFromArchive: Boolean) {
+        onTouchActivity()
+        if (removeFromArchive && treeSupport.canRestoreToOriginalFolder(currentArchiveEntry)) {
+            executeArchiveExtract(
+                items = items,
+                destinationTree = null,
+                useOriginalFolder = true,
+                removeFromArchive = true
+            )
+        } else {
+            extractDialogRequest = ArchiveExtractRequest(items, removeFromArchive = removeFromArchive)
+        }
+    }
+
     val listedItems = remember(allEntries.toList(), currentPath, searchQuery, includeSubfolders, sortBy, ascending) {
         val raw = if (includeSubfolders && searchQuery.isNotBlank()) {
             archiveBrowser.searchEntries(allEntries.toList(), currentPath, searchQuery, includeSubfolders = true)
@@ -497,8 +511,7 @@ internal fun VaultEncryptedFolderBrowserModal(
                             ) {
                                 Button(
                                     onClick = {
-                                        onTouchActivity()
-                                        extractDialogRequest = ArchiveExtractRequest(selectedSnapshot, removeFromArchive = true)
+                                        requestArchiveExtract(selectedSnapshot, removeFromArchive = true)
                                     },
                                     enabled = !busy,
                                     modifier = Modifier.weight(1f),
@@ -513,8 +526,7 @@ internal fun VaultEncryptedFolderBrowserModal(
                                 }
                                 OutlinedButton(
                                     onClick = {
-                                        onTouchActivity()
-                                        extractDialogRequest = ArchiveExtractRequest(selectedSnapshot, removeFromArchive = false)
+                                        requestArchiveExtract(selectedSnapshot, removeFromArchive = false)
                                     },
                                     enabled = !busy,
                                     modifier = Modifier.weight(1f),
@@ -868,7 +880,7 @@ internal fun VaultEncryptedFolderBrowserModal(
                                                 text = { Text(stringResource(R.string.vault_take_out)) },
                                                 onClick = {
                                                     rowMenuOpen = false
-                                                    extractDialogRequest = ArchiveExtractRequest(listOf(item), removeFromArchive = true)
+                                                    requestArchiveExtract(listOf(item), removeFromArchive = true)
                                                 }
                                             )
                                             DropdownMenuItem(
@@ -876,7 +888,7 @@ internal fun VaultEncryptedFolderBrowserModal(
                                                 text = { Text(stringResource(R.string.vault_export_copy)) },
                                                 onClick = {
                                                     rowMenuOpen = false
-                                                    extractDialogRequest = ArchiveExtractRequest(listOf(item), removeFromArchive = false)
+                                                    requestArchiveExtract(listOf(item), removeFromArchive = false)
                                                 }
                                             )
                                             DropdownMenuItem(

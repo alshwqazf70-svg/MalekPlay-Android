@@ -52,6 +52,7 @@ data class VaultBrowserItem(
 class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultRepository) {
     private val appContext = context.applicationContext
     private val resolver: ContentResolver = appContext.contentResolver
+    private val deviceSource = PrivateVaultDeviceSource(appContext)
 
     init {
         // These are app-private plaintext ZIP work files. A new support instance
@@ -169,6 +170,8 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
         var copiedOnlyCount = 0
         val deletedSourceMediaIds = mutableListOf<String>()
         val failures = mutableListOf<String>()
+        val succeededKeys = linkedSetOf<String>()
+        val pendingSystemDeleteUris = mutableListOf<String>()
         val total = items.size.coerceAtLeast(1)
 
         for ((index, item) in items.withIndex()) {
@@ -188,14 +191,24 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
                         }
                     )
                     importedCount++
+                    succeededKeys += item.uri.toString()
                     if (moveSource) {
                         deletedSourceMediaIds += folderRes.deletedSourceUris
                         if (folderRes.sourceFullyMoved) movedCount++ else copiedOnlyCount++
                     }
                 } else {
+                    val isMediaStoreOrigin = item.treeUri.toString() == MEDIASTORE_ORIGIN_TREE_URI
+                    check(deviceSource.isUriReadable(item.uri)) {
+                        "File is unavailable, moved, or permission was revoked."
+                    }
+                    val resolvedOriginParentId = if (isMediaStoreOrigin) {
+                        deviceSource.resolveLegacyOriginRelativeFolder(item.uri) ?: item.parentDocumentId
+                    } else {
+                        item.parentDocumentId
+                    }
                     val origin = VaultSourceOrigin(
                         treeUri = item.treeUri.toString(),
-                        parentDocumentId = item.parentDocumentId,
+                        parentDocumentId = resolvedOriginParentId,
                         displayPath = item.displayFolderPath
                     )
                     vault.importUri(
@@ -209,12 +222,30 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
                         }
                     )
                     importedCount++
+                    succeededKeys += item.uri.toString()
                     if (moveSource) {
-                        if (deleteSourceDocumentAndVerify(item.uri, item.treeUri, item.parentDocumentId, item.documentId)) {
-                            movedCount++
-                            deletedSourceMediaIds += libraryMediaId(item.uri)
+                        if (isMediaStoreOrigin) {
+                            when (deviceSource.deleteMediaStoreUriAndVerify(item.uri)) {
+                                MediaStoreDeleteOutcome.DeletedVerified -> {
+                                    movedCount++
+                                    deletedSourceMediaIds += libraryMediaId(item.uri)
+                                }
+                                MediaStoreDeleteOutcome.NeedsBatchSystemConsent,
+                                is MediaStoreDeleteOutcome.NeedsRecoverableConsent -> {
+                                    copiedOnlyCount++
+                                    pendingSystemDeleteUris += item.uri.toString()
+                                }
+                                MediaStoreDeleteOutcome.FailedKeptSource -> {
+                                    copiedOnlyCount++
+                                }
+                            }
                         } else {
-                            copiedOnlyCount++
+                            if (deleteSourceDocumentAndVerify(item.uri, item.treeUri, item.parentDocumentId, item.documentId)) {
+                                movedCount++
+                                deletedSourceMediaIds += libraryMediaId(item.uri)
+                            } else {
+                                copiedOnlyCount++
+                            }
                         }
                     }
                 }
@@ -231,9 +262,27 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
             movedCount = movedCount,
             copiedOnlyCount = copiedOnlyCount,
             deletedSourceMediaIds = deletedSourceMediaIds,
-            failures = failures
+            failures = failures,
+            succeededKeys = succeededKeys,
+            pendingSystemDeleteUris = pendingSystemDeleteUris
         )
     }
+
+    fun importDeviceSelection(
+        items: List<VaultDeviceItem>,
+        session: PrivateVaultSession,
+        moveSource: Boolean,
+        isCancelled: () -> Boolean = { false },
+        onItemProgress: ((current: Int, total: Int, displayName: String) -> Unit)? = null,
+        onBytesProgress: ((doneBytes: Long, totalBytes: Long) -> Unit)? = null
+    ): VaultImportBatchResult = importBrowserSelection(
+        items = items.map { it.toSelectedBrowserItem() },
+        session = session,
+        moveSource = moveSource,
+        isCancelled = isCancelled,
+        onItemProgress = onItemProgress,
+        onBytesProgress = onBytesProgress
+    )
 
     fun restoreFolder(
         entry: PrivateVaultEntry,
@@ -436,6 +485,39 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
                 break
             }
             onItemProgress?.invoke(index + 1, total, entry.displayName)
+            if (useOriginalFolder && deviceSource.canRestoreToMediaStoreOrigin(entry)) {
+                val mediaRestoreOutcome = runCatching {
+                    deviceSource.restoreEntryToMediaStoreOrigin(
+                        entry = entry,
+                        session = session,
+                        vault = vault
+                    ) { doneBytes ->
+                        onBytesProgress?.invoke(doneBytes, entry.sizeBytes)
+                    }
+                }
+                if (mediaRestoreOutcome.isFailure) {
+                    failedCount++
+                    keptInVaultCount++
+                    failures += "${entry.displayName}: ${mediaRestoreOutcome.exceptionOrNull()?.localizedMessage ?: "Restore failed"}"
+                } else {
+                    succeededCount++
+                    mediaRestoreOutcome.getOrNull()?.let { restoredPaths += it.toString() }
+                    if (removeFromVaultAfterRestore) {
+                        val deleted = runCatching { vault.delete(entry.id, session) }
+                        if (deleted.isSuccess) {
+                            removedFromVaultCount++
+                        } else {
+                            keptInVaultCount++
+                            extractedButVaultDeleteFailedCount++
+                            failures += "${entry.displayName}: Extracted safely, but encrypted copy remains in vault."
+                        }
+                    } else {
+                        keptInVaultCount++
+                    }
+                }
+                continue
+            }
+
             val resolvedTarget = resolveRestoreTarget(entry, destinationTree, useOriginalFolder)
             if (resolvedTarget == null) {
                 failedCount++
@@ -548,7 +630,9 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
         entries.isNotEmpty() && entries.all { canRestoreToOriginalFolder(it) }
 
     fun canRestoreToOriginalFolder(entry: PrivateVaultEntry): Boolean {
+        if (deviceSource.canRestoreToMediaStoreOrigin(entry)) return true
         val rawTree = entry.sourceTreeUri ?: return false
+        if (rawTree == MEDIASTORE_ORIGIN_TREE_URI) return false
         val treeUri = runCatching { Uri.parse(rawTree) }.getOrNull() ?: return false
         return isTreeFolderAccessible(treeUri, entry.sourceParentDocumentId)
     }
@@ -979,6 +1063,7 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
         }
 
         const val FOLDER_ARCHIVE_MIME = "application/vnd.malekplay.private-vault-folder"
+        const val MEDIASTORE_ORIGIN_TREE_URI = "mediastore://external"
         private const val MAX_DEPTH = 64
         private const val MAX_NODES = 20_000
     }

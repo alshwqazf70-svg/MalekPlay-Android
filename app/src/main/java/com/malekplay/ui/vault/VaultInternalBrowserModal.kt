@@ -2,15 +2,12 @@ package com.malekplay.ui.vault
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.Point
-import android.media.MediaMetadataRetriever
 import android.net.Uri
-import android.os.Build
 import android.os.CancellationSignal
-import android.provider.DocumentsContract
 import android.util.LruCache
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -24,7 +21,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -32,16 +28,16 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.DriveFileMove
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.CheckBox
-import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
@@ -51,6 +47,8 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.InsertDriveFile
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.VideoFile
@@ -76,6 +74,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -97,13 +96,27 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.malekplay.R
+import com.malekplay.domain.model.LibraryItem
+import com.malekplay.ui.library.LibraryViewModel
+import com.malekplay.vault.PrivateVaultDeviceSource
 import com.malekplay.vault.PrivateVaultTreeSupport
-import com.malekplay.vault.SelectedVaultBrowserItem
 import com.malekplay.vault.VaultBrowserItem
-import com.malekplay.vault.VaultBrowserSelectionManager
+import com.malekplay.vault.VaultBrowserSessionSnapshot
 import com.malekplay.vault.VaultBrowserSort
-import com.malekplay.vault.filterAndSortBrowserItems
+import com.malekplay.vault.VaultBrowserStateHolder
+import com.malekplay.vault.VaultBrowserStep
+import com.malekplay.vault.VaultDeviceFolder
+import com.malekplay.vault.VaultDeviceItem
+import com.malekplay.vault.VaultDeviceSourceKind
+import com.malekplay.vault.VaultImportBatchResult
+import com.malekplay.vault.buildFolderContentsForPath
+import com.malekplay.vault.combineLibraryAndExtraDeviceFolders
+import com.malekplay.vault.extractExtension
+import com.malekplay.vault.filterAndSortDeviceFolders
+import com.malekplay.vault.filterAndSortDeviceItems
+import com.malekplay.vault.normalizeRelativeFolderPath
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -113,112 +126,306 @@ import java.util.Date
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun VaultInternalBrowserModal(
+    libraryViewModel: LibraryViewModel,
     treeSupport: PrivateVaultTreeSupport,
     rootTreeUri: Uri?,
     busy: Boolean,
+    importProgress: Int = 0,
+    importTotal: Int = 0,
+    progressDetail: String? = null,
+    externalRefreshKey: Int = 0,
     onTouchActivity: () -> Unit,
-    onPickRootFolder: () -> Unit,
+    onSuppressNextBackgroundLock: (Boolean) -> Unit,
+    onPickSafRootFolder: () -> Unit,
     onOpenSystemPickerFallback: () -> Unit,
-    onCopyOrMoveSelection: (List<SelectedVaultBrowserItem>, move: Boolean) -> Unit,
-    onImportSubfolder: (treeUri: Uri, folderDocId: String, parentDocId: String?, folderName: String, displayPath: String, move: Boolean) -> Unit,
+    onSaveDeviceSelection: suspend (List<VaultDeviceItem>, moveSource: Boolean) -> VaultImportBatchResult,
+    onImportSafSubfolder: (treeUri: Uri, folderDocId: String, parentDocId: String?, folderName: String, displayPath: String, move: Boolean) -> Unit,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val deviceSource = remember(context) { PrivateVaultDeviceSource(context) }
 
-    val pathStack = remember(rootTreeUri) { mutableStateListOf<Pair<String, String>>() }
-    val rawItems = remember(rootTreeUri) { mutableStateListOf<VaultBrowserItem>() }
-    val childCounts = remember(rootTreeUri) { mutableStateMapOf<String, Int?>() }
-    val selectionManager = remember { VaultBrowserSelectionManager() }
-    var selectionVersion by remember { mutableIntStateOf(0) }
+    val stateHolder = remember { VaultBrowserStateHolder() }
+    var snapshot by remember { mutableStateOf(stateHolder.openFolderList()) }
+    fun syncState(next: VaultBrowserSessionSnapshot) {
+        snapshot = next
+    }
 
-    var loading by remember { mutableStateOf(false) }
-    var loadError by remember { mutableStateOf<String?>(null) }
-    var searchQuery by remember { mutableStateOf("") }
+    val libraryFolders by libraryViewModel.folders.collectAsStateWithLifecycle()
+    val libraryRefreshing by libraryViewModel.isRefreshing.collectAsStateWithLifecycle()
+    val extraDeviceItems = remember { mutableStateListOf<VaultDeviceItem>() }
+    var hasMediaPermission by remember { mutableStateOf(deviceSource.hasMediaPermissions()) }
+    var supplementalReloadTick by remember { mutableIntStateOf(0) }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) {
+        onSuppressNextBackgroundLock(false)
+        onTouchActivity()
+        hasMediaPermission = deviceSource.hasMediaPermissions()
+        libraryViewModel.refresh()
+        supplementalReloadTick++
+    }
+
+    // Load accessible images/downloads/files on IO thread without blocking main thread
+    LaunchedEffect(hasMediaPermission, supplementalReloadTick, externalRefreshKey) {
+        val loaded = withContext(Dispatchers.IO) {
+            deviceSource.querySupplementalItems()
+        }
+        extraDeviceItems.clear()
+        extraDeviceItems.addAll(loaded)
+    }
+
+    val safFolderLabel = stringResource(R.string.vault_browser_saf_saved_folder)
+    val safRootFolder = remember(rootTreeUri, safFolderLabel) {
+        rootTreeUri?.let { uri ->
+            val label = runCatching { treeSupport.queryTreeRootLabel(uri) }.getOrNull()
+                ?.takeIf { it.isNotBlank() } ?: safFolderLabel
+            VaultDeviceFolder(
+                path = "saf:${uri}",
+                name = label,
+                itemCount = 0,
+                sourceKind = VaultDeviceSourceKind.SAF,
+                safTreeUri = uri,
+                safDocumentId = null
+            )
+        }
+    }
+
+    val combinedFolders = remember(libraryFolders, extraDeviceItems.toList(), safRootFolder) {
+        combineLibraryAndExtraDeviceFolders(
+            libraryFolders = libraryFolders,
+            extraItems = extraDeviceItems.toList(),
+            safRootFolder = safRootFolder
+        )
+    }
+
+    var folderQuery by remember { mutableStateOf("") }
+    var itemQuery by remember { mutableStateOf("") }
     var sortBy by remember { mutableStateOf(VaultBrowserSort.NAME) }
     var ascending by remember { mutableStateOf(true) }
-    var pendingSubfolderImport by remember { mutableStateOf<VaultBrowserItem?>(null) }
+
+    val safItems = remember { mutableStateListOf<VaultDeviceItem>() }
+    val safChildCounts = remember { mutableStateMapOf<String, Int?>() }
+    var safLoading by remember { mutableStateOf(false) }
+    var safLoadError by remember { mutableStateOf<String?>(null) }
+    var pendingSafSubfolderImport by remember { mutableStateOf<VaultDeviceItem?>(null) }
 
     val thumbCache = remember {
         object : LruCache<String, Bitmap>(12 * 1024 * 1024) {
             override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount.coerceAtLeast(1)
         }
     }
-
     DisposableEffect(Unit) {
         onDispose { thumbCache.evictAll() }
     }
 
-    fun buildCurrentDisplayPath(rootLabel: String): String {
-        if (pathStack.isEmpty()) return rootLabel
-        return buildString {
-            append(rootLabel)
-            pathStack.forEach { append(" / ").append(it.second) }
+    val activeStep = snapshot.step
+    val activeFolderStep = activeStep as? VaultBrowserStep.FolderContents
+
+    // Observe current folder items from LibraryViewModel when browsing a MediaStore folder
+    val libraryFolderItems by remember(activeFolderStep?.currentPath, activeFolderStep?.sourceKind) {
+        if (activeFolderStep != null && activeFolderStep.sourceKind == VaultDeviceSourceKind.MEDIA_STORE) {
+            libraryViewModel.folderContents(activeFolderStep.currentPath)
+        } else {
+            kotlinx.coroutines.flow.flowOf(emptyList<LibraryItem>())
         }
-    }
+    }.collectAsStateWithLifecycle(initialValue = emptyList())
 
-    val rootLabel = stringResource(R.string.vault_root_crumb)
-
-    fun loadFolder(folderDocId: String?) {
-        val tree = rootTreeUri ?: return
+    fun loadSafDirectory(treeUri: Uri, docId: String?, folderDisplayPath: String) {
         onTouchActivity()
         scope.launch {
-            loading = true
-            loadError = null
+            safLoading = true
+            safLoadError = null
             runCatching {
                 withContext(Dispatchers.IO) {
-                    treeSupport.listBrowserChildren(tree, folderDocId)
+                    treeSupport.listBrowserChildren(treeUri, docId).map { item ->
+                        item.toDeviceItem(
+                            treeUri = treeUri,
+                            parentDocumentId = docId,
+                            displayFolderPath = folderDisplayPath
+                        )
+                    }
                 }
             }.onSuccess { loaded ->
-                rawItems.clear()
-                rawItems.addAll(loaded)
+                safItems.clear()
+                safItems.addAll(loaded)
             }.onFailure { err ->
-                rawItems.clear()
-                loadError = err.localizedMessage
+                safItems.clear()
+                safLoadError = err.localizedMessage
             }
-            loading = false
+            safLoading = false
         }
     }
 
-    LaunchedEffect(rootTreeUri) {
-        if (rootTreeUri != null) {
-            pathStack.clear()
-            loadFolder(null)
+    val safRootLabel = stringResource(R.string.vault_root_crumb)
+
+    LaunchedEffect(
+        activeFolderStep?.sourceKind,
+        activeFolderStep?.safTreeUri,
+        activeFolderStep?.currentSafDocId
+    ) {
+        if (activeFolderStep != null &&
+            activeFolderStep.sourceKind == VaultDeviceSourceKind.SAF &&
+            activeFolderStep.safTreeUri != null
+        ) {
+            val displayPath = buildString {
+                append(safRootLabel)
+                activeFolderStep.stack.drop(1).forEach { append(" / ").append(it.second) }
+            }
+            loadSafDirectory(
+                treeUri = activeFolderStep.safTreeUri,
+                docId = activeFolderStep.currentSafDocId,
+                folderDisplayPath = displayPath
+            )
         }
     }
 
-    val visibleItems = remember(rawItems.toList(), searchQuery, sortBy, ascending) {
-        filterAndSortBrowserItems(rawItems.toList(), searchQuery, sortBy, ascending)
+    // Current folder items (either Library+MediaStore or SAF)
+    val rawFolderItems = remember(
+        activeFolderStep,
+        libraryFolderItems,
+        extraDeviceItems.toList(),
+        combinedFolders,
+        safItems.toList()
+    ) {
+        when {
+            activeFolderStep == null -> emptyList()
+            activeFolderStep.sourceKind == VaultDeviceSourceKind.SAF -> safItems.toList()
+            else -> {
+                val targetNorm = normalizeRelativeFolderPath(activeFolderStep.currentPath)
+                val extrasForFolder = extraDeviceItems.filter {
+                    normalizeRelativeFolderPath(it.folderPath) == targetNorm
+                }
+                buildFolderContentsForPath(
+                    folderPath = targetNorm,
+                    libraryFolderItems = libraryFolderItems,
+                    extraFolderItems = extrasForFolder,
+                    allFolders = combinedFolders
+                )
+            }
+        }
     }
 
-    val currentFolderFiles = remember(visibleItems) {
-        visibleItems.filter { !it.isDirectory }
+    val visibleFolders = remember(combinedFolders, folderQuery) {
+        filterAndSortDeviceFolders(combinedFolders, folderQuery)
     }
 
-    // Recompute snapshots whenever selectionVersion updates
-    val selectedSnapshot = remember(selectionVersion) { selectionManager.selectedItems() }
-    val selectedCount = selectedSnapshot.size
-    val selectedTotalBytes = remember(selectedSnapshot) {
-        selectedSnapshot.sumOf { it.sizeBytes.coerceAtLeast(0L) }
+    val visibleFolderItems = remember(rawFolderItems, itemQuery, sortBy, ascending) {
+        filterAndSortDeviceItems(rawFolderItems, itemQuery, sortBy, ascending)
     }
-    val allCurrentFilesSelected = remember(currentFolderFiles, selectionVersion) {
-        selectionManager.areAllVisibleFilesSelected(currentFolderFiles)
+
+    val pagedFolderItems = remember(visibleFolderItems, snapshot.visibleItemLimit) {
+        if (visibleFolderItems.size <= snapshot.visibleItemLimit) {
+            visibleFolderItems
+        } else {
+            visibleFolderItems.take(snapshot.visibleItemLimit)
+        }
+    }
+    val remainingPagedCount = (visibleFolderItems.size - pagedFolderItems.size).coerceAtLeast(0)
+
+    val listState = rememberLazyListState()
+    val reachedEnd by remember(listState, remainingPagedCount) {
+        derivedStateOf {
+            if (remainingPagedCount <= 0) false
+            else {
+                val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+                lastVisible >= pagedFolderItems.lastIndex - 6
+            }
+        }
+    }
+    LaunchedEffect(reachedEnd) {
+        if (reachedEnd && remainingPagedCount > 0) {
+            syncState(stateHolder.loadMoreItems())
+        }
+    }
+
+    val currentSelectableFiles = remember(visibleFolderItems) {
+        visibleFolderItems.filter { !it.isDirectory }
+    }
+    val allCurrentSelected = remember(currentSelectableFiles, snapshot) {
+        stateHolder.areAllSelectableFilesSelected(currentSelectableFiles)
+    }
+
+    val saveBusy = busy || snapshot.isSaving
+
+    fun performSave(moveSource: Boolean) {
+        onTouchActivity()
+        val batch = stateHolder.tryBeginSave() ?: return
+        syncState(stateHolder.snapshot)
+        scope.launch {
+            val result = runCatching {
+                onSaveDeviceSelection(batch, moveSource)
+            }.getOrNull()
+            if (result != null) {
+                val messageText = if (result.failedCount == 0) {
+                    context.getString(R.string.vault_browser_save_result_banner, result.importedCount)
+                } else {
+                    context.getString(
+                        R.string.vault_browser_save_partial_banner,
+                        result.importedCount,
+                        result.failedCount
+                    )
+                }
+                syncState(stateHolder.finishSave(result.succeededKeys, messageText))
+                if (activeFolderStep?.sourceKind == VaultDeviceSourceKind.SAF &&
+                    activeFolderStep.safTreeUri != null &&
+                    moveSource &&
+                    result.movedCount > 0
+                ) {
+                    val displayPath = buildString {
+                        append(safRootLabel)
+                        activeFolderStep.stack.drop(1).forEach { append(" / ").append(it.second) }
+                    }
+                    loadSafDirectory(
+                        treeUri = activeFolderStep.safTreeUri,
+                        docId = activeFolderStep.currentSafDocId,
+                        folderDisplayPath = displayPath
+                    )
+                }
+                if (moveSource && result.movedCount > 0) {
+                    supplementalReloadTick++
+                }
+            } else {
+                syncState(stateHolder.finishSave(emptySet(), null))
+            }
+        }
+    }
+
+    fun handleCloseX() {
+        onTouchActivity()
+        if (saveBusy) return
+        val next = stateHolder.onCloseButtonPressed()
+        syncState(next)
+        if (!next.isOpen) {
+            onDismiss()
+        } else {
+            itemQuery = ""
+        }
+    }
+
+    fun handleSystemBack() {
+        onTouchActivity()
+        if (saveBusy) return
+        val next = stateHolder.onSystemBackPressed()
+        syncState(next)
+        if (!next.isOpen) {
+            onDismiss()
+        } else {
+            itemQuery = ""
+        }
     }
 
     Dialog(
-        onDismissRequest = { if (!busy) onDismiss() },
+        onDismissRequest = { if (!saveBusy) handleCloseX() },
         properties = DialogProperties(
             usePlatformDefaultWidth = false,
             decorFitsSystemWindows = false
         )
     ) {
-        BackHandler(enabled = !busy) {
-            if (pathStack.isNotEmpty()) {
-                pathStack.removeAt(pathStack.lastIndex)
-                loadFolder(pathStack.lastOrNull()?.first)
-            } else {
-                onDismiss()
-            }
+        BackHandler(enabled = !saveBusy) {
+            handleSystemBack()
         }
 
         Scaffold(
@@ -231,65 +438,79 @@ internal fun VaultInternalBrowserModal(
                     ),
                     modifier = Modifier.statusBarsPadding(),
                     navigationIcon = {
-                        IconButton(
-                            onClick = {
-                                onTouchActivity()
-                                if (pathStack.isNotEmpty()) {
-                                    pathStack.removeAt(pathStack.lastIndex)
-                                    loadFolder(pathStack.lastOrNull()?.first)
-                                } else {
-                                    onDismiss()
-                                }
-                            },
-                            enabled = !busy
-                        ) {
-                            Icon(
-                                imageVector = if (pathStack.isNotEmpty()) Icons.AutoMirrored.Filled.ArrowBack else Icons.Filled.Close,
-                                contentDescription = stringResource(R.string.common_close),
-                                tint = Color.White
-                            )
+                        if (activeFolderStep != null) {
+                            IconButton(
+                                onClick = { handleSystemBack() },
+                                enabled = !saveBusy
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = stringResource(R.string.cd_back),
+                                    tint = Color.White
+                                )
+                            }
                         }
                     },
                     title = {
-                        Column {
-                            Text(
-                                text = pathStack.lastOrNull()?.second ?: stringResource(R.string.vault_browser_title),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = stringResource(R.string.vault_browser_subtitle),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = Color(0xFFA8A3BC)
-                            )
+                        if (activeFolderStep != null) {
+                            Column {
+                                Text(
+                                    text = activeFolderStep.currentName,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = stringResource(
+                                        R.string.vault_browser_current_folder,
+                                        activeFolderStep.currentPath
+                                    ),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color(0xFFA8A3BC)
+                                )
+                            }
+                        } else {
+                            Column {
+                                Text(
+                                    text = stringResource(R.string.vault_browser_folders_title),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = stringResource(R.string.vault_browser_folders_subtitle),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color(0xFFA8A3BC)
+                                )
+                            }
                         }
                     },
                     actions = {
-                        if (rootTreeUri != null) {
+                        if (activeFolderStep == null) {
                             IconButton(
                                 onClick = {
                                     onTouchActivity()
-                                    onPickRootFolder()
+                                    libraryViewModel.refresh()
+                                    supplementalReloadTick++
                                 },
-                                enabled = !busy
+                                enabled = !saveBusy && !libraryRefreshing
                             ) {
                                 Icon(
-                                    imageVector = Icons.Filled.FolderOpen,
-                                    contentDescription = stringResource(R.string.vault_browser_change_folder),
+                                    imageVector = Icons.Filled.Refresh,
+                                    contentDescription = stringResource(R.string.vault_browser_refresh_folders),
                                     tint = Color(0xFFA855F7)
                                 )
                             }
                         }
                         IconButton(
-                            onClick = {
-                                onTouchActivity()
-                                onDismiss()
-                            },
-                            enabled = !busy
+                            onClick = { handleCloseX() },
+                            enabled = !saveBusy
                         ) {
                             Icon(
                                 imageVector = Icons.Filled.Close,
@@ -301,7 +522,7 @@ internal fun VaultInternalBrowserModal(
                 )
             },
             bottomBar = {
-                if (selectedCount > 0) {
+                if (snapshot.pendingCount > 0 || snapshot.isSaving) {
                     Surface(
                         color = Color(0xFF171724),
                         tonalElevation = 8.dp,
@@ -323,9 +544,9 @@ internal fun VaultInternalBrowserModal(
                             ) {
                                 Text(
                                     text = stringResource(
-                                        R.string.vault_browser_selected_summary,
-                                        selectedCount,
-                                        formatVaultBytes(context, selectedTotalBytes)
+                                        R.string.vault_browser_pending_selected,
+                                        snapshot.pendingCount,
+                                        formatVaultBytes(context, snapshot.pendingTotalBytes)
                                     ),
                                     style = MaterialTheme.typography.labelLarge,
                                     color = Color(0xFFD8B4FE),
@@ -334,12 +555,37 @@ internal fun VaultInternalBrowserModal(
                                 TextButton(
                                     onClick = {
                                         onTouchActivity()
-                                        selectionManager.clear()
-                                        selectionVersion++
+                                        stateHolder.clearPendingSelection()
+                                        syncState(stateHolder.snapshot)
                                     },
-                                    enabled = !busy
+                                    enabled = !saveBusy
                                 ) {
                                     Text(stringResource(R.string.vault_deselect_all))
+                                }
+                            }
+                            if (saveBusy) {
+                                if (importTotal > 0) {
+                                    LinearProgressIndicator(
+                                        progress = { (importProgress.toFloat() / importTotal.toFloat()).coerceIn(0f, 1f) },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        color = Color(0xFFA855F7)
+                                    )
+                                    val statusText = buildString {
+                                        append("$importProgress / $importTotal")
+                                        progressDetail?.takeIf { it.isNotBlank() }?.let { append(" · $it") }
+                                    }
+                                    Text(
+                                        text = statusText,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color(0xFFD8B4FE),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                } else {
+                                    LinearProgressIndicator(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        color = Color(0xFFA855F7)
+                                    )
                                 }
                             }
                             Row(
@@ -347,11 +593,8 @@ internal fun VaultInternalBrowserModal(
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
                                 OutlinedButton(
-                                    onClick = {
-                                        onTouchActivity()
-                                        onCopyOrMoveSelection(selectedSnapshot, false)
-                                    },
-                                    enabled = !busy,
+                                    onClick = { performSave(moveSource = false) },
+                                    enabled = !saveBusy && snapshot.pendingCount > 0,
                                     modifier = Modifier.weight(1f),
                                     border = BorderStroke(1.dp, Color(0xFFA855F7))
                                 ) {
@@ -368,11 +611,8 @@ internal fun VaultInternalBrowserModal(
                                     )
                                 }
                                 Button(
-                                    onClick = {
-                                        onTouchActivity()
-                                        onCopyOrMoveSelection(selectedSnapshot, true)
-                                    },
-                                    enabled = !busy,
+                                    onClick = { performSave(moveSource = true) },
+                                    enabled = !saveBusy && snapshot.pendingCount > 0,
                                     modifier = Modifier.weight(1f),
                                     colors = ButtonDefaults.buttonColors(
                                         containerColor = Color(0xFFA855F7),
@@ -380,13 +620,13 @@ internal fun VaultInternalBrowserModal(
                                     )
                                 ) {
                                     Icon(
-                                        Icons.AutoMirrored.Filled.DriveFileMove,
+                                        Icons.Filled.Lock,
                                         contentDescription = null,
                                         modifier = Modifier.size(18.dp)
                                     )
                                     Spacer(Modifier.width(6.dp))
                                     Text(
-                                        stringResource(R.string.vault_browser_move_to_vault),
+                                        stringResource(R.string.vault_browser_save_to_vault, snapshot.pendingCount),
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
@@ -397,83 +637,255 @@ internal fun VaultInternalBrowserModal(
                 }
             }
         ) { innerPadding ->
-            if (rootTreeUri == null) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(innerPadding)
-                        .padding(24.dp),
-                    contentAlignment = Alignment.Center
-                ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                snapshot.lastSaveResultMessage?.let { resultBanner ->
                     Surface(
-                        shape = RoundedCornerShape(22.dp),
-                        color = Color(0xFF161622),
-                        border = BorderStroke(1.dp, Color(0xFF33274D)),
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xFF1F1633),
+                        border = BorderStroke(1.dp, Color(0xFFA855F7).copy(alpha = 0.6f)),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Column(
-                            modifier = Modifier.padding(22.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(14.dp)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(64.dp)
-                                    .clip(RoundedCornerShape(18.dp))
-                                    .background(Color(0xFFA855F7).copy(alpha = 0.16f)),
-                                contentAlignment = Alignment.Center
+                            Icon(
+                                imageVector = Icons.Filled.CheckCircle,
+                                contentDescription = null,
+                                tint = Color(0xFFA855F7),
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Text(
+                                text = resultBanner,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFFE9D5FF),
+                                modifier = Modifier.weight(1f)
+                            )
+                            IconButton(
+                                onClick = {
+                                    stateHolder.clearSaveResultMessage()
+                                    syncState(stateHolder.snapshot)
+                                },
+                                modifier = Modifier.size(24.dp)
                             ) {
                                 Icon(
-                                    imageVector = Icons.Filled.FolderOpen,
-                                    contentDescription = null,
-                                    tint = Color(0xFFA855F7),
-                                    modifier = Modifier.size(34.dp)
+                                    imageVector = Icons.Filled.Close,
+                                    contentDescription = stringResource(R.string.common_close),
+                                    tint = Color(0xFFD8B4FE),
+                                    modifier = Modifier.size(16.dp)
                                 )
-                            }
-                            Text(
-                                text = stringResource(R.string.vault_browser_setup_title),
-                                style = MaterialTheme.typography.titleMedium,
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = stringResource(R.string.vault_browser_setup_body),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = Color(0xFFB5B0C9)
-                            )
-                            Button(
-                                onClick = {
-                                    onTouchActivity()
-                                    onPickRootFolder()
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = Color(0xFFA855F7),
-                                    contentColor = Color.White
-                                )
-                            ) {
-                                Text(stringResource(R.string.vault_browser_pick_root))
-                            }
-                            OutlinedButton(
-                                onClick = {
-                                    onTouchActivity()
-                                    onOpenSystemPickerFallback()
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text(stringResource(R.string.vault_browser_system_picker_fallback))
                             }
                         }
                     }
                 }
-            } else {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(innerPadding)
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
+
+                if (activeFolderStep == null) {
+                    // PHASE 2: Folder list inside MalekPlayer
+                    if (!hasMediaPermission) {
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = Color(0xFF161622),
+                            border = BorderStroke(1.dp, Color(0xFF33274D)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.vault_browser_permission_banner),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color(0xFFD0CADF)
+                                )
+                                Button(
+                                    onClick = {
+                                        onTouchActivity()
+                                        onSuppressNextBackgroundLock(true)
+                                        permissionLauncher.launch(deviceSource.permissionsForBrowsePrompt())
+                                    },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Color(0xFFA855F7),
+                                        contentColor = Color.White
+                                    )
+                                ) {
+                                    Text(stringResource(R.string.vault_browser_grant_media_access))
+                                }
+                            }
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = folderQuery,
+                        onValueChange = {
+                            onTouchActivity()
+                            folderQuery = it
+                        },
+                        placeholder = { Text(stringResource(R.string.vault_browser_search_hint)) },
+                        leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                        trailingIcon = {
+                            if (folderQuery.isNotEmpty()) {
+                                IconButton(onClick = { folderQuery = "" }) {
+                                    Icon(Icons.Filled.Close, contentDescription = null)
+                                }
+                            }
+                        },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    if (libraryRefreshing) {
+                        LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth(),
+                            color = Color(0xFFA855F7)
+                        )
+                    }
+
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        contentPadding = PaddingValues(bottom = if (snapshot.pendingCount > 0) 110.dp else 16.dp)
+                    ) {
+                        items(visibleFolders, key = { it.path }) { folder ->
+                            ElevatedCard(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable(enabled = !saveBusy) {
+                                        onTouchActivity()
+                                        itemQuery = ""
+                                        syncState(stateHolder.enterFolder(folder))
+                                    }
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(48.dp)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(Color(0xFFA855F7).copy(alpha = 0.16f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = if (folder.sourceKind == VaultDeviceSourceKind.SAF) {
+                                                Icons.Filled.FolderOpen
+                                            } else {
+                                                Icons.Filled.Folder
+                                            },
+                                            contentDescription = null,
+                                            tint = Color(0xFFA855F7),
+                                            modifier = Modifier.size(28.dp)
+                                        )
+                                    }
+                                    Spacer(Modifier.width(12.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = folder.name,
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.SemiBold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        val countSummary = buildString {
+                                            if (folder.sourceKind == VaultDeviceSourceKind.SAF) {
+                                                append(stringResource(R.string.vault_browser_saf_saved_folder))
+                                            } else {
+                                                append(stringResource(R.string.vault_browser_folder_items_count, folder.itemCount))
+                                                if (folder.subfolderCount > 0) {
+                                                    append(" · ")
+                                                    append(stringResource(R.string.vault_browser_subfolder_count, folder.subfolderCount))
+                                                }
+                                                if (folder.totalBytes > 0L) {
+                                                    append(" · ")
+                                                    append(formatVaultBytes(context, folder.totalBytes))
+                                                }
+                                            }
+                                        }
+                                        Text(
+                                            text = countSummary,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        if (folder.sourceKind == VaultDeviceSourceKind.MEDIA_STORE && folder.path != folder.name) {
+                                            Text(
+                                                text = folder.path,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = Color(0xFF8C86A3),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    }
+                                    Icon(
+                                        imageVector = Icons.Filled.ChevronRight,
+                                        contentDescription = null,
+                                        tint = Color(0xFF9C96B4)
+                                    )
+                                }
+                            }
+                        }
+
+                        // Complementary SAF & system picker fallback options (never auto-launched on +)
+                        item(key = "saf_complementary_footer") {
+                            Surface(
+                                shape = RoundedCornerShape(14.dp),
+                                color = Color(0xFF151520),
+                                border = BorderStroke(1.dp, Color(0xFF28253A)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 6.dp)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            onTouchActivity()
+                                            onPickSafRootFolder()
+                                        },
+                                        enabled = !saveBusy,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Icon(
+                                            Icons.Filled.FolderOpen,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(stringResource(R.string.vault_browser_saf_folder_option))
+                                    }
+                                    TextButton(
+                                        onClick = {
+                                            onTouchActivity()
+                                            onOpenSystemPickerFallback()
+                                        },
+                                        enabled = !saveBusy,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text(stringResource(R.string.vault_browser_system_picker_fallback))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // PHASE 3: Folder contents (subfolders + files)
                     // Breadcrumb trail
                     Row(
                         modifier = Modifier
@@ -482,17 +894,15 @@ internal fun VaultInternalBrowserModal(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         FilterChip(
-                            selected = pathStack.isEmpty(),
+                            selected = false,
                             onClick = {
                                 onTouchActivity()
-                                if (pathStack.isNotEmpty()) {
-                                    pathStack.clear()
-                                    loadFolder(null)
-                                }
+                                itemQuery = ""
+                                syncState(stateHolder.navigateToBreadcrumb(-1))
                             },
-                            label = { Text(rootLabel) }
+                            label = { Text(stringResource(R.string.vault_browser_folders_title)) }
                         )
-                        pathStack.forEachIndexed { index, pair ->
+                        activeFolderStep.stack.forEachIndexed { index, pair ->
                             Icon(
                                 imageVector = Icons.Filled.ChevronRight,
                                 contentDescription = null,
@@ -500,14 +910,12 @@ internal fun VaultInternalBrowserModal(
                                 modifier = Modifier.size(18.dp)
                             )
                             FilterChip(
-                                selected = index == pathStack.lastIndex,
+                                selected = index == activeFolderStep.stack.lastIndex,
                                 onClick = {
                                     onTouchActivity()
-                                    if (index < pathStack.lastIndex) {
-                                        while (pathStack.size > index + 1) {
-                                            pathStack.removeAt(pathStack.lastIndex)
-                                        }
-                                        loadFolder(pair.first)
+                                    if (index < activeFolderStep.stack.lastIndex) {
+                                        itemQuery = ""
+                                        syncState(stateHolder.navigateToBreadcrumb(index))
                                     }
                                 },
                                 label = { Text(pair.second, maxLines = 1, overflow = TextOverflow.Ellipsis) }
@@ -522,16 +930,16 @@ internal fun VaultInternalBrowserModal(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         OutlinedTextField(
-                            value = searchQuery,
+                            value = itemQuery,
                             onValueChange = {
                                 onTouchActivity()
-                                searchQuery = it
+                                itemQuery = it
                             },
                             placeholder = { Text(stringResource(R.string.vault_browser_search_hint)) },
                             leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
                             trailingIcon = {
-                                if (searchQuery.isNotEmpty()) {
-                                    IconButton(onClick = { searchQuery = "" }) {
+                                if (itemQuery.isNotEmpty()) {
+                                    IconButton(onClick = { itemQuery = "" }) {
                                         Icon(Icons.Filled.Close, contentDescription = null)
                                     }
                                 }
@@ -542,28 +950,21 @@ internal fun VaultInternalBrowserModal(
                         IconButton(
                             onClick = {
                                 onTouchActivity()
-                                if (allCurrentFilesSelected) {
-                                    selectionManager.deselectAll(currentFolderFiles)
+                                if (allCurrentSelected) {
+                                    stateHolder.deselectAll(currentSelectableFiles)
                                 } else {
-                                    val parentDoc = pathStack.lastOrNull()?.first
-                                    val parentPath = buildCurrentDisplayPath(rootLabel)
-                                    selectionManager.selectAll(
-                                        items = currentFolderFiles,
-                                        treeUri = rootTreeUri,
-                                        parentDocumentId = parentDoc,
-                                        displayFolderPath = parentPath
-                                    )
+                                    stateHolder.selectAll(currentSelectableFiles)
                                 }
-                                selectionVersion++
+                                syncState(stateHolder.snapshot)
                             },
-                            enabled = currentFolderFiles.isNotEmpty() && !busy
+                            enabled = currentSelectableFiles.isNotEmpty() && !saveBusy
                         ) {
                             Icon(
-                                imageVector = if (allCurrentFilesSelected) Icons.Filled.CheckBox else Icons.Filled.SelectAll,
+                                imageVector = if (allCurrentSelected) Icons.Filled.CheckBox else Icons.Filled.SelectAll,
                                 contentDescription = stringResource(
-                                    if (allCurrentFilesSelected) R.string.vault_deselect_all else R.string.vault_select_all
+                                    if (allCurrentSelected) R.string.vault_deselect_all else R.string.vault_select_all
                                 ),
-                                tint = if (allCurrentFilesSelected) Color(0xFFA855F7) else Color.White
+                                tint = if (allCurrentSelected) Color(0xFFA855F7) else Color.White
                             )
                         }
                     }
@@ -613,29 +1014,19 @@ internal fun VaultInternalBrowserModal(
                                 )
                             }
                         )
-                        TextButton(
-                            onClick = {
-                                onTouchActivity()
-                                onOpenSystemPickerFallback()
-                            },
-                            enabled = !busy
-                        ) {
-                            Text(stringResource(R.string.vault_browser_system_picker_fallback))
-                        }
                     }
 
-                    if (loading) {
+                    if (safLoading) {
                         LinearProgressIndicator(
                             modifier = Modifier.fillMaxWidth(),
                             color = Color(0xFFA855F7)
                         )
                     }
-
-                    loadError?.let { err ->
+                    safLoadError?.let { err ->
                         Text(err, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                     }
 
-                    if (!loading && visibleItems.isEmpty()) {
+                    if (!safLoading && pagedFolderItems.isEmpty()) {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -643,7 +1034,7 @@ internal fun VaultInternalBrowserModal(
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = if (rawItems.isEmpty()) {
+                                text = if (rawFolderItems.isEmpty()) {
                                     stringResource(R.string.vault_browser_empty_folder)
                                 } else {
                                     stringResource(R.string.vault_browser_no_matches)
@@ -654,30 +1045,39 @@ internal fun VaultInternalBrowserModal(
                         }
                     } else {
                         LazyColumn(
+                            state = listState,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .weight(1f),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
-                            contentPadding = PaddingValues(bottom = if (selectedCount > 0) 96.dp else 16.dp)
+                            contentPadding = PaddingValues(bottom = if (snapshot.pendingCount > 0) 110.dp else 16.dp)
                         ) {
-                            items(visibleItems, key = { it.documentId }) { item ->
+                            items(pagedFolderItems, key = { it.selectionKey }) { item ->
                                 if (item.isDirectory) {
-                                    LaunchedEffect(item.documentId, rootTreeUri) {
-                                        if (!childCounts.containsKey(item.documentId)) {
-                                            val computed = withContext(Dispatchers.IO) {
-                                                treeSupport.countDirectChildren(rootTreeUri, item.documentId)
+                                    if (item.sourceKind == VaultDeviceSourceKind.SAF && item.safTreeUri != null && item.safDocumentId != null) {
+                                        LaunchedEffect(item.safDocumentId, item.safTreeUri) {
+                                            if (!safChildCounts.containsKey(item.safDocumentId)) {
+                                                val computed = withContext(Dispatchers.IO) {
+                                                    treeSupport.countDirectChildren(item.safTreeUri, item.safDocumentId)
+                                                }
+                                                safChildCounts[item.safDocumentId] = computed
                                             }
-                                            childCounts[item.documentId] = computed
                                         }
                                     }
-                                    val count = childCounts[item.documentId] ?: item.childCount
+                                    val subCount = if (item.sourceKind == VaultDeviceSourceKind.SAF) {
+                                        safChildCounts[item.safDocumentId]
+                                    } else {
+                                        item.subfolderCount
+                                    }
+
                                     ElevatedCard(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .clickable(enabled = !busy) {
+                                            .clickable(enabled = !saveBusy) {
                                                 onTouchActivity()
-                                                pathStack.add(item.documentId to item.displayName)
-                                                loadFolder(item.documentId)
+                                                itemQuery = ""
+                                                val targetIdOrPath = item.safDocumentId ?: item.folderPath
+                                                syncState(stateHolder.enterSubfolder(targetIdOrPath, item.displayName))
                                             }
                                     ) {
                                         Row(
@@ -709,8 +1109,8 @@ internal fun VaultInternalBrowserModal(
                                                     overflow = TextOverflow.Ellipsis
                                                 )
                                                 Text(
-                                                    text = if (count != null) {
-                                                        stringResource(R.string.vault_browser_folder_items_count, count)
+                                                    text = if (subCount != null) {
+                                                        stringResource(R.string.vault_browser_folder_items_count, subCount)
                                                     } else {
                                                         stringResource(R.string.vault_browser_folder_label)
                                                     },
@@ -718,39 +1118,41 @@ internal fun VaultInternalBrowserModal(
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                                 )
                                             }
-                                            IconButton(
-                                                onClick = {
-                                                    onTouchActivity()
-                                                    pendingSubfolderImport = item
-                                                },
-                                                enabled = !busy
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Filled.CreateNewFolder,
-                                                    contentDescription = stringResource(R.string.vault_browser_import_folder_btn),
-                                                    tint = Color(0xFFA855F7)
-                                                )
+                                            if (item.sourceKind == VaultDeviceSourceKind.SAF) {
+                                                IconButton(
+                                                    onClick = {
+                                                        onTouchActivity()
+                                                        pendingSafSubfolderImport = item
+                                                    },
+                                                    enabled = !saveBusy
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Filled.CreateNewFolder,
+                                                        contentDescription = stringResource(R.string.vault_browser_import_folder_btn),
+                                                        tint = Color(0xFFA855F7)
+                                                    )
+                                                }
                                             }
                                         }
                                     }
                                 } else {
-                                    val isSelected = remember(selectionVersion, item.uri) {
-                                        selectionManager.contains(item.uri)
+                                    val isSaved = item.selectionKey in snapshot.savedKeys
+                                    val isSelected = item.selectionKey in snapshot.pendingSelectedByKey
+                                    val borderStroke = when {
+                                        isSelected -> BorderStroke(1.5.dp, Color(0xFFA855F7))
+                                        isSaved -> BorderStroke(1.dp, Color(0xFF4ADE80).copy(alpha = 0.55f))
+                                        else -> null
                                     }
-                                    val parentDoc = pathStack.lastOrNull()?.first
-                                    val displayPath = buildCurrentDisplayPath(rootLabel)
-                                    ElevatedCard(
+                                    Surface(
+                                        shape = RoundedCornerShape(14.dp),
+                                        color = if (isSelected) Color(0xFF211638) else Color(0xFF161622),
+                                        border = borderStroke,
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .clickable(enabled = !busy) {
+                                            .clickable(enabled = !saveBusy && !isSaved) {
                                                 onTouchActivity()
-                                                selectionManager.toggle(
-                                                    item = item,
-                                                    treeUri = rootTreeUri,
-                                                    parentDocumentId = parentDoc,
-                                                    displayFolderPath = displayPath
-                                                )
-                                                selectionVersion++
+                                                stateHolder.toggleSelection(item)
+                                                syncState(stateHolder.snapshot)
                                             }
                                     ) {
                                         Row(
@@ -759,26 +1161,29 @@ internal fun VaultInternalBrowserModal(
                                                 .padding(horizontal = 10.dp, vertical = 8.dp),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Checkbox(
-                                                checked = isSelected,
-                                                onCheckedChange = { checked ->
-                                                    onTouchActivity()
-                                                    if (checked) {
-                                                        selectionManager.select(
-                                                            item = item,
-                                                            treeUri = rootTreeUri,
-                                                            parentDocumentId = parentDoc,
-                                                            displayFolderPath = displayPath
-                                                        )
-                                                    } else {
-                                                        selectionManager.deselectAll(listOf(item))
-                                                    }
-                                                    selectionVersion++
-                                                },
-                                                enabled = !busy
-                                            )
-                                            BrowserItemThumbnail(
+                                            if (isSaved) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.CheckCircle,
+                                                    contentDescription = stringResource(R.string.vault_browser_already_saved_badge),
+                                                    tint = Color(0xFF4ADE80),
+                                                    modifier = Modifier
+                                                        .padding(horizontal = 10.dp)
+                                                        .size(22.dp)
+                                                )
+                                            } else {
+                                                Checkbox(
+                                                    checked = isSelected,
+                                                    onCheckedChange = { checked ->
+                                                        onTouchActivity()
+                                                        stateHolder.setSelected(item, checked)
+                                                        syncState(stateHolder.snapshot)
+                                                    },
+                                                    enabled = !saveBusy
+                                                )
+                                            }
+                                            DeviceItemThumbnail(
                                                 item = item,
+                                                deviceSource = deviceSource,
                                                 cache = thumbCache
                                             )
                                             Spacer(Modifier.width(10.dp))
@@ -786,21 +1191,67 @@ internal fun VaultInternalBrowserModal(
                                                 Text(
                                                     text = item.displayName,
                                                     style = MaterialTheme.typography.titleSmall,
+                                                    color = Color.White,
                                                     maxLines = 1,
                                                     overflow = TextOverflow.Ellipsis
                                                 )
-                                                val dateSuffix = if (item.lastModified > 0L) {
-                                                    " · ${DateFormat.getDateInstance(DateFormat.SHORT).format(Date(item.lastModified))}"
-                                                } else ""
-                                                Text(
-                                                    text = "${formatVaultBytes(context, item.sizeBytes)}$dateSuffix",
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                ) {
+                                                    if (item.extension.isNotBlank()) {
+                                                        Surface(
+                                                            shape = RoundedCornerShape(4.dp),
+                                                            color = Color(0xFFA855F7).copy(alpha = 0.2f)
+                                                        ) {
+                                                            Text(
+                                                                text = item.extension,
+                                                                style = MaterialTheme.typography.labelSmall,
+                                                                color = Color(0xFFD8B4FE),
+                                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                                            )
+                                                        }
+                                                    }
+                                                    val dateSuffix = if (item.lastModifiedMs > 0L) {
+                                                        " · ${DateFormat.getDateInstance(DateFormat.SHORT).format(Date(item.lastModifiedMs))}"
+                                                    } else ""
+                                                    Text(
+                                                        text = "${formatVaultBytes(context, item.sizeBytes)}$dateSuffix",
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = Color(0xFFA8A3BC),
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                }
+                                            }
+                                            if (isSaved) {
+                                                Surface(
+                                                    shape = RoundedCornerShape(6.dp),
+                                                    color = Color(0xFF4ADE80).copy(alpha = 0.16f)
+                                                ) {
+                                                    Text(
+                                                        text = stringResource(R.string.vault_browser_already_saved_badge),
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = Color(0xFF86EFAC),
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    )
+                                                }
                                             }
                                         }
+                                    }
+                                }
+                            }
+
+                            if (remainingPagedCount > 0) {
+                                item(key = "load_more_device_items") {
+                                    OutlinedButton(
+                                        onClick = {
+                                            onTouchActivity()
+                                            syncState(stateHolder.loadMoreItems())
+                                        },
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text(stringResource(R.string.vault_browser_load_more, remainingPagedCount))
                                     }
                                 }
                             }
@@ -811,30 +1262,34 @@ internal fun VaultInternalBrowserModal(
         }
     }
 
-    val folderCandidate = pendingSubfolderImport
-    val activeTree = rootTreeUri
-    if (folderCandidate != null && activeTree != null) {
-        val currentPathPrefix = buildCurrentDisplayPath(rootLabel)
-        val fullSubfolderPath = "$currentPathPrefix / ${folderCandidate.displayName}"
-        val parentDocId = pathStack.lastOrNull()?.first
+    val safFolderCandidate = pendingSafSubfolderImport
+    val safTree = safFolderCandidate?.safTreeUri
+    val safDocId = safFolderCandidate?.safDocumentId
+    if (safFolderCandidate != null && safTree != null && safDocId != null && activeFolderStep != null) {
+        val fullSubfolderPath = buildString {
+            append(safRootLabel)
+            activeFolderStep.stack.drop(1).forEach { append(" / ").append(it.second) }
+            append(" / ").append(safFolderCandidate.displayName)
+        }
+        val parentDocId = activeFolderStep.currentSafDocId
         AlertDialog(
-            onDismissRequest = { pendingSubfolderImport = null },
-            title = { Text(stringResource(R.string.vault_browser_import_folder_title, folderCandidate.displayName)) },
+            onDismissRequest = { pendingSafSubfolderImport = null },
+            title = { Text(stringResource(R.string.vault_browser_import_folder_title, safFolderCandidate.displayName)) },
             text = { Text(stringResource(R.string.vault_browser_import_folder_body)) },
             confirmButton = {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextButton(
                         onClick = {
-                            pendingSubfolderImport = null
-                            onImportSubfolder(activeTree, folderCandidate.documentId, parentDocId, folderCandidate.displayName, fullSubfolderPath, false)
+                            pendingSafSubfolderImport = null
+                            onImportSafSubfolder(safTree, safDocId, parentDocId, safFolderCandidate.displayName, fullSubfolderPath, false)
                         }
                     ) {
                         Text(stringResource(R.string.vault_browser_copy_to_vault))
                     }
                     TextButton(
                         onClick = {
-                            pendingSubfolderImport = null
-                            onImportSubfolder(activeTree, folderCandidate.documentId, parentDocId, folderCandidate.displayName, fullSubfolderPath, true)
+                            pendingSafSubfolderImport = null
+                            onImportSafSubfolder(safTree, safDocId, parentDocId, safFolderCandidate.displayName, fullSubfolderPath, true)
                         }
                     ) {
                         Text(stringResource(R.string.vault_browser_move_to_vault), color = Color(0xFFA855F7))
@@ -842,7 +1297,7 @@ internal fun VaultInternalBrowserModal(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { pendingSubfolderImport = null }) {
+                TextButton(onClick = { pendingSafSubfolderImport = null }) {
                     Text(stringResource(R.string.common_cancel))
                 }
             }
@@ -850,22 +1305,48 @@ internal fun VaultInternalBrowserModal(
     }
 }
 
+private fun VaultBrowserItem.toDeviceItem(
+    treeUri: Uri,
+    parentDocumentId: String?,
+    displayFolderPath: String
+): VaultDeviceItem = VaultDeviceItem(
+    id = documentId,
+    uri = uri,
+    displayName = displayName,
+    extension = if (isDirectory) "" else extractExtension(displayName, mimeType),
+    mimeType = mimeType,
+    sizeBytes = sizeBytes,
+    lastModifiedMs = lastModified,
+    folderPath = displayFolderPath,
+    folderDisplayPath = displayFolderPath,
+    isDirectory = isDirectory,
+    sourceKind = VaultDeviceSourceKind.SAF,
+    safTreeUri = treeUri,
+    safParentDocumentId = parentDocumentId,
+    safDocumentId = documentId
+)
+
 @Composable
-private fun BrowserItemThumbnail(
-    item: VaultBrowserItem,
+private fun DeviceItemThumbnail(
+    item: VaultDeviceItem,
+    deviceSource: PrivateVaultDeviceSource,
     cache: LruCache<String, Bitmap>
 ) {
-    val context = LocalContext.current
-    val cacheKey = item.uri.toString()
+    val cacheKey = item.selectionKey
     var thumb by remember(cacheKey) { mutableStateOf(cache.get(cacheKey)) }
-
     val isMediaThumb = item.mimeType.startsWith("image/") || item.mimeType.startsWith("video/")
+    val signal = remember(cacheKey) { CancellationSignal() }
+
+    DisposableEffect(cacheKey, isMediaThumb) {
+        onDispose { signal.cancel() }
+    }
+
     LaunchedEffect(cacheKey) {
         if (!isMediaThumb || thumb != null) return@LaunchedEffect
         val loaded = withContext(Dispatchers.IO) {
-            loadSafeBrowserThumbnail(context, item.uri, item.mimeType)
+            deviceSource.loadThumbnail(item.uri, item.mimeType, signal)
         }
-        if (loaded != null) {
+        if (loaded != null && !signal.isCanceled) {
             cache.put(cacheKey, loaded)
             thumb = loaded
         }
@@ -898,52 +1379,6 @@ private fun BrowserItemThumbnail(
             )
         }
     }
-}
-
-private fun loadSafeBrowserThumbnail(context: Context, uri: Uri, mimeType: String): Bitmap? {
-    val resolver = context.contentResolver
-    val signal = CancellationSignal()
-    val providerThumb = runCatching {
-        DocumentsContract.getDocumentThumbnail(resolver, uri, Point(144, 144), signal)
-    }.getOrNull()
-    if (providerThumb != null) return providerThumb
-
-    if (mimeType.startsWith("image/")) {
-        return runCatching {
-            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
-            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
-            var sample = 1
-            while (bounds.outWidth / sample > 256 || bounds.outHeight / sample > 256) {
-                sample *= 2
-            }
-            val opts = BitmapFactory.Options().apply {
-                inSampleSize = sample
-                inPreferredConfig = Bitmap.Config.RGB_565
-            }
-            resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, opts) }
-        }.getOrNull()
-    }
-
-    if (mimeType.startsWith("video/")) {
-        val retriever = MediaMetadataRetriever()
-        return runCatching {
-            retriever.setDataSource(context, uri)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-                retriever.getScaledFrameAtTime(-1L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, 160, 160)
-            } else {
-                val frame = retriever.getFrameAtTime(-1L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
-                frame?.let {
-                    val scaled = Bitmap.createScaledBitmap(it, 144, 144, true)
-                    if (scaled !== it) it.recycle()
-                    scaled
-                }
-            }
-        }.getOrNull().also {
-            runCatching { retriever.release() }
-        }
-    }
-    return null
 }
 
 internal fun formatVaultBytes(context: Context, bytes: Long): String {
