@@ -4,6 +4,7 @@ import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.Context
 import android.net.Uri
+import android.os.Build
 import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.provider.OpenableColumns
@@ -15,6 +16,7 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.io.OutputStream
 import java.security.MessageDigest
+import java.util.Collections
 import java.util.UUID
 import java.util.zip.CRC32
 import java.util.zip.ZipEntry
@@ -54,6 +56,8 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
     private val appContext = context.applicationContext
     private val resolver: ContentResolver = appContext.contentResolver
     private val deviceSource = PrivateVaultDeviceSource(appContext)
+    private val activeSourceKeys = Collections.synchronizedSet(HashSet<String>())
+    private val activeEntryIds = Collections.synchronizedSet(HashSet<String>())
 
     init {
         // These are app-private plaintext ZIP work files. A new support instance
@@ -194,6 +198,17 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
             }
             onItemProgress?.invoke(index + 1, total, item.displayName)
             val key = item.uri.toString()
+            if (!activeSourceKeys.add(key)) {
+                failedCount++
+                failures += "${item.displayName}: Operation already in progress for this file."
+                itemOutcomes += VaultMoveItemOutcome(
+                    sourceKey = key,
+                    displayName = item.displayName,
+                    status = VaultMoveItemStatus.PENDING_COMPLETION,
+                    detail = "Concurrent operation already active for this item."
+                )
+                continue
+            }
             var newlyImportedEntryId: String? = null
             try {
                 if (item.isDirectory) {
@@ -450,6 +465,8 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
                     status = VaultMoveItemStatus.ENCRYPTION_FAILED,
                     detail = msg
                 )
+            } finally {
+                activeSourceKeys.remove(key)
             }
         }
         return VaultImportBatchResult(
@@ -475,37 +492,52 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
         entryId: String,
         sourceUri: Uri,
         displayName: String,
-        session: PrivateVaultSession
+        session: PrivateVaultSession,
+        executeDeleteIfStillPresent: Boolean = (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q)
     ): VaultMoveItemOutcome {
-        val intact = vault.verifyEncryptedEntryIntegrity(entryId, session)
-        if (!intact) {
-            runCatching { vault.delete(entryId, session) }
-            vault.removePendingMoves(listOf(entryId), session)
+        if (!activeEntryIds.add(entryId)) {
             return VaultMoveItemOutcome(
                 sourceKey = sourceUri.toString(),
                 displayName = displayName,
-                status = VaultMoveItemStatus.ENCRYPTION_FAILED,
-                detail = "Encrypted entry failed integrity verification."
+                status = VaultMoveItemStatus.PENDING_COMPLETION,
+                vaultEntryId = entryId,
+                detail = "Concurrent operation already active for this entry."
             )
         }
-        val deleted = deviceSource.verifyDeleted(sourceUri) || deviceSource.executeAuthorizedAndroid10Delete(sourceUri)
-        return if (deleted && deviceSource.verifyDeleted(sourceUri)) {
-            vault.removePendingMoves(listOf(entryId), session)
-            VaultMoveItemOutcome(
-                sourceKey = sourceUri.toString(),
-                displayName = displayName,
-                status = VaultMoveItemStatus.MOVED,
-                vaultEntryId = entryId
-            )
-        } else {
-            runCatching { vault.delete(entryId, session) }
-            vault.removePendingMoves(listOf(entryId), session)
-            VaultMoveItemOutcome(
-                sourceKey = sourceUri.toString(),
-                displayName = displayName,
-                status = VaultMoveItemStatus.SOURCE_DELETE_FAILED,
-                detail = "Original file was not removed; encrypted copy rolled back."
-            )
+        try {
+            val intact = vault.verifyEncryptedEntryIntegrity(entryId, session)
+            if (!intact) {
+                runCatching { vault.delete(entryId, session) }
+                vault.removePendingMoves(listOf(entryId), session)
+                return VaultMoveItemOutcome(
+                    sourceKey = sourceUri.toString(),
+                    displayName = displayName,
+                    status = VaultMoveItemStatus.ENCRYPTION_FAILED,
+                    detail = "Encrypted entry failed integrity verification."
+                )
+            }
+            val alreadyDeleted = deviceSource.verifyDeleted(sourceUri)
+            val deleted = alreadyDeleted || (executeDeleteIfStillPresent && deviceSource.executeAuthorizedAndroid10Delete(sourceUri))
+            return if (deleted && deviceSource.verifyDeleted(sourceUri)) {
+                vault.removePendingMoves(listOf(entryId), session)
+                VaultMoveItemOutcome(
+                    sourceKey = sourceUri.toString(),
+                    displayName = displayName,
+                    status = VaultMoveItemStatus.MOVED,
+                    vaultEntryId = entryId
+                )
+            } else {
+                runCatching { vault.delete(entryId, session) }
+                vault.removePendingMoves(listOf(entryId), session)
+                VaultMoveItemOutcome(
+                    sourceKey = sourceUri.toString(),
+                    displayName = displayName,
+                    status = VaultMoveItemStatus.SOURCE_DELETE_FAILED,
+                    detail = "Original file was not removed; encrypted copy rolled back."
+                )
+            }
+        } finally {
+            activeEntryIds.remove(entryId)
         }
     }
 
@@ -520,13 +552,26 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
         status: VaultMoveItemStatus,
         session: PrivateVaultSession
     ): VaultMoveItemOutcome {
-        runCatching { vault.delete(entryId, session) }
-        vault.removePendingMoves(listOf(entryId), session)
-        return VaultMoveItemOutcome(
-            sourceKey = sourceUri,
-            displayName = displayName,
-            status = status
-        )
+        if (!activeEntryIds.add(entryId)) {
+            return VaultMoveItemOutcome(
+                sourceKey = sourceUri,
+                displayName = displayName,
+                status = VaultMoveItemStatus.PENDING_COMPLETION,
+                vaultEntryId = entryId,
+                detail = "Concurrent operation already active for this entry."
+            )
+        }
+        try {
+            runCatching { vault.delete(entryId, session) }
+            vault.removePendingMoves(listOf(entryId), session)
+            return VaultMoveItemOutcome(
+                sourceKey = sourceUri,
+                displayName = displayName,
+                status = status
+            )
+        } finally {
+            activeEntryIds.remove(entryId)
+        }
     }
 
     /**
@@ -791,6 +836,13 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
                 break
             }
             onItemProgress?.invoke(index + 1, total, entry.displayName)
+            if (!activeEntryIds.add(entry.id)) {
+                failedCount++
+                keptInVaultCount++
+                failures += "${entry.displayName}: Operation already in progress for this item."
+                continue
+            }
+            try {
             if (useOriginalFolder && deviceSource.canRestoreToMediaStoreOrigin(entry)) {
                 val mediaRestoreOutcome = runCatching {
                     deviceSource.restoreEntryToMediaStoreOrigin(
@@ -930,6 +982,9 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
                         keptInVaultCount++
                     }
                 }
+            }
+            } finally {
+                activeEntryIds.remove(entry.id)
             }
         }
 

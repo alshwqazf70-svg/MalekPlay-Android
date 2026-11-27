@@ -914,6 +914,47 @@ class PrivateVaultDeviceBrowserTest {
         assertTrue(listed.any { !it.isDirectory && it.name == "old_song.mp3" })
     }
 
+    @Test
+    fun reconcileExternalMoveResultClearsPendingMovedAndRolledBackItemsCleanly() {
+        val holder = VaultBrowserStateHolder()
+        holder.openFolderList()
+        val itemApproved = fakeDeviceItem("501", "Movies", "approved.mp4", 1_000L)
+        val itemDenied = fakeDeviceItem("502", "Movies", "denied.mp4", 2_000L)
+        holder.toggleSelection(itemApproved)
+        holder.toggleSelection(itemDenied)
+        assertNotNull(holder.tryBeginSave())
+        holder.finishSave(emptySet(), "Waiting for consent")
+
+        val synced = holder.reconcileExternalMoveResult(
+            movedKeys = setOf(itemApproved.selectionKey),
+            rolledBackKeys = setOf(itemDenied.selectionKey),
+            resultMessage = "Moved 1; rolled back 1"
+        )
+        assertEquals(0, synced.pendingCount)
+        assertTrue(itemApproved.selectionKey in synced.savedKeys)
+        assertFalse(itemDenied.selectionKey in synced.savedKeys)
+        assertEquals("Moved 1; rolled back 1", synced.lastSaveResultMessage)
+        assertFalse(synced.isSaving)
+    }
+
+    @Test
+    fun verifyDeletedHandlesFileNotFoundIllegalArgumentAndSecurityExceptionAccurately() {
+        val deviceSource = PrivateVaultDeviceSource(context)
+        val missingUri = DocumentsContract.buildDocumentUri(
+            InMemoryVaultDocumentsProvider.AUTHORITY,
+            "definitely-deleted-id"
+        )
+        // InMemoryVaultDocumentsProvider throws FileNotFoundException on missing document IDs -> treated as deleted!
+        assertTrue(deviceSource.verifyDeleted(missingUri))
+
+        val existingDocId = provider.addFile("root", "still_there.mp4", "video/mp4", "data".toByteArray())
+        val existingUri = DocumentsContract.buildDocumentUri(
+            InMemoryVaultDocumentsProvider.AUTHORITY,
+            existingDocId
+        )
+        assertFalse(deviceSource.verifyDeleted(existingUri))
+    }
+
     private fun fakeDeviceItem(
         id: String,
         folderPath: String,

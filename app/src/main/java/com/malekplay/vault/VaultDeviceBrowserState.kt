@@ -323,6 +323,29 @@ class VaultBrowserStateHolder(
         return _snapshot
     }
 
+    /**
+     * Reconciles asynchronous OS consent completion (Android 10 RecoverableSecurityException
+     * or Android 11+ createDeleteRequest) into the active browser session so moved items
+     * disappear from pending selection and denied/rolled-back items are cleared cleanly.
+     */
+    fun reconcileExternalMoveResult(
+        movedKeys: Set<String>,
+        rolledBackKeys: Set<String>,
+        resultMessage: String? = null
+    ): VaultBrowserSessionSnapshot {
+        val nextPending = LinkedHashMap(_snapshot.pendingSelectedByKey)
+        movedKeys.forEach { nextPending.remove(it) }
+        rolledBackKeys.forEach { nextPending.remove(it) }
+        val nextSaved = LinkedHashSet(_snapshot.savedKeys).apply { addAll(movedKeys) }
+        _snapshot = _snapshot.copy(
+            pendingSelectedByKey = nextPending,
+            savedKeys = nextSaved,
+            isSaving = false,
+            lastSaveResultMessage = resultMessage ?: _snapshot.lastSaveResultMessage
+        )
+        return _snapshot
+    }
+
     fun clearSaveResultMessage() {
         if (_snapshot.lastSaveResultMessage != null) {
             _snapshot = _snapshot.copy(lastSaveResultMessage = null)
@@ -391,9 +414,12 @@ fun isDeviceItemAlreadyInVault(
 
         val originParent = entry.sourceParentDocumentId?.let(::normalizeRelativeFolderPath)
         val originDisplay = entry.sourceDisplayPath?.let(::normalizeRelativeFolderPath)
+        val originDisplayParent = originDisplay?.substringBeforeLast('/', "")?.takeIf { it.isNotEmpty() }
+            ?.let(::normalizeRelativeFolderPath)
         when {
             originParent != null && originParent == itemFolderNorm -> true
             originDisplay != null && originDisplay == itemFolderNorm -> true
+            originDisplayParent != null && originDisplayParent == itemFolderNorm -> true
             originParent == null && originDisplay == null ->
                 entry.mimeType.substringBefore('/').equals(item.mimeType.substringBefore('/'), ignoreCase = true)
             else -> false

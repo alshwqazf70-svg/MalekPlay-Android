@@ -183,13 +183,23 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
     var pendingMediaDeleteUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var pendingMediaDeleteEntriesMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var pendingMediaDeleteNamesMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var pendingBatchPreMovedUris by remember { mutableStateOf<List<String>>(emptyList()) }
+    var pendingBatchPreFailedCount by remember { mutableIntStateOf(0) }
     var android10DeleteQueue by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var android10ActiveUri by remember { mutableStateOf<Uri?>(null) }
     var android10DeletedUris by remember { mutableStateOf<List<String>>(emptyList()) }
+    var android10RolledBackUris by remember { mutableStateOf<List<String>>(emptyList()) }
     var android10KeptCount by remember { mutableIntStateOf(0) }
 
     var browserOpen by remember { mutableStateOf(false) }
     var browserRefreshKey by remember { mutableIntStateOf(0) }
+    var externalBrowserSyncVersion by remember { mutableIntStateOf(0) }
+    var externalBrowserMovedKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var externalBrowserRolledBackKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var externalBrowserResultMessage by remember { mutableStateOf<String?>(null) }
+
+    val isAwaitingSystemConsent =
+        pendingMediaDeleteUris.isNotEmpty() || android10ActiveUri != null || android10DeleteQueue.isNotEmpty()
 
     var importProgress by remember { mutableIntStateOf(0) }
     var importTotal by remember { mutableIntStateOf(0) }
@@ -215,10 +225,17 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
         pendingMediaDeleteUris = emptyList()
         pendingMediaDeleteEntriesMap = emptyMap()
         pendingMediaDeleteNamesMap = emptyMap()
+        pendingBatchPreMovedUris = emptyList()
+        pendingBatchPreFailedCount = 0
         android10DeleteQueue = emptyList()
         android10ActiveUri = null
         android10DeletedUris = emptyList()
+        android10RolledBackUris = emptyList()
         android10KeptCount = 0
+        externalBrowserSyncVersion = 0
+        externalBrowserMovedKeys = emptySet()
+        externalBrowserRolledBackKeys = emptySet()
+        externalBrowserResultMessage = null
         selectedEntryIds.clear()
         browserOpen = false
         entries.clear()
@@ -259,12 +276,12 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    // Idle auto-lock timer (3 minutes without user interaction, paused while playing media).
-    LaunchedEffect(vaultSession, isMediaPlaying) {
+    // Idle auto-lock timer (3 minutes without user interaction, paused while playing media or awaiting OS delete consent).
+    LaunchedEffect(vaultSession, isMediaPlaying, isAwaitingSystemConsent) {
         if (vaultSession == null) return@LaunchedEffect
         while (isActive) {
             delay(5_000L)
-            if (!isMediaPlaying && !busy) {
+            if (!isMediaPlaying && !busy && !isAwaitingSystemConsent) {
                 val idleMs = SystemClock.elapsedRealtime() - lastInteractionElapsedMs
                 if (idleMs >= 180_000L) {
                     lockVault(context.getString(R.string.vault_auto_locked_idle))
@@ -309,7 +326,7 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
         removeFromVault: Boolean
     ) {
         val session = vaultSession ?: return
-        if (targetEntries.isEmpty() || busy) return
+        if (targetEntries.isEmpty() || busy || isAwaitingSystemConsent) return
         val cancelFlag = AtomicBoolean(false)
         activeCancelFlag = cancelFlag
         scope.launch {
@@ -444,7 +461,8 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                                 entryId = entryId,
                                 sourceUri = activeUri,
                                 displayName = displayName,
-                                session = session
+                                session = session,
+                                executeDeleteIfStillPresent = true
                             )
                             outcome.status == VaultMoveItemStatus.MOVED
                         } else {
@@ -467,8 +485,14 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                 } else {
                     android10DeletedUris
                 }
+                val updatedRolledBack = if (!movedSuccessfully) {
+                    android10RolledBackUris + activeUri.toString()
+                } else {
+                    android10RolledBackUris
+                }
                 val updatedKept = if (movedSuccessfully) android10KeptCount else android10KeptCount + 1
                 android10DeletedUris = updatedDeleted
+                android10RolledBackUris = updatedRolledBack
                 android10KeptCount = updatedKept
 
                 if (remaining.isNotEmpty()) {
@@ -479,20 +503,29 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                         libraryViewModel.reconcileMovedMediaUris(updatedDeleted)
                         browserRefreshKey++
                     }
-                    message = when {
-                        updatedDeleted.isNotEmpty() && updatedKept == 0 ->
+                    val totalFailed = updatedKept + pendingBatchPreFailedCount
+                    val summaryText = when {
+                        updatedDeleted.isNotEmpty() && totalFailed == 0 ->
                             context.getString(R.string.vault_browser_move_result_success, updatedDeleted.size)
                         updatedDeleted.isEmpty() ->
-                            context.getString(R.string.vault_browser_move_result_rolled_back, updatedKept.coerceAtLeast(1))
+                            context.getString(R.string.vault_browser_move_result_rolled_back, totalFailed.coerceAtLeast(1))
                         else ->
                             context.getString(
                                 R.string.vault_move_partial_consent_summary,
                                 updatedDeleted.size,
-                                updatedKept
+                                totalFailed
                             )
                     }
+                    message = summaryText
+                    externalBrowserMovedKeys = updatedDeleted.toSet()
+                    externalBrowserRolledBackKeys = updatedRolledBack.toSet()
+                    externalBrowserResultMessage = summaryText
+                    externalBrowserSyncVersion++
                     android10DeletedUris = emptyList()
+                    android10RolledBackUris = emptyList()
                     android10KeptCount = 0
+                    pendingBatchPreMovedUris = emptyList()
+                    pendingBatchPreFailedCount = 0
                     pendingMediaDeleteEntriesMap = emptyMap()
                     pendingMediaDeleteNamesMap = emptyMap()
                 }
@@ -503,13 +536,17 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
         val urisToCheck = pendingMediaDeleteUris
         val entriesSnapshot = pendingMediaDeleteEntriesMap
         val namesSnapshot = pendingMediaDeleteNamesMap
+        val preMovedSnapshot = pendingBatchPreMovedUris
+        val preFailedSnapshot = pendingBatchPreFailedCount
         pendingMediaDeleteUris = emptyList()
         pendingMediaDeleteEntriesMap = emptyMap()
         pendingMediaDeleteNamesMap = emptyMap()
+        pendingBatchPreMovedUris = emptyList()
+        pendingBatchPreFailedCount = 0
         if (urisToCheck.isEmpty()) return@rememberLauncherForActivityResult
         scope.launch {
             val confirmedMovedUris = mutableListOf<String>()
-            var rolledBackCount = 0
+            val rolledBackUris = mutableListOf<String>()
             if (session != null) {
                 withContext(Dispatchers.IO) {
                     for (uri in urisToCheck) {
@@ -522,12 +559,13 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                                     entryId = entryId,
                                     sourceUri = uri,
                                     displayName = displayName,
-                                    session = session
+                                    session = session,
+                                    executeDeleteIfStillPresent = false
                                 )
                                 if (outcome.status == VaultMoveItemStatus.MOVED) {
                                     confirmedMovedUris += uriStr
                                 } else {
-                                    rolledBackCount++
+                                    rolledBackUris += uriStr
                                 }
                             } else {
                                 treeSupport.rollbackPendingMove(
@@ -541,35 +579,42 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                                     },
                                     session = session
                                 )
-                                rolledBackCount++
+                                rolledBackUris += uriStr
                             }
                         } else if (deviceSource.verifyDeleted(uri)) {
                             confirmedMovedUris += uriStr
                         } else {
-                            rolledBackCount++
+                            rolledBackUris += uriStr
                         }
                     }
                 }
                 refreshEntries(session)
             } else {
-                rolledBackCount = urisToCheck.size
+                urisToCheck.forEach { rolledBackUris += it.toString() }
             }
             if (confirmedMovedUris.isNotEmpty()) {
                 libraryViewModel.reconcileMovedMediaUris(confirmedMovedUris)
                 browserRefreshKey++
             }
-            message = when {
-                confirmedMovedUris.isNotEmpty() && rolledBackCount == 0 ->
-                    context.getString(R.string.vault_browser_move_result_success, confirmedMovedUris.size)
-                confirmedMovedUris.isEmpty() ->
-                    context.getString(R.string.vault_browser_move_result_rolled_back, rolledBackCount.coerceAtLeast(1))
+            val totalMoved = preMovedSnapshot + confirmedMovedUris
+            val totalFailed = rolledBackUris.size + preFailedSnapshot
+            val summaryText = when {
+                totalMoved.isNotEmpty() && totalFailed == 0 ->
+                    context.getString(R.string.vault_browser_move_result_success, totalMoved.size)
+                totalMoved.isEmpty() ->
+                    context.getString(R.string.vault_browser_move_result_rolled_back, totalFailed.coerceAtLeast(1))
                 else ->
                     context.getString(
                         R.string.vault_move_partial_consent_summary,
-                        confirmedMovedUris.size,
-                        rolledBackCount
+                        totalMoved.size,
+                        totalFailed
                     )
             }
+            message = summaryText
+            externalBrowserMovedKeys = totalMoved.toSet()
+            externalBrowserRolledBackKeys = rolledBackUris.toSet()
+            externalBrowserResultMessage = summaryText
+            externalBrowserSyncVersion++
         }
     }
 
@@ -580,14 +625,15 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                 val queue = android10DeleteQueue
                 if (queue.isEmpty()) {
                     val deleted = android10DeletedUris
-                    val kept = android10KeptCount
+                    val rolledBack = android10RolledBackUris
+                    val kept = android10KeptCount + pendingBatchPreFailedCount
                     if (session != null) refreshEntries(session)
                     if (deleted.isNotEmpty()) {
                         libraryViewModel.reconcileMovedMediaUris(deleted)
                         browserRefreshKey++
                     }
                     if (deleted.isNotEmpty() || kept > 0) {
-                        message = when {
+                        val summaryText = when {
                             deleted.isNotEmpty() && kept == 0 ->
                                 context.getString(R.string.vault_browser_move_result_success, deleted.size)
                             deleted.isEmpty() ->
@@ -599,9 +645,17 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                                     kept
                                 )
                         }
+                        message = summaryText
+                        externalBrowserMovedKeys = deleted.toSet()
+                        externalBrowserRolledBackKeys = rolledBack.toSet()
+                        externalBrowserResultMessage = summaryText
+                        externalBrowserSyncVersion++
                     }
                     android10DeletedUris = emptyList()
+                    android10RolledBackUris = emptyList()
                     android10KeptCount = 0
+                    pendingBatchPreMovedUris = emptyList()
+                    pendingBatchPreFailedCount = 0
                     pendingMediaDeleteEntriesMap = emptyMap()
                     pendingMediaDeleteNamesMap = emptyMap()
                     break
@@ -621,6 +675,7 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                         if (finalized) {
                             android10DeletedUris = android10DeletedUris + headStr
                         } else {
+                            android10RolledBackUris = android10RolledBackUris + headStr
                             android10KeptCount += 1
                         }
                     }
@@ -643,6 +698,7 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                                 )
                             }
                         }
+                        android10RolledBackUris = android10RolledBackUris + headStr
                         android10KeptCount += 1
                     }
                 }
@@ -652,12 +708,12 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
 
     fun openInternalBrowser() {
         touchActivity()
-        if (busy) return
+        if (busy || isAwaitingSystemConsent) return
         browserOpen = true
     }
 
     fun requestRestore(targetEntries: List<PrivateVaultEntry>) {
-        if (targetEntries.isEmpty() || busy) return
+        if (targetEntries.isEmpty() || busy || isAwaitingSystemConsent) return
         touchActivity()
         if (!deviceSource.hasLegacyWriteStoragePermission() && Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             pendingOriginalRestoreAfterPermission = targetEntries
@@ -719,6 +775,8 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
             if (pendingUris.isNotEmpty()) {
                 pendingMediaDeleteEntriesMap = result.pendingSystemDeleteEntries
                 pendingMediaDeleteNamesMap = result.itemOutcomes.associate { it.sourceKey to it.displayName }
+                pendingBatchPreMovedUris = result.deletedSourceMediaIds
+                pendingBatchPreFailedCount = result.failedCount
                 val batchSender = deviceSource.createBatchDeleteIntentSender(pendingUris)
                 if (batchSender != null) {
                     pendingMediaDeleteUris = pendingUris
@@ -728,6 +786,7 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                 } else {
                     // Android 10 (API 29) sequential RecoverableSecurityException consent queue
                     android10DeletedUris = result.deletedSourceMediaIds
+                    android10RolledBackUris = emptyList()
                     android10KeptCount = 0
                     android10DeleteQueue = pendingUris
                     message = context.getString(R.string.vault_browser_media_delete_pending, pendingUris.size)
@@ -1485,6 +1544,11 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
             importTotal = importTotal,
             progressDetail = progressDetail,
             externalRefreshKey = browserRefreshKey,
+            externalSyncVersion = externalBrowserSyncVersion,
+            externalMovedKeys = externalBrowserMovedKeys,
+            externalRolledBackKeys = externalBrowserRolledBackKeys,
+            externalResultMessage = externalBrowserResultMessage,
+            awaitingSystemConsent = isAwaitingSystemConsent,
             onTouchActivity = ::touchActivity,
             onSuppressNextBackgroundLock = { suppressNextBackgroundLock = it },
             onMoveDeviceSelection = ::moveDeviceItems,

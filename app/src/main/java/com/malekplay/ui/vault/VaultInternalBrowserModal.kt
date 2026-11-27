@@ -119,6 +119,11 @@ internal fun VaultInternalBrowserModal(
     importTotal: Int = 0,
     progressDetail: String? = null,
     externalRefreshKey: Int = 0,
+    externalSyncVersion: Int = 0,
+    externalMovedKeys: Set<String> = emptySet(),
+    externalRolledBackKeys: Set<String> = emptySet(),
+    externalResultMessage: String? = null,
+    awaitingSystemConsent: Boolean = false,
     onTouchActivity: () -> Unit,
     onSuppressNextBackgroundLock: (Boolean) -> Unit,
     onMoveDeviceSelection: suspend (List<VaultDeviceItem>) -> VaultImportBatchResult,
@@ -151,6 +156,18 @@ internal fun VaultInternalBrowserModal(
     LaunchedEffect(externalRefreshKey) {
         if (externalRefreshKey > 0) {
             libraryViewModel.refresh()
+        }
+    }
+
+    LaunchedEffect(externalSyncVersion) {
+        if (externalSyncVersion > 0) {
+            syncState(
+                stateHolder.reconcileExternalMoveResult(
+                    movedKeys = externalMovedKeys,
+                    rolledBackKeys = externalRolledBackKeys,
+                    resultMessage = externalResultMessage
+                )
+            )
         }
     }
 
@@ -250,7 +267,7 @@ internal fun VaultInternalBrowserModal(
         stateHolder.areAllSelectableFilesSelected(currentSelectableFiles)
     }
 
-    val saveBusy = busy || snapshot.isSaving
+    val saveBusy = busy || snapshot.isSaving || awaitingSystemConsent
 
     fun performMove() {
         onTouchActivity()
@@ -259,22 +276,23 @@ internal fun VaultInternalBrowserModal(
         scope.launch {
             try {
                 val result = onMoveDeviceSelection(batch)
-                val failedOrRolledBack = result.failedCount + result.itemOutcomes.count {
+                val outcomeFailures = result.itemOutcomes.count {
                     it.status == com.malekplay.vault.VaultMoveItemStatus.USER_CANCELLED ||
                         it.status == com.malekplay.vault.VaultMoveItemStatus.SOURCE_DELETE_FAILED ||
                         it.status == com.malekplay.vault.VaultMoveItemStatus.SOURCE_VERIFICATION_FAILED ||
                         it.status == com.malekplay.vault.VaultMoveItemStatus.ENCRYPTION_FAILED
-                }.coerceAtLeast(result.failedCount)
+                }
+                val failedOrRolledBack = maxOf(result.failedCount, outcomeFailures)
                 val messageText = when {
                     result.pendingSystemDeleteUris.isNotEmpty() ->
                         context.getString(R.string.vault_browser_media_delete_pending, result.pendingSystemDeleteUris.size)
-                    result.movedCount > 0 && result.failedCount == 0 ->
+                    result.movedCount > 0 && failedOrRolledBack == 0 ->
                         context.getString(R.string.vault_browser_move_result_success, result.movedCount)
                     result.movedCount > 0 ->
                         context.getString(
                             R.string.vault_browser_move_result_partial_v2,
                             result.movedCount,
-                            failedOrRolledBack.coerceAtLeast(result.failedCount)
+                            failedOrRolledBack
                         )
                     else ->
                         context.getString(

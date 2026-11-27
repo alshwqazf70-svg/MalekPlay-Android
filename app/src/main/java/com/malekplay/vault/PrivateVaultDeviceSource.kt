@@ -21,9 +21,12 @@ import android.provider.MediaStore
 import android.util.Size
 import androidx.core.content.ContextCompat
 import java.io.File
+import java.io.FileNotFoundException
 import java.io.IOException
 import java.security.MessageDigest
 import java.util.Locale
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
 
 internal sealed interface MediaStoreDeleteOutcome {
@@ -204,11 +207,21 @@ internal class PrivateVaultDeviceSource(context: Context) {
         return verifyDeleted(uri)
     }
 
-    fun mediaStoreUriExists(uri: Uri): Boolean = runCatching {
+    fun mediaStoreUriExists(uri: Uri): Boolean = try {
         resolver.query(uri, arrayOf(MediaStore.MediaColumns._ID), null, null, null)?.use { cursor ->
             cursor.moveToFirst()
         } ?: false
-    }.getOrDefault(true)
+    } catch (_: FileNotFoundException) {
+        false
+    } catch (_: IllegalArgumentException) {
+        false
+    } catch (ce: CancellationException) {
+        throw ce
+    } catch (_: SecurityException) {
+        true
+    } catch (_: Exception) {
+        true
+    }
 
     fun verifyDeleted(uri: Uri, legacyFile: File? = null): Boolean {
         if (mediaStoreUriExists(uri)) return false
@@ -299,6 +312,7 @@ internal class PrivateVaultDeviceSource(context: Context) {
      * user for a destination folder, recreating missing directories when permitted and verifying
      * bytes & presence before succeeding.
      */
+    @Suppress("DEPRECATION")
     fun restoreEntryToMediaStoreOrigin(
         entry: PrivateVaultEntry,
         session: PrivateVaultSession,
@@ -307,7 +321,13 @@ internal class PrivateVaultDeviceSource(context: Context) {
     ): Uri {
         val rawFolderPath = resolveEffectiveOriginFolderPath(entry)
             ?: throw IOException("Original MediaStore folder path is unavailable for automatic restore.")
-        val normalizedFolder = normalizeRelativeFolderPath(rawFolderPath)
+        val extRootAbs = runCatching { Environment.getExternalStorageDirectory().absolutePath.trimEnd('/') }.getOrNull()
+        val strippedFolder = if (extRootAbs != null && rawFolderPath.startsWith("$extRootAbs/")) {
+            rawFolderPath.removePrefix("$extRootAbs/")
+        } else {
+            rawFolderPath
+        }
+        val normalizedFolder = normalizeRelativeFolderPath(strippedFolder)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val collection = when {
@@ -315,7 +335,7 @@ internal class PrivateVaultDeviceSource(context: Context) {
                 entry.mimeType.startsWith("audio/") -> MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
                 else -> throw IOException("Unsupported media type for MediaStore restore: ${entry.mimeType}")
             }
-            val relPathWithSlash = "${normalizedFolder.trimEnd('/')}/"
+            val relPathWithSlash = "${normalizedFolder.trim('/')}/"
             val existingNames = listExistingMediaStoreNames(collection, relPathWithSlash)
             val uniqueName = resolveUniqueChildName(
                 desiredName = entry.displayName,
@@ -464,12 +484,25 @@ internal class PrivateVaultDeviceSource(context: Context) {
                 "Restored destination file verification failed."
             }
             verified = true
-            MediaScannerConnection.scanFile(
-                appContext,
-                arrayOf(targetFile.absolutePath),
-                arrayOf(entry.mimeType),
-                null
-            )
+            val isRobolectric = Build.FINGERPRINT.equals("robolectric", ignoreCase = true)
+            if (isRobolectric) {
+                MediaScannerConnection.scanFile(
+                    appContext,
+                    arrayOf(targetFile.absolutePath),
+                    arrayOf(entry.mimeType),
+                    null
+                )
+            } else {
+                val scanLatch = CountDownLatch(1)
+                MediaScannerConnection.scanFile(
+                    appContext,
+                    arrayOf(targetFile.absolutePath),
+                    arrayOf(entry.mimeType)
+                ) { _, _ ->
+                    scanLatch.countDown()
+                }
+                runCatching { scanLatch.await(1_200L, TimeUnit.MILLISECONDS) }
+            }
             return destUri
         } finally {
             vault.releasePrivateWorkFile(tempPlain)
