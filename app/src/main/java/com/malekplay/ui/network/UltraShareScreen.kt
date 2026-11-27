@@ -894,7 +894,7 @@ class LegacyUltraShareViewModel @Inject constructor(
                     _state.value = _state.value.copy(
                         hotspotStarting = false,
                         error = failure.localizedMessage
-                            ?: UltraSharePlatformCompatibility.securityExceptionMessage(context, "لتشغيل نقطة الاتصال المحلية البديلة")
+                            ?: com.malekplay.network.UltraSharePlatformCompatibility.securityExceptionMessage(context, "لتشغيل نقطة الاتصال المحلية البديلة")
                     )
                     publishStableReceiverQrIfReady()
                 }
