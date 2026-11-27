@@ -231,7 +231,7 @@ class PrivateVaultDeviceBrowserTest {
 
         // Partial move outcome: movieA succeeded; songB failed
         val afterMove = holder.finishSave(
-            succeededKeys = setOf(movieA.selectionKey),
+            encryptedKeys = setOf(movieA.selectionKey),
             resultMessage = "Moved 1, failed 1"
         )
         assertFalse(afterMove.isSaving)
@@ -464,18 +464,21 @@ class PrivateVaultDeviceBrowserTest {
                     )
                 )
             )
-            val playlistId = db.playlistDao().createPlaylist(PlaylistEntity(name = "WatchLater", createdAtMs = 1L))
-            db.playlistDao().insertPlaylistItems(
+            val playlistId = "pl-watch-later"
+            db.playlistDao().upsertPlaylist(
+                PlaylistEntity(playlistId = playlistId, name = "WatchLater", createdAtMs = 1L)
+            )
+            db.playlistDao().upsertItems(
                 listOf(
                     PlaylistItemEntity(playlistId = playlistId, mediaId = movedId, position = 0, addedAtMs = 1L),
                     PlaylistItemEntity(playlistId = playlistId, mediaId = keptId, position = 1, addedAtMs = 2L)
                 )
             )
-            db.userDataDao().upsertProgress(
-                PlaybackProgressEntity(mediaId = movedId, positionMs = 30_000L, durationMs = 90_000L, updatedAtMs = 10L)
+            db.mediaDao().upsertProgress(
+                PlaybackProgressEntity(mediaId = movedId, positionMs = 30_000L, durationMs = 90_000L, lastPlayedAtMs = 10L)
             )
-            db.userDataDao().insertHistory(HistoryEntity(mediaId = movedId, playedAtMs = 10L))
-            db.userDataDao().insertFavourite(FavouriteEntity(mediaId = movedId, addedAtMs = 10L))
+            db.userDataDao().insertHistory(HistoryEntity(mediaId = movedId, lastPlayedAtMs = 10L))
+            db.userDataDao().addFavourite(FavouriteEntity(mediaId = movedId, addedAtMs = 10L))
 
             // Simulate Vault move deletion across all tables
             db.mediaDao().deletePlaylistItemsByMediaIds(listOf(movedId))
@@ -484,18 +487,24 @@ class PrivateVaultDeviceBrowserTest {
             db.mediaDao().deleteMediaByIds(listOf(movedId))
 
             val videos = db.mediaDao().observeVideos().first()
-            assertEquals(listOf(keptId), videos.map { it.mediaId })
+            assertEquals(listOf(keptId), videos.map { it.media.mediaId })
 
             val folders = db.mediaDao().observeFolders().first()
-            assertEquals(listOf("/Movies/Public"), folders.map { it.folderPath })
+            assertEquals(listOf("/Movies/Public"), folders.map { it.path })
 
-            val searchResults = db.mediaDao().searchMedia("SecretClip").first()
+            val searchResults = db.mediaDao().observeSearch("SecretClip").first()
             assertTrue(searchResults.isEmpty())
+
+            val continueWatching = db.mediaDao().observeContinueWatching().first()
+            assertTrue(continueWatching.none { it.media.mediaId == movedId })
+
+            val recentlyPlayed = db.mediaDao().observeRecentlyPlayed().first()
+            assertTrue(recentlyPlayed.none { it.media.mediaId == movedId })
 
             val playlistWithItems = db.playlistDao().observePlaylists().first().single()
             assertEquals(listOf(keptId), playlistWithItems.items.map { it.mediaId })
 
-            val history = db.userDataDao().observeHistory().first()
+            val history = db.userDataDao().historySnapshot()
             assertTrue(history.none { it.mediaId == movedId })
 
             val favIds = db.userDataDao().observeFavouriteIds().first()
